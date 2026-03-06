@@ -1,0 +1,5 @@
+resource: items
+version: 1
+schema:
+  name: { type: string, required: true }
+  value: { type: string }

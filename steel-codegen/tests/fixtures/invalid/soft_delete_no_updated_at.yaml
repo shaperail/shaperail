@@ -1,0 +1,11 @@
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  delete:
+    method: DELETE
+    path: /items/:id
+    auth: [admin]
+    soft_delete: true

@@ -1,0 +1,6 @@
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+relations:
+  org: { resource: organizations, type: belongs_to }

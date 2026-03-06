@@ -1,0 +1,5 @@
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  org_id: { type: string, ref: organizations.id, required: true }

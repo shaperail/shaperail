@@ -1,0 +1,20 @@
+# Build artifacts
+/target/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Docker volumes
+postgres_data/

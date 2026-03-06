@@ -1,0 +1,75 @@
+[workspace]
+members = ["steel-core", "steel-codegen", "steel-runtime", "steel-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-org/steel-api"
+keywords = ["web", "api", "framework", "code-generation"]
+categories = ["web-programming::http-server", "development-tools"]
+
+[workspace.dependencies]
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# HTTP — PRD spec: Actix-web 4
+actix-web = "4"
+actix-ws = "0.3"
+
+# Serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Database — PRD spec: sqlx compile-time verified
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "mysql", "sqlite", "uuid", "chrono", "json", "migrate"] }
+
+# Cache — PRD spec: deadpool-redis
+deadpool-redis = "0.16"
+redis = { version = "0.26", features = ["tokio-comp"] }
+
+# Storage — PRD spec: object_store
+object_store = { version = "0.10", features = ["aws", "gcp", "azure"] }
+
+# Email — PRD spec: lettre
+lettre = { version = "0.11", features = ["tokio1", "smtp-transport", "builder"] }
+
+# Scheduling — PRD spec: tokio-cron-scheduler
+tokio-cron-scheduler = "0.10"
+
+# Observability — PRD spec: tracing + opentelemetry
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.24"
+opentelemetry = "0.23"
+opentelemetry-otlp = "0.16"
+prometheus = "0.13"
+
+# Auth
+jsonwebtoken = "9"
+bcrypt = "0.15"
+
+# Types
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Errors
+thiserror = "1"
+anyhow = "1"
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Code generation
+tera = "1"
+indexmap = "2"
+
+# Testing
+insta = { version = "1", features = ["yaml", "json"] }
+assert_cmd = "2"
+predicates = "3"

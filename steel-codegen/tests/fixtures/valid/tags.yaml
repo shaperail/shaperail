@@ -1,0 +1,15 @@
+resource: tags
+version: 1
+
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, min: 1, max: 100, required: true, unique: true }
+  color: { type: string, max: 7 }
+  created_at: { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    method: GET
+    path: /tags
+    auth: public
+    pagination: offset

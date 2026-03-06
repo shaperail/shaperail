@@ -1,0 +1,7 @@
+resource: settings
+version: 1
+
+schema:
+  id:    { type: uuid, primary: true, generated: true }
+  key:   { type: string, required: true, unique: true }
+  value: { type: json, required: true }

@@ -1,0 +1,16 @@
+[package]
+name = "steel-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "steel"
+path = "src/main.rs"
+
+[dependencies]
+steel-codegen = { path = "../steel-codegen" }
+clap = { workspace = true }

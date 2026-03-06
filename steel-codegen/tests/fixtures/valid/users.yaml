@@ -1,0 +1,55 @@
+resource: users
+version: 1
+
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  email:      { type: string, format: email, unique: true, required: true, sensitive: true }
+  name:       { type: string, min: 1, max: 200, required: true }
+  role:       { type: enum, values: [admin, member, viewer], default: member }
+  org_id:     { type: uuid, ref: organizations.id, required: true }
+  avatar_url: { type: string, format: url, nullable: true }
+  metadata:   { type: json, nullable: true }
+  created_at: { type: timestamp, generated: true }
+  updated_at: { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    method: GET
+    path: /users
+    auth: [member, admin]
+    filters: [role, org_id, created_at]
+    search: [name, email]
+    pagination: cursor
+    sort: [created_at, name]
+    cache: { ttl: 60, invalidate_on: [create, update, delete] }
+
+  create:
+    method: POST
+    path: /users
+    auth: [admin]
+    input: [email, name, role, org_id]
+    hooks: [validate_org]
+    events: [user.created]
+    jobs: [send_welcome_email]
+
+  update:
+    method: PATCH
+    path: /users/:id
+    auth: [admin, owner]
+    input: [name, role, avatar_url, metadata]
+    events: [user.updated]
+
+  delete:
+    method: DELETE
+    path: /users/:id
+    auth: [admin]
+    soft_delete: true
+
+relations:
+  organization: { resource: organizations, type: belongs_to, key: org_id }
+  orders:       { resource: orders, type: has_many, foreign_key: user_id }
+
+indexes:
+  - { fields: [email], unique: true }
+  - { fields: [org_id, role] }
+  - { fields: [created_at], order: desc }

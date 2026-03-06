@@ -1,0 +1,11 @@
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    method: POST
+    path: /items
+    auth: [admin]
+    input: [name, ghost_field]

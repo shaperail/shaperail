@@ -1,0 +1,6 @@
+---
+source: steel-codegen/tests/snapshot_tests.rs
+assertion_line: 71
+expression: err.to_string()
+---
+missing field `schema`

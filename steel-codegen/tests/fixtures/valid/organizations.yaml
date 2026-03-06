@@ -1,0 +1,23 @@
+resource: organizations
+version: 1
+
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  name:       { type: string, min: 1, max: 200, required: true }
+  slug:       { type: string, min: 1, max: 100, unique: true, required: true }
+  plan:       { type: enum, values: [free, pro, enterprise], default: free }
+  created_at: { type: timestamp, generated: true }
+  updated_at: { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    method: GET
+    path: /organizations
+    auth: [admin]
+    pagination: cursor
+
+  create:
+    method: POST
+    path: /organizations
+    auth: [admin]
+    input: [name, slug, plan]
