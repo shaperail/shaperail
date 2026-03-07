@@ -6,6 +6,7 @@
 //! consume: resource definitions, field types, endpoint specs, error handling,
 //! and project configuration.
 
+mod channel;
 mod config;
 mod endpoint;
 mod error;
@@ -14,6 +15,7 @@ mod relation;
 mod resource;
 mod schema;
 
+pub use channel::{ChannelDefinition, ChannelHooks, WsClientMessage, WsServerMessage};
 pub use config::{
     AuthConfig, CacheConfig, DatabaseConfig, LoggingConfig, ProjectConfig, StorageConfig,
     WorkerCount,

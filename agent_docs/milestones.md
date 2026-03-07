@@ -156,17 +156,17 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M08 — WebSockets
-**Crate:** `steel-runtime` | **Status:** [ ]
+**Crate:** `steel-runtime` | **Status:** [x]
 
 **Deliverables:**
-- [ ] Channel YAML format: `channels/<name>.channel.yaml` (see PRD format)
-- [ ] Actix-web WS endpoint: `/ws/<channel>` with JWT auth on upgrade
-- [ ] Room subscription: client sends `{ "action": "subscribe", "room": "org:123" }`
-- [ ] Broadcast: `ctx.events` triggers push to subscribed room
-- [ ] Redis pub/sub backend: all instances receive broadcasts via Redis
-- [ ] Lifecycle hooks: on_connect, on_disconnect, on_message
-- [ ] Heartbeat: server ping every 30s, disconnect unresponsive clients
-- [ ] Tests: connect, subscribe, broadcast received, disconnect cleanup, cross-instance via Redis
+- [x] Channel YAML format: `channels/<name>.channel.yaml` (see PRD format)
+- [x] Actix-web WS endpoint: `/ws/<channel>` with JWT auth on upgrade
+- [x] Room subscription: client sends `{ "action": "subscribe", "room": "org:123" }`
+- [x] Broadcast: `ctx.events` triggers push to subscribed room
+- [x] Redis pub/sub backend: all instances receive broadcasts via Redis
+- [x] Lifecycle hooks: on_connect, on_disconnect, on_message
+- [x] Heartbeat: server ping every 30s, disconnect unresponsive clients
+- [x] Tests: connect, subscribe, broadcast received, disconnect cleanup, cross-instance via Redis
 
 **Acceptance Criteria:**
 - Two server instances broadcast to each other's clients via Redis

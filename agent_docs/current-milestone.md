@@ -1,12 +1,12 @@
 # Current Milestone
 
-**Completed:** M07 — Background Jobs
+**Completed:** M08 — WebSockets
 **Crate:** steel-runtime
 **Version:** v2
 **Status:** [x] Complete
 
-**Next:** M08 — WebSockets
+**Next:** M09 — File Storage
 **Crate:** steel-runtime
 
-To work on next milestone: `/milestone 8`
+To work on next milestone: `/milestone 9`
 To jump to any milestone: `/milestone <number>`

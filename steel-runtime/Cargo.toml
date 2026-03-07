@@ -10,6 +10,7 @@ categories.workspace = true
 [dependencies]
 steel-core = { path = "../steel-core" }
 actix-web = { workspace = true }
+actix-ws = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -24,6 +25,8 @@ deadpool-redis = { workspace = true }
 redis = { workspace = true }
 sha2 = "0.10"
 hmac = "0.12"
+futures-util = "0.3"
+bytestring = "1"
 
 [dev-dependencies]
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate"] }
