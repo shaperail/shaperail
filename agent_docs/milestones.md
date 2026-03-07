@@ -175,19 +175,19 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M09 — File Storage
-**Crate:** `steel-runtime` | **Status:** [ ]
+**Crate:** `steel-runtime` | **Status:** [x]
 
 **Deliverables:**
-- [ ] `StorageBackend` trait: upload, download, delete, signed_url
-- [ ] Local filesystem backend (dev default)
-- [ ] S3 backend via object_store crate
-- [ ] GCS backend via object_store crate
-- [ ] Azure Blob backend via object_store crate
-- [ ] Upload handler: `file` type fields → multipart endpoint, validates size + mime type
-- [ ] Image processing: resize + thumbnail via `image` crate
-- [ ] Signed URL generation: time-limited pre-signed download URLs
-- [ ] Orphan cleanup: resource delete → enqueue storage cleanup job
-- [ ] Tests: upload local, retrieve, delete, signed URL, invalid mime type rejected
+- [x] `StorageBackend` trait: upload, download, delete, signed_url
+- [x] Local filesystem backend (dev default)
+- [x] S3 backend via object_store crate
+- [x] GCS backend via object_store crate
+- [x] Azure Blob backend via object_store crate
+- [x] Upload handler: `file` type fields → multipart endpoint, validates size + mime type
+- [x] Image processing: resize + thumbnail via `image` crate
+- [x] Signed URL generation: time-limited pre-signed download URLs
+- [x] Orphan cleanup: resource delete → enqueue storage cleanup job
+- [x] Tests: upload local, retrieve, delete, signed URL, invalid mime type rejected
 
 **Acceptance Criteria:**
 - Backend selected via `STEEL_STORAGE_BACKEND=s3|gcs|azure|local` env var
@@ -196,18 +196,18 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M10 — Events + Webhooks
-**Crate:** `steel-runtime` | **Status:** [ ]
+**Crate:** `steel-runtime` | **Status:** [x]
 
 **Deliverables:**
-- [ ] `EventEmitter`: emit(name, payload) — non-blocking, via job queue
-- [ ] Auto-emit: every create/update/delete emits `<resource>.<action>` automatically
-- [ ] Event subscribers in steel.config.yaml: job / webhook / channel / hook targets
-- [ ] Event log table: append-only, stores all emitted events for audit + replay
-- [ ] Outbound webhooks: POST to URL on event, HMAC-SHA256 signature header
-- [ ] Webhook retry: 3 attempts exponential backoff via job queue
-- [ ] Webhook delivery log: status, response_code, latency
-- [ ] Inbound webhooks: endpoint with signature verification (Stripe/GitHub patterns)
-- [ ] Tests: event emitted on create, webhook delivered, retry on 5xx, sig verification
+- [x] `EventEmitter`: emit(name, payload) — non-blocking, via job queue
+- [x] Auto-emit: every create/update/delete emits `<resource>.<action>` automatically
+- [x] Event subscribers in steel.config.yaml: job / webhook / channel / hook targets
+- [x] Event log table: append-only, stores all emitted events for audit + replay
+- [x] Outbound webhooks: POST to URL on event, HMAC-SHA256 signature header
+- [x] Webhook retry: 3 attempts exponential backoff via job queue
+- [x] Webhook delivery log: status, response_code, latency
+- [x] Inbound webhooks: endpoint with signature verification (Stripe/GitHub patterns)
+- [x] Tests: event emitted on create, webhook delivered, retry on 5xx, sig verification
 
 **Acceptance Criteria:**
 - Events never block HTTP response — always async via job queue

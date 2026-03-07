@@ -45,6 +45,10 @@ pub struct ProjectConfig {
     /// Logging and observability configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logging: Option<LoggingConfig>,
+
+    /// Events and webhooks configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub events: Option<EventsConfig>,
 }
 
 fn default_port() -> u16 {
@@ -191,6 +195,114 @@ fn default_log_format() -> String {
     "json".to_string()
 }
 
+/// Events and webhooks configuration.
+///
+/// ```yaml
+/// events:
+///   subscribers:
+///     - event: "user.created"
+///       targets:
+///         - type: webhook
+///           url: "https://example.com/hooks/user-created"
+///         - type: job
+///           name: send_welcome_email
+///         - type: channel
+///           name: notifications
+///           room: "org:{org_id}"
+///   webhooks:
+///     secret_env: WEBHOOK_SECRET
+///     timeout_secs: 30
+///     max_retries: 3
+///   inbound:
+///     - path: /webhooks/stripe
+///       secret_env: STRIPE_WEBHOOK_SECRET
+///       events: ["payment.completed", "subscription.updated"]
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventsConfig {
+    /// Event subscriber definitions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subscribers: Vec<EventSubscriber>,
+
+    /// Outbound webhook global settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhooks: Option<WebhookConfig>,
+
+    /// Inbound webhook endpoint definitions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inbound: Vec<InboundWebhookConfig>,
+}
+
+/// An event subscriber routes events to targets.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventSubscriber {
+    /// Event name pattern (e.g., "user.created", "*.deleted").
+    pub event: String,
+
+    /// Targets to dispatch the event to.
+    pub targets: Vec<EventTarget>,
+}
+
+/// A target for event dispatch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum EventTarget {
+    /// Enqueue a background job.
+    Job { name: String },
+    /// POST to an external webhook URL.
+    Webhook { url: String },
+    /// Broadcast to a WebSocket channel/room.
+    Channel {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        room: Option<String>,
+    },
+    /// Execute a hook function.
+    Hook { name: String },
+}
+
+/// Global outbound webhook settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookConfig {
+    /// Environment variable holding the HMAC signing secret.
+    #[serde(default = "default_webhook_secret_env")]
+    pub secret_env: String,
+
+    /// HTTP timeout for webhook delivery in seconds.
+    #[serde(default = "default_webhook_timeout")]
+    pub timeout_secs: u64,
+
+    /// Maximum retry attempts for failed deliveries.
+    #[serde(default = "default_webhook_max_retries")]
+    pub max_retries: u32,
+}
+
+fn default_webhook_secret_env() -> String {
+    "WEBHOOK_SECRET".to_string()
+}
+
+fn default_webhook_timeout() -> u64 {
+    30
+}
+
+fn default_webhook_max_retries() -> u32 {
+    3
+}
+
+/// Inbound webhook endpoint configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboundWebhookConfig {
+    /// URL path for the inbound webhook (e.g., "/webhooks/stripe").
+    pub path: String,
+
+    /// Environment variable holding the verification secret.
+    pub secret_env: String,
+
+    /// Event names this endpoint accepts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,9 +421,85 @@ mod tests {
             auth: None,
             storage: None,
             logging: None,
+            events: None,
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: ProjectConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(cfg, back);
+    }
+
+    #[test]
+    fn events_config_serde() {
+        let json = r#"{
+            "subscribers": [
+                {
+                    "event": "users.created",
+                    "targets": [
+                        {"type": "job", "name": "send_welcome_email"},
+                        {"type": "webhook", "url": "https://example.com/hook"},
+                        {"type": "channel", "name": "notifications", "room": "org:123"},
+                        {"type": "hook", "name": "validate_org"}
+                    ]
+                },
+                {
+                    "event": "*.deleted",
+                    "targets": [
+                        {"type": "job", "name": "cleanup_job"}
+                    ]
+                }
+            ],
+            "webhooks": {
+                "secret_env": "MY_SECRET",
+                "timeout_secs": 15,
+                "max_retries": 5
+            },
+            "inbound": [
+                {
+                    "path": "/webhooks/stripe",
+                    "secret_env": "STRIPE_SECRET",
+                    "events": ["payment.completed"]
+                }
+            ]
+        }"#;
+        let cfg: EventsConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.subscribers.len(), 2);
+        assert_eq!(cfg.subscribers[0].event, "users.created");
+        assert_eq!(cfg.subscribers[0].targets.len(), 4);
+        assert!(
+            matches!(&cfg.subscribers[0].targets[0], EventTarget::Job { name } if name == "send_welcome_email")
+        );
+        assert!(
+            matches!(&cfg.subscribers[0].targets[1], EventTarget::Webhook { url } if url == "https://example.com/hook")
+        );
+        assert!(
+            matches!(&cfg.subscribers[0].targets[2], EventTarget::Channel { name, room } if name == "notifications" && room.as_deref() == Some("org:123"))
+        );
+        assert!(
+            matches!(&cfg.subscribers[0].targets[3], EventTarget::Hook { name } if name == "validate_org")
+        );
+        let webhooks = cfg.webhooks.unwrap();
+        assert_eq!(webhooks.secret_env, "MY_SECRET");
+        assert_eq!(webhooks.timeout_secs, 15);
+        assert_eq!(webhooks.max_retries, 5);
+        assert_eq!(cfg.inbound.len(), 1);
+        assert_eq!(cfg.inbound[0].path, "/webhooks/stripe");
+    }
+
+    #[test]
+    fn webhook_config_defaults() {
+        let json = r#"{}"#;
+        let cfg: WebhookConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.secret_env, "WEBHOOK_SECRET");
+        assert_eq!(cfg.timeout_secs, 30);
+        assert_eq!(cfg.max_retries, 3);
+    }
+
+    #[test]
+    fn events_config_empty() {
+        let json = r#"{"subscribers": [], "inbound": []}"#;
+        let cfg: EventsConfig = serde_json::from_str(json).unwrap();
+        assert!(cfg.subscribers.is_empty());
+        assert!(cfg.webhooks.is_none());
+        assert!(cfg.inbound.is_empty());
     }
 }

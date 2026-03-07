@@ -1,12 +1,12 @@
 # Current Milestone
 
-**Completed:** M08 — WebSockets
+**Completed:** M10 — Events + Webhooks
 **Crate:** steel-runtime
 **Version:** v2
 **Status:** [x] Complete
 
-**Next:** M09 — File Storage
-**Crate:** steel-runtime
+**Next:** M11 — CLI
+**Crate:** steel-cli
 
-To work on next milestone: `/milestone 9`
+To work on next milestone: `/milestone 11`
 To jump to any milestone: `/milestone <number>`

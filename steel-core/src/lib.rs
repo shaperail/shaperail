@@ -17,8 +17,8 @@ mod schema;
 
 pub use channel::{ChannelDefinition, ChannelHooks, WsClientMessage, WsServerMessage};
 pub use config::{
-    AuthConfig, CacheConfig, DatabaseConfig, LoggingConfig, ProjectConfig, StorageConfig,
-    WorkerCount,
+    AuthConfig, CacheConfig, DatabaseConfig, EventSubscriber, EventTarget, EventsConfig,
+    InboundWebhookConfig, LoggingConfig, ProjectConfig, StorageConfig, WebhookConfig, WorkerCount,
 };
 pub use endpoint::{AuthRule, CacheSpec, EndpointSpec, HttpMethod, PaginationStyle, UploadSpec};
 pub use error::{FieldError, SteelError};

@@ -8,6 +8,7 @@ use crate::auth::jwt::JwtConfig;
 use crate::auth::rbac;
 use crate::cache::RedisCache;
 use crate::db::ResourceQuery;
+use crate::events::EventEmitter;
 
 use super::params::{parse_item_params, parse_list_params, query_map_public};
 use super::relations::load_relations;
@@ -20,6 +21,7 @@ pub struct AppState {
     pub resources: Vec<ResourceDefinition>,
     pub jwt_config: Option<Arc<JwtConfig>>,
     pub cache: Option<RedisCache>,
+    pub event_emitter: Option<EventEmitter>,
 }
 
 /// Enforces auth rules for an endpoint, returning the authenticated user if present.
@@ -206,6 +208,31 @@ async fn execute_get(
     Ok(data)
 }
 
+/// Auto-emits an event for a resource action (non-blocking via job queue).
+///
+/// Emits `<resource>.<action>` (e.g., "users.created") automatically after
+/// every create/update/delete operation. Events never block the HTTP response.
+async fn auto_emit_event(
+    state: &AppState,
+    resource: &ResourceDefinition,
+    action: &str,
+    data: &serde_json::Value,
+) {
+    if let Some(ref emitter) = state.event_emitter {
+        let event_name = format!("{}.{}", resource.resource, action);
+        if let Err(e) = emitter
+            .emit(&event_name, &resource.resource, action, data.clone())
+            .await
+        {
+            tracing::warn!(
+                event = %event_name,
+                error = %e,
+                "Failed to emit event (non-blocking)"
+            );
+        }
+    }
+}
+
 /// Invalidates cache for a resource after a write operation.
 async fn invalidate_cache(state: &AppState, resource: &ResourceDefinition, action: &str) {
     if let Some(ref cache) = state.cache {
@@ -246,6 +273,7 @@ pub async fn handle_create(
     }
 
     invalidate_cache(&state, &resource, "create").await;
+    auto_emit_event(&state, &resource, "created", &data).await;
     Ok(response::created(data))
 }
 
@@ -281,6 +309,7 @@ pub async fn handle_update(
     }
 
     invalidate_cache(&state, &resource, "update").await;
+    auto_emit_event(&state, &resource, "updated", &data).await;
     Ok(response::single(data))
 }
 
@@ -304,15 +333,17 @@ pub async fn handle_delete(
         }
     }
 
-    let result = if endpoint.soft_delete {
+    let (result, deleted_data) = if endpoint.soft_delete {
         let row = rq.soft_delete_by_id(&id).await?;
-        response::single(row.0)
+        let data = row.0.clone();
+        (response::single(row.0), data)
     } else {
-        rq.hard_delete_by_id(&id).await?;
-        response::no_content()
+        let row = rq.hard_delete_by_id(&id).await?;
+        (response::no_content(), row.0)
     };
 
     invalidate_cache(&state, &resource, "delete").await;
+    auto_emit_event(&state, &resource, "deleted", &deleted_data).await;
     Ok(result)
 }
 
@@ -360,6 +391,9 @@ pub async fn handle_bulk_create(
     }
 
     invalidate_cache(&state, &resource, "create").await;
+    for item in &results {
+        auto_emit_event(&state, &resource, "created", item).await;
+    }
     Ok(response::bulk(results))
 }
 
@@ -409,6 +443,9 @@ pub async fn handle_bulk_delete(
     }
 
     invalidate_cache(&state, &resource, "delete").await;
+    for item in &results {
+        auto_emit_event(&state, &resource, "deleted", item).await;
+    }
     Ok(response::bulk(results))
 }
 
