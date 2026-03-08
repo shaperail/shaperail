@@ -244,19 +244,19 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M12 — Observability
-**Crate:** `steel-runtime` | **Status:** [ ]
+**Crate:** `steel-runtime` | **Status:** [x]
 
 **Deliverables:**
-- [ ] Structured JSON logging via tracing crate, request_id on every line
-- [ ] Request/response middleware: method, path, status, duration_ms, user_id logged
-- [ ] PII redaction: `sensitive: true` fields redacted in all log output
-- [ ] OpenTelemetry spans: HTTP request, DB query, cache op, job execution
-- [ ] OTLP export to configurable endpoint (Jaeger/Zipkin/Honeycomb)
-- [ ] Prometheus metrics at `GET /metrics`: req_count, latency_histogram, db_pool_size, cache_hit_ratio, job_queue_depth, error_rate
-- [ ] `GET /health` — shallow: returns 200 if process running
-- [ ] `GET /health/ready` — deep: checks DB connection + Redis + storage
-- [ ] Slow query log: queries exceeding `STEEL_SLOW_QUERY_MS` threshold
-- [ ] Tests: /metrics returns valid Prometheus format, /health/ready returns 503 when DB down
+- [x] Structured JSON logging via tracing crate, request_id on every line
+- [x] Request/response middleware: method, path, status, duration_ms, user_id logged
+- [x] PII redaction: `sensitive: true` fields redacted in all log output
+- [x] OpenTelemetry spans: HTTP request, DB query, cache op, job execution
+- [x] OTLP export to configurable endpoint (Jaeger/Zipkin/Honeycomb)
+- [x] Prometheus metrics at `GET /metrics`: req_count, latency_histogram, db_pool_size, cache_hit_ratio, job_queue_depth, error_rate
+- [x] `GET /health` — shallow: returns 200 if process running
+- [x] `GET /health/ready` — deep: checks DB connection + Redis + storage
+- [x] Slow query log: queries exceeding `STEEL_SLOW_QUERY_MS` threshold
+- [x] Tests: /metrics returns valid Prometheus format, /health/ready returns 503 when DB down
 
 **Acceptance Criteria:**
 - Every HTTP request produces exactly one structured log line
@@ -265,18 +265,18 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M13 — OpenAPI Generation
-**Crate:** `steel-codegen` | **Status:** [ ]
+**Crate:** `steel-codegen` | **Status:** [x]
 
 **Deliverables:**
-- [ ] `openapi` module: Vec<ResourceDefinition> → OpenAPI 3.1 spec (JSON + YAML)
-- [ ] All endpoints documented: path, method, request body, response schemas, auth
-- [ ] Pagination, filter, sort, search params documented per endpoint
-- [ ] Standard error responses: 401, 403, 404, 422, 429, 500
-- [ ] `x-steelapi-hooks` and `x-steelapi-events` vendor extensions
-- [ ] Deterministic output: same resource files → byte-identical spec every time
-- [ ] TypeScript SDK generation from spec via openapi-typescript
-- [ ] `steel export openapi` CLI command
-- [ ] Tests: spec passes OpenAPI 3.1 validation, deterministic (run twice, diff is empty)
+- [x] `openapi` module: Vec<ResourceDefinition> → OpenAPI 3.1 spec (JSON + YAML)
+- [x] All endpoints documented: path, method, request body, response schemas, auth
+- [x] Pagination, filter, sort, search params documented per endpoint
+- [x] Standard error responses: 401, 403, 404, 422, 429, 500
+- [x] `x-steelapi-hooks` and `x-steelapi-events` vendor extensions
+- [x] Deterministic output: same resource files → byte-identical spec every time
+- [x] TypeScript SDK generation from spec via openapi-typescript
+- [x] `steel export openapi` CLI command
+- [x] Tests: spec passes OpenAPI 3.1 validation, deterministic (run twice, diff is empty)
 
 **Acceptance Criteria:**
 - Generated spec passes OpenAPI 3.1 validation (PRD success metric: 100%)

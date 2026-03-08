@@ -31,6 +31,12 @@ bytestring = "1"
 object_store = { workspace = true }
 image = "0.25"
 http = "1"
+tracing-subscriber = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { version = "0.23", features = ["rt-tokio"] }
+prometheus = { workspace = true }
 
 [dev-dependencies]
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate"] }

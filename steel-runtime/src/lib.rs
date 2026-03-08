@@ -4,5 +4,6 @@ pub mod db;
 pub mod events;
 pub mod handlers;
 pub mod jobs;
+pub mod observability;
 pub mod storage;
 pub mod ws;

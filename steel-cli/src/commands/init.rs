@@ -81,14 +81,88 @@ edition = "2021"
 
 [dependencies]
 steel-runtime = {{ version = "0.2" }}
+steel-core = {{ version = "0.2" }}
+steel-codegen = {{ version = "0.2" }}
+actix-web = "4"
 tokio = {{ version = "1", features = ["full"] }}
+sqlx = {{ version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }}
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
+dotenvy = "0.15"
 "#
     );
     write_file(&root.join("Cargo.toml"), &cargo_toml)?;
 
     // src/main.rs
-    let main_rs = r#"fn main() {
-    println!("Starting SteelAPI server...");
+    let main_rs = r#"use std::sync::Arc;
+
+use actix_web::{web, App, HttpServer};
+use steel_runtime::auth::jwt::JwtConfig;
+use steel_runtime::handlers::{register_all_resources, AppState};
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    dotenvy::dotenv().ok();
+    tracing_subscriber::fmt().with_env_filter("info").init();
+
+    // Parse resource files
+    let resources_dir = std::path::Path::new("resources");
+    let mut resources = Vec::new();
+    for entry in std::fs::read_dir(resources_dir).expect("resources/ directory not found") {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().map_or(false, |e| e == "yaml" || e == "yml") {
+            let rd = steel_codegen::parser::parse_resource_file(&path)
+                .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", path.display()));
+            resources.push(rd);
+        }
+    }
+    tracing::info!("Loaded {} resource(s)", resources.len());
+
+    // Connect to database
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set (check .env file)");
+    let pool = sqlx::PgPool::connect(&database_url)
+        .await
+        .expect("Failed to connect to database");
+    tracing::info!("Connected to database");
+
+    // JWT auth (reads JWT_SECRET env var)
+    let jwt_config = JwtConfig::from_env().map(Arc::new);
+
+    let port: u16 = std::env::var("STEEL_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3000);
+
+    // Build app state
+    let state = Arc::new(AppState {
+        pool,
+        resources: resources.clone(),
+        jwt_config: jwt_config.clone(),
+        cache: None,
+        event_emitter: None,
+    });
+
+    tracing::info!("Starting SteelAPI server on port {port}");
+
+    let state_clone = state.clone();
+    let resources_clone = resources.clone();
+
+    HttpServer::new(move || {
+        let st = state_clone.clone();
+        let res = resources_clone.clone();
+        let mut app = App::new()
+            .app_data(web::Data::new(st.clone()));
+        if let Some(ref jwt) = jwt_config {
+            app = app.app_data(web::Data::new(jwt.clone()));
+        }
+        app.configure(|cfg| register_all_resources(cfg, &res, st))
+    })
+    .bind(("0.0.0.0", port))?
+    .run()
+    .await
 }
 "#;
     write_file(&root.join("src/main.rs"), main_rs)?;

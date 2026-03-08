@@ -65,13 +65,27 @@ impl<'a> ResourceQuery<'a> {
         Ok(serde_json::Value::Object(obj))
     }
 
+    /// Returns `true` if any endpoint on this resource has `soft_delete: true`.
+    fn has_soft_delete(&self) -> bool {
+        self.resource
+            .endpoints
+            .as_ref()
+            .map(|eps| eps.values().any(|ep| ep.soft_delete))
+            .unwrap_or(false)
+    }
+
     // -- Query methods --
 
     /// Find a single record by its primary key.
     pub async fn find_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, SteelError> {
         let pk = self.primary_key();
+        let soft_delete_clause = if self.has_soft_delete() {
+            " AND \"deleted_at\" IS NULL"
+        } else {
+            ""
+        };
         let sql = format!(
-            "SELECT {} FROM \"{}\" WHERE \"{}\" = $1",
+            "SELECT {} FROM \"{}\" WHERE \"{}\" = $1{soft_delete_clause}",
             self.select_columns(),
             self.table(),
             pk,
@@ -101,6 +115,12 @@ impl<'a> ResourceQuery<'a> {
         let mut has_where = false;
         let mut param_offset: usize = 1;
         let mut bind_values: Vec<BindValue> = Vec::new();
+
+        // Exclude soft-deleted rows
+        if self.has_soft_delete() {
+            sql.push_str(" WHERE \"deleted_at\" IS NULL");
+            has_where = true;
+        }
 
         // Apply filters
         if !filters.is_empty() {
@@ -181,6 +201,12 @@ impl<'a> ResourceQuery<'a> {
                 let mut count_has_where = false;
                 let mut count_offset: usize = 1;
                 let mut count_binds: Vec<BindValue> = Vec::new();
+
+                // Exclude soft-deleted rows
+                if self.has_soft_delete() {
+                    count_sql.push_str(" WHERE \"deleted_at\" IS NULL");
+                    count_has_where = true;
+                }
 
                 if !filters.is_empty() {
                     count_offset =
@@ -402,6 +428,10 @@ impl<'a> ResourceQuery<'a> {
         sql: &str,
         binds: &[BindValue],
     ) -> Result<Vec<ResourceRow>, SteelError> {
+        let span = crate::observability::telemetry::db_span("query", self.table(), sql);
+        let _enter = span.enter();
+        let start = std::time::Instant::now();
+
         // Dynamic queries use sqlx::query() with bind params (not string interpolation).
         // The query_as! macro requires compile-time SQL; generated code (M04+) will use it.
         let mut query = sqlx::query(sql);
@@ -421,6 +451,9 @@ impl<'a> ResourceQuery<'a> {
         }
 
         let pg_rows = query.fetch_all(self.pool).await?;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        log_slow_query(sql, duration_ms);
+
         let mut results = Vec::with_capacity(pg_rows.len());
         for row in &pg_rows {
             results.push(ResourceRow(self.row_to_json(row)?));
@@ -429,6 +462,10 @@ impl<'a> ResourceQuery<'a> {
     }
 
     async fn execute_count(&self, sql: &str, binds: &[BindValue]) -> Result<i64, SteelError> {
+        let span = crate::observability::telemetry::db_span("count", self.table(), sql);
+        let _enter = span.enter();
+        let start = std::time::Instant::now();
+
         let mut query = sqlx::query_scalar::<_, i64>(sql);
         for bind in binds {
             query = match bind {
@@ -445,6 +482,9 @@ impl<'a> ResourceQuery<'a> {
             };
         }
         let count = query.fetch_one(self.pool).await?;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        log_slow_query(sql, duration_ms);
+
         Ok(count)
     }
 }
@@ -561,6 +601,25 @@ fn extract_column_value(
             let v: Option<serde_json::Value> = row.try_get(name).map_err(map_err)?;
             Ok(v.unwrap_or(serde_json::Value::Null))
         }
+    }
+}
+
+/// Logs a warning if a query exceeds the slow query threshold.
+///
+/// The threshold is read from `STEEL_SLOW_QUERY_MS` env var (default: 100ms).
+fn log_slow_query(sql: &str, duration_ms: u64) {
+    let threshold: u64 = std::env::var("STEEL_SLOW_QUERY_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100);
+
+    if duration_ms >= threshold {
+        tracing::warn!(
+            duration_ms = duration_ms,
+            sql = %sql,
+            threshold_ms = threshold,
+            "Slow query detected"
+        );
     }
 }
 

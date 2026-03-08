@@ -59,6 +59,7 @@ impl RedisCache {
     ///
     /// Returns `None` on cache miss or Redis errors (fail-open).
     pub async fn get(&self, key: &str) -> Option<String> {
+        let _span = crate::observability::telemetry::cache_span("get", key).entered();
         let mut conn = self.pool.get().await.ok()?;
         let result: Option<String> = conn.get(key).await.ok()?;
         result
@@ -68,6 +69,7 @@ impl RedisCache {
     ///
     /// Silently ignores Redis errors (fail-open).
     pub async fn set(&self, key: &str, value: &str, ttl_secs: u64) {
+        let _span = crate::observability::telemetry::cache_span("set", key).entered();
         let Ok(mut conn) = self.pool.get().await else {
             return;
         };

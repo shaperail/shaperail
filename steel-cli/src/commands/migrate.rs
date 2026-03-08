@@ -145,6 +145,15 @@ fn generate_create_table_sql(resource: &steel_core::ResourceDefinition) -> Strin
         columns.push(col);
     }
 
+    // Add deleted_at column if any endpoint uses soft_delete
+    let has_soft_delete = resource
+        .endpoints
+        .as_ref()
+        .is_some_and(|eps| eps.values().any(|ep| ep.soft_delete));
+    if has_soft_delete {
+        columns.push("    deleted_at TIMESTAMPTZ".to_string());
+    }
+
     // Indexes
     if let Some(indexes) = &resource.indexes {
         for idx in indexes {

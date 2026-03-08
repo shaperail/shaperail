@@ -136,6 +136,11 @@ impl Worker {
         let job_name = envelope.name.clone();
         let attempt = envelope.attempt + 1;
         let timeout = Duration::from_secs(envelope.timeout_secs);
+        let _job_span_guard = tracing::info_span!(
+            "job.execute",
+            job.name = %job_name,
+            job.id = %job_id,
+        );
 
         tracing::info!(
             job_id = %job_id,

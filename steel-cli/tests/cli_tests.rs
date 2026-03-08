@@ -328,8 +328,8 @@ fn export_openapi_to_file() {
 #[test]
 fn export_sdk_typescript() {
     let tmp = TempDir::new().unwrap();
+    setup_project_dir(&tmp);
     let output = tmp.path().join("sdk");
-    let root = workspace_root();
 
     steel()
         .args([
@@ -340,13 +340,14 @@ fn export_sdk_typescript() {
             "--output",
             output.to_str().unwrap(),
         ])
-        .current_dir(&root)
+        .current_dir(tmp.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("TypeScript SDK generated"));
 
     assert!(output.join("users.ts").exists());
     assert!(output.join("index.ts").exists());
+    assert!(output.join("openapi.json").exists());
 }
 
 #[test]
