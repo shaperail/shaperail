@@ -46,7 +46,7 @@ sqlx = { workspace = true, default-features = false, features = ["runtime-tokio"
 tokio = { workspace = true }
 actix-web = { workspace = true }
 actix-rt = "2"
-criterion = { version = "0.5", features = ["async_tokio"] }
+criterion = { version = "0.8", features = ["async_tokio"] }
 tempfile = "3"
 
 [[bench]]
