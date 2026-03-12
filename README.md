@@ -217,6 +217,10 @@ The first complete example app files live in:
 
 - [examples/blog-api/README.md](./examples/blog-api/README.md)
 
+These docs should remain the canonical framework guide because they version with
+the code. The GitHub wiki can still be useful, but it should stay secondary for
+FAQs, release-independent notes, and community-maintained walkthroughs.
+
 `agent_docs/` remains maintainer documentation for building the framework
 itself.
 
