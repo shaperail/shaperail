@@ -5,6 +5,7 @@ resolver = "2"
 [workspace.package]
 version = "0.2.1"
 edition = "2021"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 description = "AI-native Rust backend framework — define your API in YAML, get a production-ready server"
 homepage = "https://shaperail.dev"
@@ -27,14 +28,14 @@ serde_json = "1"
 serde_yaml = "0.9"
 
 # Database — PRD spec: sqlx compile-time verified
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "mysql", "sqlite", "uuid", "chrono", "json", "migrate"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate"] }
 
 # Cache — PRD spec: deadpool-redis
 deadpool-redis = "0.16"
 redis = { version = "0.26", features = ["tokio-comp"] }
 
 # Storage — PRD spec: object_store
-object_store = { version = "0.10", features = ["aws", "gcp", "azure"] }
+object_store = { version = "0.13.1", features = ["aws", "gcp", "azure"] }
 
 # Email — PRD spec: lettre
 lettre = { version = "0.11", features = ["tokio1", "smtp-transport", "builder"] }
@@ -48,7 +49,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-opentelemetry = "0.24"
 opentelemetry = "0.23"
 opentelemetry-otlp = "0.16"
-prometheus = "0.13"
+prometheus = { version = "0.14", default-features = false }
 
 # Auth
 jsonwebtoken = "9"

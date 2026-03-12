@@ -61,4 +61,4 @@ fn user_fixture() -> CreateUserInput {
 1. The specific function/module you changed
 2. Any hook that touches the changed resource
 3. The endpoint that calls the changed function
-4. Run: `cargo test --workspace` and `cargo clippy -- -D warnings`
+4. Run: `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`

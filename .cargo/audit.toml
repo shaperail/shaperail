@@ -1,0 +1,7 @@
+[advisories]
+# `sqlx` 0.8.6 still lists the MySQL backend in Cargo.lock even when the
+# workspace only enables PostgreSQL. The vulnerable `rsa` chain is therefore
+# present in audit metadata but not in compiled artifacts or runtime code.
+ignore = ["RUSTSEC-2023-0071"]
+informational_warnings = ["unmaintained"]
+severity_threshold = "low"

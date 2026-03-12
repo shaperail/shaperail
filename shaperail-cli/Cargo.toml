@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 shaperail-codegen = { version = "0.2.1", path = "../shaperail-codegen" }
 shaperail-core = { version = "0.2.1", path = "../shaperail-core" }
+shaperail-runtime = { version = "0.2.1", path = "../shaperail-runtime" }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

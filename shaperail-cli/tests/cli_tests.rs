@@ -1,3 +1,4 @@
+use assert_cmd::cargo::cargo_bin_cmd;
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::path::PathBuf;
@@ -5,7 +6,7 @@ use std::process::Command as StdCommand;
 use tempfile::TempDir;
 
 fn shaperail() -> Command {
-    Command::cargo_bin("shaperail").unwrap()
+    cargo_bin_cmd!("shaperail")
 }
 
 /// Returns the workspace root directory (where resources/ lives).
@@ -175,10 +176,14 @@ fn init_creates_project_structure() {
     assert!(project_dir.join("seeds").is_dir());
     assert!(project_dir.join("tests").is_dir());
     assert!(project_dir.join("channels").is_dir());
+    assert!(project_dir.join("generated").is_dir());
     assert!(project_dir.join(".env").exists());
     assert!(project_dir.join(".gitignore").exists());
     assert!(project_dir.join("docker-compose.yml").exists());
     assert!(project_dir.join("resources/posts.yaml").exists());
+    assert!(project_dir
+        .join("migrations/0001_create_posts.sql")
+        .exists());
 
     // Verify config content
     let config = std::fs::read_to_string(project_dir.join("shaperail.config.yaml")).unwrap();
@@ -414,7 +419,7 @@ fn init_scaffold_compiles_with_local_workspace_deps() {
     let target_dir = root.join("target/scaffold-smoke");
 
     shaperail()
-        .args(["init", "compile-check"])
+        .args(["init", project_dir.to_str().unwrap()])
         .env("SHAPERAIL_DEV_WORKSPACE", root.to_str().unwrap())
         .current_dir(tmp.path())
         .assert()

@@ -32,7 +32,7 @@ hex = "0.4"
 futures-util = "0.3"
 bytestring = "1"
 object_store = { workspace = true }
-image = "0.25"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 http = "1"
 tracing-subscriber = { workspace = true }
 tracing-opentelemetry = { workspace = true }
@@ -42,8 +42,13 @@ opentelemetry_sdk = { version = "0.23", features = ["rt-tokio"] }
 prometheus = { workspace = true }
 
 [dev-dependencies]
-sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate"] }
+sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
 tokio = { workspace = true }
 actix-web = { workspace = true }
 actix-rt = "2"
+criterion = { version = "0.5", features = ["async_tokio"] }
 tempfile = "3"
+
+[[bench]]
+name = "health_response"
+harness = false

@@ -631,6 +631,11 @@ fn log_slow_query(sql: &str, duration_ms: u64) {
 pub fn build_create_table_sql(resource: &ResourceDefinition) -> String {
     let mut columns = Vec::new();
     let mut constraints = Vec::new();
+    let has_soft_delete = resource
+        .endpoints
+        .as_ref()
+        .map(|eps| eps.values().any(|ep| ep.soft_delete))
+        .unwrap_or(false);
 
     for (name, field) in &resource.schema {
         let mut col = format!(
@@ -642,7 +647,7 @@ pub fn build_create_table_sql(resource: &ResourceDefinition) -> String {
         if field.primary {
             col.push_str(" PRIMARY KEY");
         }
-        if field.required && !field.primary {
+        if field.required && !field.primary && !field.nullable {
             col.push_str(" NOT NULL");
         }
         if field.unique && !field.primary {
@@ -651,11 +656,14 @@ pub fn build_create_table_sql(resource: &ResourceDefinition) -> String {
         if let Some(default) = &field.default {
             col.push_str(&format!(" DEFAULT {}", sql_default_value(default, field)));
         }
-        if field.field_type == FieldType::Uuid && field.generated && field.primary {
+        if field.field_type == FieldType::Uuid && field.generated {
             col.push_str(" DEFAULT gen_random_uuid()");
         }
         if field.field_type == FieldType::Timestamp && field.generated {
             col.push_str(" DEFAULT NOW()");
+        }
+        if field.field_type == FieldType::Date && field.generated {
+            col.push_str(" DEFAULT CURRENT_DATE");
         }
 
         // Enum CHECK constraint
@@ -684,6 +692,10 @@ pub fn build_create_table_sql(resource: &ResourceDefinition) -> String {
         }
 
         columns.push(col);
+    }
+
+    if has_soft_delete && !resource.schema.contains_key("deleted_at") {
+        columns.push("\"deleted_at\" TIMESTAMPTZ".to_string());
     }
 
     let mut sql = format!(
@@ -982,6 +994,33 @@ mod tests {
         assert!(sql.contains(
             "CREATE INDEX IF NOT EXISTS \"idx_users_1\" ON \"users\" (\"created_at\" DESC)"
         ));
+    }
+
+    #[test]
+    fn create_table_sql_adds_deleted_at_for_soft_delete() {
+        let mut resource = test_resource();
+        resource.endpoints = Some(indexmap::IndexMap::from([(
+            "delete".to_string(),
+            shaperail_core::EndpointSpec {
+                method: shaperail_core::HttpMethod::Delete,
+                path: "/users/:id".to_string(),
+                auth: None,
+                input: None,
+                filters: None,
+                search: None,
+                pagination: None,
+                sort: None,
+                cache: None,
+                hooks: None,
+                events: None,
+                jobs: None,
+                upload: None,
+                soft_delete: true,
+            },
+        )]));
+
+        let sql = build_create_table_sql(&resource);
+        assert!(sql.contains("\"deleted_at\" TIMESTAMPTZ"));
     }
 
     #[test]

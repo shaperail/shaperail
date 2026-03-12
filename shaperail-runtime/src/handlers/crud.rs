@@ -9,6 +9,7 @@ use crate::auth::rbac;
 use crate::cache::RedisCache;
 use crate::db::ResourceQuery;
 use crate::events::EventEmitter;
+use crate::jobs::{JobPriority, JobQueue};
 
 use super::params::{parse_item_params, parse_list_params, query_map_public};
 use super::relations::load_relations;
@@ -22,6 +23,7 @@ pub struct AppState {
     pub jwt_config: Option<Arc<JwtConfig>>,
     pub cache: Option<RedisCache>,
     pub event_emitter: Option<EventEmitter>,
+    pub job_queue: Option<JobQueue>,
 }
 
 /// Enforces auth rules for an endpoint, returning the authenticated user if present.
@@ -233,6 +235,142 @@ async fn auto_emit_event(
     }
 }
 
+async fn emit_declared_events(
+    state: &AppState,
+    resource: &ResourceDefinition,
+    endpoint: &EndpointSpec,
+    action: &str,
+    data: &serde_json::Value,
+) {
+    let Some(events) = endpoint.events.as_ref() else {
+        return;
+    };
+
+    let Some(emitter) = state.event_emitter.as_ref() else {
+        tracing::warn!(
+            resource = %resource.resource,
+            action = action,
+            "Endpoint declares custom events but no event emitter is configured"
+        );
+        return;
+    };
+
+    for event_name in events {
+        if let Err(e) = emitter
+            .emit(event_name, &resource.resource, action, data.clone())
+            .await
+        {
+            tracing::warn!(
+                event = %event_name,
+                resource = %resource.resource,
+                action = action,
+                error = %e,
+                "Failed to emit declared endpoint event (non-blocking)"
+            );
+        }
+    }
+}
+
+async fn enqueue_declared_jobs(
+    state: &AppState,
+    resource: &ResourceDefinition,
+    endpoint: &EndpointSpec,
+    action: &str,
+    data: &serde_json::Value,
+) {
+    let Some(jobs) = endpoint.jobs.as_ref() else {
+        return;
+    };
+
+    let Some(job_queue) = state.job_queue.as_ref() else {
+        tracing::warn!(
+            resource = %resource.resource,
+            action = action,
+            "Endpoint declares background jobs but no job queue is configured"
+        );
+        return;
+    };
+
+    let payload = serde_json::json!({
+        "resource": resource.resource.as_str(),
+        "action": action,
+        "data": data,
+    });
+
+    for job_name in jobs {
+        if let Err(e) = job_queue
+            .enqueue(job_name, payload.clone(), JobPriority::Normal)
+            .await
+        {
+            tracing::warn!(
+                job = %job_name,
+                resource = %resource.resource,
+                action = action,
+                error = %e,
+                "Failed to enqueue declared endpoint job (non-blocking)"
+            );
+        }
+    }
+}
+
+async fn enqueue_declared_hooks(
+    state: &AppState,
+    resource: &ResourceDefinition,
+    endpoint: &EndpointSpec,
+    action: &str,
+    data: &serde_json::Value,
+) {
+    let Some(hooks) = endpoint.hooks.as_ref() else {
+        return;
+    };
+
+    let Some(job_queue) = state.job_queue.as_ref() else {
+        tracing::warn!(
+            resource = %resource.resource,
+            action = action,
+            "Endpoint declares hooks but no job queue is configured"
+        );
+        return;
+    };
+
+    for hook_name in hooks {
+        let payload = serde_json::json!({
+            "hook": hook_name,
+            "payload": {
+                "resource": resource.resource.as_str(),
+                "action": action,
+                "data": data,
+            }
+        });
+        if let Err(e) = job_queue
+            .enqueue("shaperail:hook_execute", payload, JobPriority::Normal)
+            .await
+        {
+            tracing::warn!(
+                hook = %hook_name,
+                resource = %resource.resource,
+                action = action,
+                error = %e,
+                "Failed to enqueue declared endpoint hook (non-blocking)"
+            );
+        }
+    }
+}
+
+async fn run_write_side_effects(
+    state: &AppState,
+    resource: &ResourceDefinition,
+    endpoint: &EndpointSpec,
+    action: &str,
+    data: &serde_json::Value,
+) {
+    invalidate_cache(state, resource, action).await;
+    auto_emit_event(state, resource, action, data).await;
+    emit_declared_events(state, resource, endpoint, action, data).await;
+    enqueue_declared_jobs(state, resource, endpoint, action, data).await;
+    enqueue_declared_hooks(state, resource, endpoint, action, data).await;
+}
+
 /// Invalidates cache for a resource after a write operation.
 async fn invalidate_cache(state: &AppState, resource: &ResourceDefinition, action: &str) {
     if let Some(ref cache) = state.cache {
@@ -266,14 +404,14 @@ pub async fn handle_create(
     let rq = ResourceQuery::new(&resource, &state.pool);
     let row = rq.insert(&input_data).await?;
     let params = parse_item_params(&req);
+    let side_effect_data = row.0.clone();
     let mut data = row.0;
 
     if !params.fields.is_empty() {
         data = response::select_fields(&data, &params.fields);
     }
 
-    invalidate_cache(&state, &resource, "create").await;
-    auto_emit_event(&state, &resource, "created", &data).await;
+    run_write_side_effects(&state, &resource, &endpoint, "created", &side_effect_data).await;
     Ok(response::created(data))
 }
 
@@ -302,14 +440,14 @@ pub async fn handle_update(
 
     let row = rq.update_by_id(&id, &input_data).await?;
     let params = parse_item_params(&req);
+    let side_effect_data = row.0.clone();
     let mut data = row.0;
 
     if !params.fields.is_empty() {
         data = response::select_fields(&data, &params.fields);
     }
 
-    invalidate_cache(&state, &resource, "update").await;
-    auto_emit_event(&state, &resource, "updated", &data).await;
+    run_write_side_effects(&state, &resource, &endpoint, "updated", &side_effect_data).await;
     Ok(response::single(data))
 }
 
@@ -342,8 +480,7 @@ pub async fn handle_delete(
         (response::no_content(), row.0)
     };
 
-    invalidate_cache(&state, &resource, "delete").await;
-    auto_emit_event(&state, &resource, "deleted", &deleted_data).await;
+    run_write_side_effects(&state, &resource, &endpoint, "deleted", &deleted_data).await;
     Ok(result)
 }
 
@@ -393,6 +530,9 @@ pub async fn handle_bulk_create(
     invalidate_cache(&state, &resource, "create").await;
     for item in &results {
         auto_emit_event(&state, &resource, "created", item).await;
+        emit_declared_events(&state, &resource, &endpoint, "created", item).await;
+        enqueue_declared_jobs(&state, &resource, &endpoint, "created", item).await;
+        enqueue_declared_hooks(&state, &resource, &endpoint, "created", item).await;
     }
     Ok(response::bulk(results))
 }
@@ -445,6 +585,9 @@ pub async fn handle_bulk_delete(
     invalidate_cache(&state, &resource, "delete").await;
     for item in &results {
         auto_emit_event(&state, &resource, "deleted", item).await;
+        emit_declared_events(&state, &resource, &endpoint, "deleted", item).await;
+        enqueue_declared_jobs(&state, &resource, &endpoint, "deleted", item).await;
+        enqueue_declared_hooks(&state, &resource, &endpoint, "deleted", item).await;
     }
     Ok(response::bulk(results))
 }

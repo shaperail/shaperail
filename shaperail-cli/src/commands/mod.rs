@@ -51,6 +51,15 @@ pub fn load_all_resources() -> Result<Vec<ResourceDefinition>, String> {
     for file in &files {
         let rd = shaperail_codegen::parser::parse_resource_file(file)
             .map_err(|e| format!("{}: {e}", file.display()))?;
+        let validation_errors = shaperail_codegen::validator::validate_resource(&rd);
+        if !validation_errors.is_empty() {
+            let rendered = validation_errors
+                .into_iter()
+                .map(|err| err.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(format!("{}: {rendered}", file.display()));
+        }
         resources.push(rd);
     }
     Ok(resources)

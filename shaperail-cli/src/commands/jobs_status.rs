@@ -42,7 +42,7 @@ async fn check_redis_queues(redis_url: &str) -> Result<(), String> {
     println!("{}", "-".repeat(30));
 
     for queue in &queues {
-        let key = format!("shaperail:jobs:{queue}");
+        let key = format!("shaperail:jobs:queue:{queue}");
         let len: i64 = redis::cmd("LLEN")
             .arg(&key)
             .query_async(&mut conn)

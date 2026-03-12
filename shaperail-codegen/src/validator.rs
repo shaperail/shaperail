@@ -117,6 +117,26 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
                 }
             }
 
+            if let Some(events) = &ep.events {
+                for event in events {
+                    if event.is_empty() {
+                        errors.push(err(&format!(
+                            "resource '{res}': endpoint '{action}' has an empty event name"
+                        )));
+                    }
+                }
+            }
+
+            if let Some(jobs) = &ep.jobs {
+                for job in jobs {
+                    if job.is_empty() {
+                        errors.push(err(&format!(
+                            "resource '{res}': endpoint '{action}' has an empty job name"
+                        )));
+                    }
+                }
+            }
+
             // Input fields must exist in schema
             if let Some(input) = &ep.input {
                 for field_name in input {
@@ -165,6 +185,12 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
             if ep.soft_delete && !rd.schema.contains_key("updated_at") {
                 errors.push(err(&format!(
                     "resource '{res}': endpoint '{action}' has soft_delete but schema has no 'updated_at' field"
+                )));
+            }
+
+            if ep.upload.is_some() {
+                errors.push(err(&format!(
+                    "resource '{res}': endpoint '{action}' uses upload, but upload endpoints are not yet supported by the runtime"
                 )));
             }
         }
@@ -407,5 +433,30 @@ schema:
             errors[0].message,
             "resource 'users': field 'role' is type enum but has no values"
         );
+    }
+
+    #[test]
+    fn upload_endpoint_not_supported() {
+        let yaml = r#"
+resource: assets
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  file_path: { type: string, required: true }
+  updated_at: { type: timestamp, generated: true }
+endpoints:
+  upload:
+    method: POST
+    path: /assets/upload
+    upload:
+      field: file_path
+      storage: local
+      max_size: 5mb
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("upload endpoints are not yet supported")));
     }
 }

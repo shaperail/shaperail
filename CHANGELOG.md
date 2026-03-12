@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed crate publish manifests so internal Shaperail dependencies include version requirements and package cleanly for crates.io
 - Aligned the install script with GitHub release archive names and the real repository coordinates
 - Added `shaperail serve --check` plus CLI smoke coverage for scaffolded project validation and compile checks
+- Reused the runtime SQL generator in `shaperail migrate`, including foreign keys, array types, enum constraints, soft-delete columns, and `pgcrypto` setup for generated UUIDs
+- Updated scaffolded apps to create an initial migration, expose health and metrics routes, and apply migrations automatically on startup
+- Wired declared endpoint events, jobs, and hooks into the runtime side-effect pipeline and corrected `jobs:status` to inspect the real Redis queue keys
+- Made resource loading fail closed on semantic validation and reject unsupported upload endpoints instead of silently ignoring them
 
 ## [0.2.0] - 2026-03-09
 

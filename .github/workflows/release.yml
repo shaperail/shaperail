@@ -4,12 +4,75 @@ on:
   push:
     tags: ['v*']
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
 jobs:
+  checks:
+    name: Release Checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: shaperail_dev
+          POSTGRES_USER: shaperail
+          POSTGRES_PASSWORD: shaperail
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shaperail -d shaperail_dev"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://shaperail:shaperail@localhost:5432/shaperail_dev
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Audit dependencies
+        run: cargo audit
+
+      - name: Verify local install path
+        run: cargo install --path shaperail-cli --locked --root /tmp/shaperail-install --force
+
+      - name: Dry-run base crate publish
+        run: cargo publish -p shaperail-core --dry-run --locked
+
+      - name: Compile benchmark targets
+        run: cargo bench --workspace --no-run
+
   build:
     name: Build ${{ matrix.target }}
+    needs: checks
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -45,15 +108,15 @@ jobs:
 
       - name: Install cross-compilation tools
         if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: cargo install cross --locked
 
       - name: Build (native)
         if: "!matrix.cross"
-        run: cargo build -p shaperail-cli --release --target ${{ matrix.target }}
+        run: cargo build -p shaperail-cli --release --locked --target ${{ matrix.target }}
 
       - name: Build (cross)
         if: matrix.cross
-        run: cross build -p shaperail-cli --release --target ${{ matrix.target }}
+        run: cross build -p shaperail-cli --release --locked --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
@@ -72,13 +135,28 @@ jobs:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
 
-  release:
-    name: Create Release
+  publish:
+    name: Publish to crates.io
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
 
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_VERSION#v}"
+          bash .github/scripts/publish-crates.sh "${version}"
+
+  release:
+    name: Create Release
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -90,23 +168,3 @@ jobs:
           files: artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  publish:
-    name: Publish to crates.io
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Publish crates (in dependency order)
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          cargo publish -p shaperail-core
-          sleep 30
-          cargo publish -p shaperail-codegen
-          sleep 30
-          cargo publish -p shaperail-runtime
-          sleep 30
-          cargo publish -p shaperail-cli

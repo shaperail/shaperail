@@ -1,7 +1,7 @@
 use super::backend::{FileMetadata, StorageError};
 use object_store::path::Path as ObjectPath;
 use object_store::signer::Signer;
-use object_store::{ObjectStore, PutPayload};
+use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
 use std::time::Duration;
 
 /// Helper: upload via any ObjectStore impl.

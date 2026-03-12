@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
 
+use shaperail_core::{FieldType, ResourceDefinition};
+
 /// Generate and apply SQL migrations from resource files, or rollback.
 pub fn run(rollback: bool) -> i32 {
     if rollback {
@@ -24,7 +26,7 @@ pub fn run(rollback: bool) -> i32 {
     // Generate migration SQL from resource definitions
     for resource in &resources {
         let migration_name = format!("create_{}", resource.resource);
-        let sql = generate_create_table_sql(resource);
+        let sql = render_migration_sql(resource);
 
         // Find next migration number
         let existing = list_migration_files(migrations_dir);
@@ -92,90 +94,21 @@ fn run_rollback() -> i32 {
     }
 }
 
-fn generate_create_table_sql(resource: &shaperail_core::ResourceDefinition) -> String {
-    let table = &resource.resource;
-    let mut columns = Vec::new();
-    let mut constraints = Vec::new();
-
-    for (name, schema) in &resource.schema {
-        let sql_type = match &schema.field_type {
-            shaperail_core::FieldType::Uuid => "UUID",
-            shaperail_core::FieldType::String => "TEXT",
-            shaperail_core::FieldType::Integer => "INTEGER",
-            shaperail_core::FieldType::Bigint => "BIGINT",
-            shaperail_core::FieldType::Number => "DOUBLE PRECISION",
-            shaperail_core::FieldType::Boolean => "BOOLEAN",
-            shaperail_core::FieldType::Timestamp => "TIMESTAMPTZ",
-            shaperail_core::FieldType::Date => "DATE",
-            shaperail_core::FieldType::Enum => "TEXT",
-            shaperail_core::FieldType::Json => "JSONB",
-            shaperail_core::FieldType::Array => "JSONB",
-            shaperail_core::FieldType::File => "TEXT",
-        };
-
-        let mut col = format!("    {name} {sql_type}");
-
-        if schema.primary {
-            col.push_str(" PRIMARY KEY");
-        }
-        if schema.generated && schema.field_type == shaperail_core::FieldType::Uuid {
-            col.push_str(" DEFAULT gen_random_uuid()");
-        }
-        if schema.generated
-            && (schema.field_type == shaperail_core::FieldType::Timestamp
-                || schema.field_type == shaperail_core::FieldType::Date)
-        {
-            col.push_str(" DEFAULT now()");
-        }
-        if !schema.nullable && !schema.primary && schema.required {
-            col.push_str(" NOT NULL");
-        }
-        if schema.unique {
-            col.push_str(" UNIQUE");
-        }
-        if let Some(default) = &schema.default {
-            let default_val = match default {
-                serde_json::Value::String(s) => format!("'{s}'"),
-                serde_json::Value::Bool(b) => b.to_string(),
-                other => other.to_string(),
-            };
-            col.push_str(&format!(" DEFAULT {default_val}"));
-        }
-
-        columns.push(col);
+pub(crate) fn render_migration_sql(resource: &ResourceDefinition) -> String {
+    let mut sql = String::new();
+    if resource_requires_pgcrypto(resource) {
+        sql.push_str("CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";\n\n");
     }
-
-    // Add deleted_at column if any endpoint uses soft_delete
-    let has_soft_delete = resource
-        .endpoints
-        .as_ref()
-        .is_some_and(|eps| eps.values().any(|ep| ep.soft_delete));
-    if has_soft_delete {
-        columns.push("    deleted_at TIMESTAMPTZ".to_string());
-    }
-
-    // Indexes
-    if let Some(indexes) = &resource.indexes {
-        for idx in indexes {
-            let fields_str = idx.fields.join(", ");
-            let unique = if idx.unique { "UNIQUE " } else { "" };
-            let idx_name = format!("idx_{table}_{}", idx.fields.join("_"));
-            constraints.push(format!(
-                "CREATE {unique}INDEX {idx_name} ON {table} ({fields_str});"
-            ));
-        }
-    }
-
-    let columns_sql = columns.join(",\n");
-    let mut sql = format!("CREATE TABLE IF NOT EXISTS {table} (\n{columns_sql}\n);\n");
-
-    for constraint in &constraints {
-        sql.push('\n');
-        sql.push_str(constraint);
-        sql.push('\n');
-    }
-
+    sql.push_str(&shaperail_runtime::db::build_create_table_sql(resource));
+    sql.push_str(";\n");
     sql
+}
+
+fn resource_requires_pgcrypto(resource: &ResourceDefinition) -> bool {
+    resource
+        .schema
+        .values()
+        .any(|field| field.field_type == FieldType::Uuid && field.generated)
 }
 
 fn list_migration_files(dir: &Path) -> Vec<String> {

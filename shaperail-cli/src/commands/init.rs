@@ -3,29 +3,46 @@ use std::path::Path;
 
 const SHAPERAIL_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEV_WORKSPACE_ENV: &str = "SHAPERAIL_DEV_WORKSPACE";
+const RUST_TOOLCHAIN_VERSION: &str = "1.85";
 
 /// Scaffold a new Shaperail project with the correct directory structure.
 pub fn run(name: &str) -> i32 {
     let project_dir = Path::new(name);
+    let project_name = match derive_project_name(project_dir) {
+        Ok(name) => name,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            return 1;
+        }
+    };
 
     if project_dir.exists() {
         eprintln!("Error: directory '{name}' already exists");
         return 1;
     }
 
-    if let Err(e) = scaffold(name, project_dir) {
+    if let Err(e) = scaffold(&project_name, project_dir) {
         eprintln!("Error: {e}");
         return 1;
     }
 
-    println!("Created Shaperail project '{name}'");
+    println!("Created Shaperail project '{}'", project_dir.display());
     println!();
-    println!("  cd {name}");
+    println!("  cd {}", project_dir.display());
+    println!("  docker compose up -d");
     println!("  shaperail serve");
     0
 }
 
-fn scaffold(name: &str, root: &Path) -> Result<(), String> {
+fn derive_project_name(project_dir: &Path) -> Result<String, String> {
+    project_dir
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| format!("Invalid project path '{}'", project_dir.display()))
+}
+
+fn scaffold(project_name: &str, root: &Path) -> Result<(), String> {
     // Create directory structure
     let dirs = [
         "",
@@ -35,6 +52,7 @@ fn scaffold(name: &str, root: &Path) -> Result<(), String> {
         "seeds",
         "tests",
         "channels",
+        "generated",
         "src",
     ];
 
@@ -46,7 +64,7 @@ fn scaffold(name: &str, root: &Path) -> Result<(), String> {
 
     // shaperail.config.yaml
     let config = format!(
-        r#"project: {name}
+        r#"project: {project_name}
 port: 3000
 workers: auto
 
@@ -71,16 +89,17 @@ logging:
   level: info
   format: json
 "#,
-        db_name = name.replace('-', "_")
+        db_name = project_name.replace('-', "_")
     );
     write_file(&root.join("shaperail.config.yaml"), &config)?;
 
     // Cargo.toml
     let cargo_toml = format!(
         r#"[package]
-name = "{name}"
+name = "{project_name}"
 version = "0.1.0"
 edition = "2021"
+rust-version = "{RUST_TOOLCHAIN_VERSION}"
 
 [dependencies]
 shaperail-runtime = {shaperail_runtime_dep}
@@ -88,7 +107,7 @@ shaperail-core = {shaperail_core_dep}
 shaperail-codegen = {shaperail_codegen_dep}
 actix-web = "4"
 tokio = {{ version = "1", features = ["full"] }}
-sqlx = {{ version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }}
+sqlx = {{ version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate"] }}
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
@@ -101,67 +120,120 @@ dotenvy = "0.15"
     write_file(&root.join("Cargo.toml"), &cargo_toml)?;
 
     // src/main.rs
-    let main_rs = r#"use std::sync::Arc;
+    let main_rs = r#"use std::io;
+use std::path::Path;
+use std::sync::Arc;
 
 use actix_web::{web, App, HttpServer};
 use shaperail_runtime::auth::jwt::JwtConfig;
+use shaperail_runtime::cache::{create_redis_pool, RedisCache};
+use shaperail_runtime::events::EventEmitter;
 use shaperail_runtime::handlers::{register_all_resources, AppState};
+use shaperail_runtime::jobs::JobQueue;
+use shaperail_runtime::observability::{
+    health_handler, health_ready_handler, metrics_handler, HealthState, MetricsState,
+};
+
+fn io_error(message: impl Into<String>) -> io::Error {
+    io::Error::other(message.into())
+}
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt().with_env_filter("info").init();
 
-    // Parse resource files
-    let resources_dir = std::path::Path::new("resources");
+    let config_path = Path::new("shaperail.config.yaml");
+    let config = shaperail_codegen::config_parser::parse_config_file(config_path)
+        .map_err(|e| io_error(format!("Failed to parse {}: {e}", config_path.display())))?;
+
+    let resources_dir = Path::new("resources");
     let mut resources = Vec::new();
-    for entry in std::fs::read_dir(resources_dir).expect("resources/ directory not found") {
-        let entry = entry.unwrap();
+    for entry in std::fs::read_dir(resources_dir)? {
+        let entry = entry?;
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "yaml" || e == "yml") {
+        if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
             let rd = shaperail_codegen::parser::parse_resource_file(&path)
-                .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", path.display()));
+                .map_err(|e| io_error(format!("Failed to parse {}: {e}", path.display())))?;
+            let validation_errors = shaperail_codegen::validator::validate_resource(&rd);
+            if !validation_errors.is_empty() {
+                let rendered = validation_errors
+                    .into_iter()
+                    .map(|err| err.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                return Err(io_error(format!("{}: {rendered}", path.display())));
+            }
             resources.push(rd);
         }
     }
     tracing::info!("Loaded {} resource(s)", resources.len());
 
-    // Connect to database
     let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set (check .env file)");
+        .map_err(|_| io_error("DATABASE_URL must be set (check .env file)"))?;
     let pool = sqlx::PgPool::connect(&database_url)
         .await
-        .expect("Failed to connect to database");
-    tracing::info!("Connected to database");
+        .map_err(|e| io_error(format!("Failed to connect to database: {e}")))?;
+    let migrator = sqlx::migrate::Migrator::new(Path::new("./migrations"))
+        .await
+        .map_err(|e| io_error(format!("Failed to load migrations: {e}")))?;
+    migrator
+        .run(&pool)
+        .await
+        .map_err(|e| io_error(format!("Failed to apply migrations: {e}")))?;
+    tracing::info!("Connected to database and applied migrations");
 
-    // JWT auth (reads JWT_SECRET env var)
+    let redis_pool = match config.cache.as_ref() {
+        Some(cache_config) => Some(Arc::new(
+            create_redis_pool(&cache_config.url)
+                .map_err(|e| io_error(format!("Failed to create Redis pool: {e}")))?,
+        )),
+        None => None,
+    };
+    let cache = redis_pool.as_ref().map(|pool| RedisCache::new(pool.clone()));
+    let job_queue = redis_pool.as_ref().map(|pool| JobQueue::new(pool.clone()));
+    let event_emitter = job_queue
+        .clone()
+        .map(|queue| EventEmitter::new(queue, config.events.as_ref()));
     let jwt_config = JwtConfig::from_env().map(Arc::new);
 
     let port: u16 = std::env::var("SHAPERAIL_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(3000);
+        .unwrap_or(config.port);
 
-    // Build app state
     let state = Arc::new(AppState {
-        pool,
+        pool: pool.clone(),
         resources: resources.clone(),
         jwt_config: jwt_config.clone(),
-        cache: None,
-        event_emitter: None,
+        cache,
+        event_emitter,
+        job_queue,
     });
+    let health_state = web::Data::new(HealthState::new(Some(pool), redis_pool));
+    let metrics_state = web::Data::new(
+        MetricsState::new().map_err(|e| io_error(format!("Failed to initialize metrics: {e}")))?,
+    );
 
     tracing::info!("Starting Shaperail server on port {port}");
 
     let state_clone = state.clone();
     let resources_clone = resources.clone();
+    let health_state_clone = health_state.clone();
+    let metrics_state_clone = metrics_state.clone();
+    let jwt_config_clone = jwt_config.clone();
 
     HttpServer::new(move || {
         let st = state_clone.clone();
         let res = resources_clone.clone();
         let mut app = App::new()
-            .app_data(web::Data::new(st.clone()));
-        if let Some(ref jwt) = jwt_config {
+            .app_data(web::Data::new(st.clone()))
+            .app_data(health_state_clone.clone())
+            .app_data(metrics_state_clone.clone())
+            .route("/health", web::get().to(health_handler))
+            .route("/health/ready", web::get().to(health_ready_handler))
+            .route("/metrics", web::get().to(metrics_handler));
+        if let Some(ref jwt) = jwt_config_clone {
             app = app.app_data(web::Data::new(jwt.clone()));
         }
         app.configure(|cfg| register_all_resources(cfg, &res, st))
@@ -220,6 +292,22 @@ endpoints:
     soft_delete: true
 "#;
     write_file(&root.join("resources/posts.yaml"), example_resource)?;
+    let parsed_example = shaperail_codegen::parser::parse_resource(example_resource)
+        .map_err(|e| format!("Failed to parse example resource: {e}"))?;
+    let validation_errors = shaperail_codegen::validator::validate_resource(&parsed_example);
+    if !validation_errors.is_empty() {
+        let rendered = validation_errors
+            .into_iter()
+            .map(|err| err.to_string())
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(format!("Example resource failed validation: {rendered}"));
+    }
+    let initial_migration = super::migrate::render_migration_sql(&parsed_example);
+    write_file(
+        &root.join("migrations/0001_create_posts.sql"),
+        &initial_migration,
+    )?;
 
     // .env
     let dotenv = format!(
@@ -227,7 +315,7 @@ endpoints:
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=change-me-in-production
 "#,
-        db_name = name.replace('-', "_")
+        db_name = project_name.replace('-', "_")
     );
     write_file(&root.join(".env"), &dotenv)?;
 
@@ -271,7 +359,7 @@ JWT_SECRET=change-me-in-production
 volumes:
   postgres_data:
 "#,
-        db_name = name.replace('-', "_")
+        db_name = project_name.replace('-', "_")
     );
     write_file(&root.join("docker-compose.yml"), &docker_compose)?;
 

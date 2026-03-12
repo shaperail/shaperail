@@ -5,10 +5,12 @@
 ```bash
 cargo install shaperail-cli
 shaperail init my-app
-cd my-app && shaperail serve
+cd my-app
+docker compose up -d
+shaperail serve
 ```
 
-That's it. Full REST API with auth, caching, background jobs, WebSockets, file storage, and observability — all from a single YAML file.
+With Postgres and Redis running, Shaperail scaffolds a working CRUD API with health checks, OpenAPI export, auth rules, Redis-backed cache/jobs plumbing, and observability endpoints from a single YAML file.
 
 ---
 
@@ -70,7 +72,7 @@ shaperail doctor  # checks Rust, PostgreSQL, Redis, sqlx-cli
 ```
 
 You need:
-- **Rust** 1.75+
+- **Rust** 1.85+
 - **PostgreSQL** 14+
 - **Redis** 7+
 
@@ -165,8 +167,8 @@ indexes:
 ```bash
 docker compose up -d    # start Postgres + Redis
 shaperail generate          # generate Rust code from YAML
-shaperail migrate           # create and apply DB migrations
-shaperail serve             # start dev server with hot reload
+shaperail migrate           # create new migration files after schema changes
+shaperail serve             # apply existing migrations and start the dev server
 ```
 
 Your API is live at `http://localhost:3000`:
@@ -595,7 +597,9 @@ shaperail serve            # start your app
 shaperail build --docker   # produces scratch-based image
 ```
 
-The generated image is based on `scratch` for minimal size (target: under 25 MB).
+The generated image cross-compiles to `x86_64-unknown-linux-musl` and runs from
+`scratch` for minimal size (target: under 25 MB). Container platforms should use
+their native HTTP checks instead of shell-based `HEALTHCHECK` commands.
 
 ---
 
@@ -631,6 +635,9 @@ Shaperail is designed to meet these targets:
 | Idle memory | ≤ 60 MB |
 | Release binary | < 20 MB |
 | Cold start | < 100ms |
+
+Current tracked smoke baselines live in `BENCHMARKS.md`. Tagged releases should
+refresh that report from the current commit.
 
 ---
 

@@ -13,21 +13,21 @@ Run these before any release. All must pass:
 ```bash
 # Full quality gate
 cargo fmt --check
-cargo clippy --workspace -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
 # Security audit
-cargo install cargo-audit
+cargo install cargo-audit --locked
 cargo audit
 
-# Check all crates publish correctly (dry run)
-cargo publish -p shaperail-core --dry-run
-cargo publish -p shaperail-codegen --dry-run
-cargo publish -p shaperail-runtime --dry-run
-cargo publish -p shaperail-cli --dry-run
+# Validate the publish/install path
+# `shaperail-core` can be dry-run directly; dependent crates are validated
+# through the CLI install path and the staged publish script below.
+cargo publish -p shaperail-core --dry-run --locked
+cargo install --path shaperail-cli --locked --root /tmp/shaperail-install --force
 
-# Performance benchmark — must meet PRD targets
-cargo bench --workspace
+# Compile benchmark targets and refresh BENCHMARKS.md before a tagged release
+cargo bench --workspace --no-run
 ```
 
 ---
@@ -56,14 +56,9 @@ Publish in dependency order (core first, cli last):
 # Login once
 cargo login   # paste your crates.io API token
 
-# Publish in order — wait for each to propagate before next
-cargo publish -p shaperail-core
-sleep 30
-cargo publish -p shaperail-codegen
-sleep 30
-cargo publish -p shaperail-runtime
-sleep 30
-cargo publish -p shaperail-cli
+# Publish in order and wait for each exact version to propagate before the next
+VERSION=0.2.1
+bash .github/scripts/publish-crates.sh "$VERSION"
 ```
 
 After publishing, users can install with:
@@ -110,74 +105,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - run: cargo build -p shaperail-cli --release --target ${{ matrix.target }}
+      - run: cargo build -p shaperail-cli --release --locked --target ${{ matrix.target }}
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: shaperail-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
 
-  release:
+  publish:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bash .github/scripts/publish-crates.sh "${GITHUB_REF_NAME#v}"
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/download-artifact@v4
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         with:
-          files: shaperail-*/**
-```
-
----
-
-## Step 5 — Install Script
-Create `install.sh` at the repo root (served at shaperail.dev/install.sh):
-
-```bash
-#!/bin/sh
-# Detects OS + arch, downloads the right binary, installs to /usr/local/bin
-
-set -e
-
-VERSION="0.2.1"
-REPO="muhammadmahindar/shaperail"
-TMP_DIR=$(mktemp -d)
-
-cleanup() {
-  rm -rf "$TMP_DIR"
-}
-
-trap cleanup EXIT
-
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
-
-case "$ARCH" in
-  x86_64) ARCH="x86_64" ;;
-  arm64|aarch64) ARCH="aarch64" ;;
-  *) echo "Unsupported arch: $ARCH"; exit 1 ;;
-esac
-
-case "$OS" in
-  linux)  TARGET="${ARCH}-unknown-linux-gnu" ;;
-  darwin) TARGET="${ARCH}-apple-darwin" ;;
-  *) echo "Unsupported OS: $OS"; exit 1 ;;
-esac
-
-ARCHIVE="shaperail-${TARGET}.tar.gz"
-URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE}"
-echo "Downloading shaperail ${VERSION} for ${TARGET}..."
-curl -fsSL "$URL" -o "${TMP_DIR}/${ARCHIVE}"
-tar -xzf "${TMP_DIR}/${ARCHIVE}" -C "${TMP_DIR}"
-chmod +x "${TMP_DIR}/shaperail"
-sudo mv "${TMP_DIR}/shaperail" /usr/local/bin/shaperail
-echo "shaperail installed successfully. Run: shaperail --version"
-```
-
-Users can install with:
-```bash
-curl -fsSL https://shaperail.dev/install.sh | sh
-# or directly:
-cargo install shaperail-cli
+          files: artifacts/**/*
 ```
 
 ---
@@ -196,4 +145,4 @@ cargo install shaperail-cli
 - Always publish in order: core → codegen → runtime → cli
 - The GitHub Actions release workflow lives in `.github/workflows/release.yml`
 - The install script lives in `install.sh` at the repo root
-- Benchmark results must be committed to `BENCHMARKS.md` before any major release
+- Benchmark results must be committed to `BENCHMARKS.md` before any tagged release
