@@ -52,3 +52,7 @@ tempfile = "3"
 [[bench]]
 name = "health_response"
 harness = false
+
+[[bench]]
+name = "throughput"
+harness = false

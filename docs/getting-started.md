@@ -89,6 +89,17 @@ shaperail routes
 shaperail export openapi --output openapi.json
 ```
 
+## Load seed data
+
+If you have fixture files in a `seeds/` directory, load them after migration:
+
+```bash
+shaperail seed
+```
+
+Each YAML file maps to a table by filename (e.g., `seeds/users.yaml` inserts
+into `users`). All inserts run in a single transaction.
+
 ## When the schema changes
 
 If you add or remove fields, create a migration and then run the app again:

@@ -62,17 +62,48 @@ endpoints:
 
 ## Request headers
 
-JWT:
+Shaperail checks credentials in this order:
 
-```http
-Authorization: Bearer <token>
+1. **JWT** — `Authorization: Bearer <token>`
+2. **API key** — `X-API-Key: <key>`
+
+If both are absent, the request is unauthenticated. Protected endpoints return
+401.
+
+### JWT configuration
+
+Set these in `shaperail.config.yaml` or via environment variables:
+
+```yaml
+auth:
+  provider: jwt
+  secret_env: JWT_SECRET
+  expiry: 3600          # access token TTL in seconds (default: 24h)
+  refresh_expiry: 86400 # refresh token TTL (default: 30d)
 ```
 
-API key:
+The JWT payload carries `sub` (user ID), `role`, and `token_type` (access or
+refresh). Only `access` tokens are accepted for API requests.
 
-```http
-X-API-Key: <key>
-```
+### API key authentication
+
+API keys are an alternative to JWT for service-to-service calls. Each key maps
+to a user ID and role. Keys are checked via the `X-API-Key` header when no
+Bearer token is present.
+
+## Rate limiting
+
+Shaperail enforces sliding-window rate limits per IP or per authenticated user,
+backed by Redis.
+
+Default limits: 100 requests per 60-second window.
+
+When the limit is exceeded, the response is `429 Rate Limited`. Rate limit
+state is stored in Redis and survives server restarts.
+
+Rate limiting keys:
+- Unauthenticated: `ip:<address>`
+- Authenticated: `user:<user_id>`
 
 ## What Shaperail does not do automatically
 

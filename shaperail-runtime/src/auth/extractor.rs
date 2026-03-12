@@ -11,8 +11,13 @@ use super::jwt::JwtConfig;
 /// Authenticated user extracted from a valid JWT Bearer token or API key.
 ///
 /// Use as an Actix-web extractor in handler signatures:
-/// ```ignore
-/// async fn handler(user: AuthenticatedUser) -> impl Responder { ... }
+/// ```no_run
+/// use actix_web::Responder;
+/// use shaperail_runtime::auth::AuthenticatedUser;
+///
+/// async fn handler(user: AuthenticatedUser) -> impl Responder {
+///     format!("Hello, user {}", user.id)
+/// }
 /// ```
 /// Returns 401 if no valid JWT or API key is present.
 #[derive(Debug, Clone)]

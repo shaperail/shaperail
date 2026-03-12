@@ -24,6 +24,19 @@
 - Test soft delete: verify deleted records don't appear in list
 - Test pagination: cursor and offset, edge cases (empty page, last page)
 - Location: `shaperail-runtime/tests/`
+- Test files:
+  - `tests/db_integration.rs` — DB layer: CRUD, pagination, filters, sort, soft/hard delete
+  - `tests/api_integration.rs` — Full HTTP stack: Actix handlers with real DB, auth, validation
+  - `tests/handler_tests.rs` — Handler unit tests: response envelopes, validation, auth, cache keys
+
+### shaperail-runtime (benchmarks — no DB or Redis required)
+- Use Criterion for CPU benchmarks of hot paths
+- Location: `shaperail-runtime/benches/`
+- Benchmark files:
+  - `benches/health_response.rs` — health handler + response serialization throughput
+  - `benches/throughput.rs` — JSON serialization, validation, query building, cache keys, parsing
+- Run with: `cargo bench -p shaperail-runtime`
+- PRD targets: 150K+ req/s JSON response, 80K+ cached reads, 20K+ writes
 
 ### shaperail-cli (end-to-end tests)
 - Test `shaperail init` produces correct file structure
@@ -62,3 +75,12 @@ fn user_fixture() -> CreateUserInput {
 2. Any hook that touches the changed resource
 3. The endpoint that calls the changed function
 4. Run: `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`
+
+## Current Test Counts (as of v0.2.2)
+| Crate | Tests | Notes |
+|-------|-------|-------|
+| shaperail-core | 59 | All enum variants, struct fields, error shapes |
+| shaperail-codegen | 60 | 45 unit + 15 insta snapshots |
+| shaperail-runtime | 220 | 164 unit + 43 handler + 12 DB integration + 1 doc-test |
+| shaperail-cli | 36 | 29 assert_cmd + 7 seed unit tests |
+| **Total** | **385** | 0 failures, 0 ignored |
