@@ -24,39 +24,46 @@ pub fn run() -> i32 {
         "Install Rust: https://rustup.rs/",
     );
 
-    // Check PostgreSQL client
+    // Check Docker (required for the default local workflow)
     all_ok &= check_command(
-        "PostgreSQL (psql)",
-        "psql",
-        &["--version"],
-        "Install PostgreSQL: https://www.postgresql.org/download/",
-    );
-
-    // Check Redis
-    all_ok &= check_command(
-        "Redis (redis-cli)",
-        "redis-cli",
-        &["--version"],
-        "Install Redis: https://redis.io/download/",
-    );
-
-    // Check sqlx-cli
-    all_ok &= check_command(
-        "sqlx-cli",
-        "sqlx",
-        &["--version"],
-        "Install: cargo install sqlx-cli",
-    );
-
-    // Check Docker (optional)
-    let docker_ok = check_command(
-        "Docker (optional)",
+        "Docker",
         "docker",
         &["--version"],
         "Install Docker: https://docs.docker.com/get-docker/",
     );
-    if !docker_ok {
-        println!("  (Docker is optional, needed for `shaperail build --docker`)");
+
+    // Local service CLIs are optional because docker compose provides Postgres + Redis.
+    let postgres_ok = check_command(
+        "PostgreSQL (psql, optional)",
+        "psql",
+        &["--version"],
+        "Install PostgreSQL: https://www.postgresql.org/download/",
+    );
+    if !postgres_ok {
+        println!("  (Optional: useful for manual database inspection)");
+        println!();
+    }
+
+    let redis_ok = check_command(
+        "Redis (redis-cli, optional)",
+        "redis-cli",
+        &["--version"],
+        "Install Redis: https://redis.io/download/",
+    );
+    if !redis_ok {
+        println!("  (Optional: useful for manual cache inspection)");
+        println!();
+    }
+
+    // sqlx-cli is only needed for the explicit `shaperail migrate` workflow.
+    let sqlx_ok = check_command(
+        "sqlx-cli (optional)",
+        "sqlx",
+        &["--version"],
+        "Install: cargo install sqlx-cli",
+    );
+    if !sqlx_ok {
+        println!("  (Optional: required only for `shaperail migrate`)");
         println!();
     }
 

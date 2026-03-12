@@ -10,7 +10,7 @@ docker compose up -d
 shaperail serve
 ```
 
-With Postgres and Redis running, Shaperail scaffolds a working CRUD API with health checks, OpenAPI export, auth rules, Redis-backed cache/jobs plumbing, and observability endpoints from a single YAML file.
+With Docker running, Shaperail scaffolds a working CRUD API with preconfigured Postgres + Redis, health checks, browser docs, OpenAPI export, auth rules, Redis-backed cache/jobs plumbing, and observability endpoints from a single YAML file.
 
 ---
 
@@ -68,13 +68,16 @@ curl -fsSL https://shaperail.dev/install.sh | sh
 ### Prerequisites
 
 ```bash
-shaperail doctor  # checks Rust, PostgreSQL, Redis, sqlx-cli
+shaperail doctor  # checks Rust + Docker, plus optional local tools
 ```
 
 You need:
 - **Rust** 1.85+
-- **PostgreSQL** 14+
-- **Redis** 7+
+- **Docker** with Compose support
+
+Optional:
+- **sqlx-cli** if you use `shaperail migrate`
+- **psql** and **redis-cli** for manual inspection/debugging
 
 ### Create a project
 
@@ -86,6 +89,7 @@ cd my-app
 This scaffolds:
 ```
 my-app/
+├── README.md           # Quickstart + local docs URLs
 ├── resources/          # Your API definitions (YAML)
 ├── migrations/         # Auto-generated SQL migrations
 ├── channels/           # WebSocket channel definitions
@@ -165,13 +169,16 @@ indexes:
 ### Generate and run
 
 ```bash
-docker compose up -d    # start Postgres + Redis
+docker compose up -d    # start Postgres + Redis and create the app database
 shaperail generate          # generate Rust code from YAML
 shaperail migrate           # create new migration files after schema changes
 shaperail serve             # apply existing migrations and start the dev server
 ```
 
 Your API is live at `http://localhost:3000`:
+
+- Browser docs: `http://localhost:3000/docs`
+- OpenAPI JSON: `http://localhost:3000/openapi.json`
 
 ```bash
 # List users (with cursor pagination)
@@ -587,7 +594,7 @@ All endpoints return consistent JSON envelopes:
 ### Local development
 
 ```bash
-docker compose up -d   # starts Postgres + Redis
+docker compose up -d   # starts Postgres + Redis and creates the app database
 shaperail serve            # start your app
 ```
 

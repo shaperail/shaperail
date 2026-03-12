@@ -6,6 +6,11 @@ Docker is used at three levels:
 2. **CI** — framework tests run inside Docker (reproducible, no local Rust needed)
 3. **Release** — `shaperail build --docker` produces a scratch-based image ≤ 25 MB for user apps
 
+Local development is Docker-first. Generated apps should not require a manual
+`CREATE DATABASE` step; the scaffolded `docker-compose.yml` must set
+`POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` so the matching
+`.env` works out of the box.
+
 ---
 
 ## 1. Dev — docker-compose.yml (in framework root)

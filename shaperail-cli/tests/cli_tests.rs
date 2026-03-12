@@ -164,10 +164,15 @@ fn init_creates_project_structure() {
         .current_dir(tmp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created Shaperail project"));
+        .stdout(predicate::str::contains("Created Shaperail project"))
+        .stdout(predicate::str::contains("http://localhost:3000/docs"))
+        .stdout(predicate::str::contains(
+            "http://localhost:3000/openapi.json",
+        ));
 
     // Check directory structure
     assert!(project_dir.join("shaperail.config.yaml").exists());
+    assert!(project_dir.join("README.md").exists());
     assert!(project_dir.join("Cargo.toml").exists());
     assert!(project_dir.join("src/main.rs").exists());
     assert!(project_dir.join("resources").is_dir());
@@ -189,6 +194,15 @@ fn init_creates_project_structure() {
     let config = std::fs::read_to_string(project_dir.join("shaperail.config.yaml")).unwrap();
     assert!(config.contains("project: test-project"));
     assert!(config.contains("port: 3000"));
+
+    let readme = std::fs::read_to_string(project_dir.join("README.md")).unwrap();
+    assert!(readme.contains("docker compose up -d"));
+    assert!(readme.contains("http://localhost:3000/docs"));
+    assert!(readme.contains("No manual database creation is required"));
+
+    let main_rs = std::fs::read_to_string(project_dir.join("src/main.rs")).unwrap();
+    assert!(main_rs.contains(r#"route("/openapi.json""#));
+    assert!(main_rs.contains(r#"route("/docs""#));
 }
 
 #[test]
