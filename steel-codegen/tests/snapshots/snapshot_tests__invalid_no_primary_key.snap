@@ -1,6 +1,0 @@
----
-source: steel-codegen/tests/snapshot_tests.rs
-assertion_line: 98
-expression: messages
----
-- "resource 'items': schema must have a primary key field"

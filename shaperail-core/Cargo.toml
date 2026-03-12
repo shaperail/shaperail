@@ -1,0 +1,21 @@
+[package]
+name = "shaperail-core"
+description = "Shared types for the Shaperail framework"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+indexmap = { workspace = true, features = ["serde"] }
+actix-web = { workspace = true }
+sqlx = { workspace = true }

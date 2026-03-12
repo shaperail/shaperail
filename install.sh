@@ -1,12 +1,12 @@
 #!/bin/sh
-# SteelAPI install script
-# Usage: curl -fsSL https://steelapi.dev/install.sh | sh
+# Shaperail install script
+# Usage: curl -fsSL https://shaperail.dev/install.sh | sh
 
 set -e
 
-VERSION="${STEEL_VERSION:-0.2.1}"
-REPO="muhammadmahindar/steel-api"
-INSTALL_DIR="${STEEL_INSTALL_DIR:-/usr/local/bin}"
+VERSION="${SHAPERAIL_VERSION:-0.2.1}"
+REPO="muhammadmahindar/shaperail"
+INSTALL_DIR="${SHAPERAIL_INSTALL_DIR:-/usr/local/bin}"
 TMP_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -27,27 +27,27 @@ esac
 case "$OS" in
   linux)  TARGET="${ARCH}-unknown-linux-gnu" ;;
   darwin) TARGET="${ARCH}-apple-darwin" ;;
-  *) echo "Unsupported OS: $OS. Use: cargo install steel-cli" && exit 1 ;;
+  *) echo "Unsupported OS: $OS. Use: cargo install shaperail-cli" && exit 1 ;;
 esac
 
-ARCHIVE="steel-${TARGET}.tar.gz"
+ARCHIVE="shaperail-${TARGET}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE}"
 
-echo "Installing steel v${VERSION} for ${TARGET}..."
+echo "Installing shaperail v${VERSION} for ${TARGET}..."
 curl -fsSL "$URL" -o "${TMP_DIR}/${ARCHIVE}"
 tar -xzf "${TMP_DIR}/${ARCHIVE}" -C "$TMP_DIR"
-chmod +x "${TMP_DIR}/steel"
+chmod +x "${TMP_DIR}/shaperail"
 
 if [ -w "$INSTALL_DIR" ]; then
-  mv "${TMP_DIR}/steel" "${INSTALL_DIR}/steel"
+  mv "${TMP_DIR}/shaperail" "${INSTALL_DIR}/shaperail"
 else
-  sudo mv "${TMP_DIR}/steel" "${INSTALL_DIR}/steel"
+  sudo mv "${TMP_DIR}/shaperail" "${INSTALL_DIR}/shaperail"
 fi
 
 echo ""
-echo "steel installed to ${INSTALL_DIR}/steel"
-echo "   Run: steel --version"
+echo "shaperail installed to ${INSTALL_DIR}/shaperail"
+echo "   Run: shaperail --version"
 echo ""
 echo "Get started:"
-echo "   steel init my-app"
-echo "   cd my-app && steel serve"
+echo "   shaperail init my-app"
+echo "   cd my-app && shaperail serve"

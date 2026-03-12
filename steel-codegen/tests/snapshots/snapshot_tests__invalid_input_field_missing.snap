@@ -1,6 +1,0 @@
----
-source: steel-codegen/tests/snapshot_tests.rs
-assertion_line: 116
-expression: messages
----
-- "resource 'items': endpoint 'create' input field 'ghost_field' not found in schema"

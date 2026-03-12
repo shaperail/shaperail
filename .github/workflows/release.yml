@@ -16,25 +16,25 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary: steel
-            archive: steel-x86_64-unknown-linux-gnu.tar.gz
+            binary: shaperail
+            archive: shaperail-x86_64-unknown-linux-gnu.tar.gz
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            binary: steel
-            archive: steel-aarch64-unknown-linux-gnu.tar.gz
+            binary: shaperail
+            archive: shaperail-aarch64-unknown-linux-gnu.tar.gz
             cross: true
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary: steel
-            archive: steel-x86_64-apple-darwin.tar.gz
+            binary: shaperail
+            archive: shaperail-x86_64-apple-darwin.tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary: steel
-            archive: steel-aarch64-apple-darwin.tar.gz
+            binary: shaperail
+            archive: shaperail-aarch64-apple-darwin.tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary: steel.exe
-            archive: steel-x86_64-pc-windows-msvc.zip
+            binary: shaperail.exe
+            archive: shaperail-x86_64-pc-windows-msvc.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -49,11 +49,11 @@ jobs:
 
       - name: Build (native)
         if: "!matrix.cross"
-        run: cargo build -p steel-cli --release --target ${{ matrix.target }}
+        run: cargo build -p shaperail-cli --release --target ${{ matrix.target }}
 
       - name: Build (cross)
         if: matrix.cross
-        run: cross build -p steel-cli --release --target ${{ matrix.target }}
+        run: cross build -p shaperail-cli --release --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
@@ -103,10 +103,10 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          cargo publish -p steel-core
+          cargo publish -p shaperail-core
           sleep 30
-          cargo publish -p steel-codegen
+          cargo publish -p shaperail-codegen
           sleep 30
-          cargo publish -p steel-runtime
+          cargo publish -p shaperail-runtime
           sleep 30
-          cargo publish -p steel-cli
+          cargo publish -p shaperail-cli

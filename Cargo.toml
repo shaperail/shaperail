@@ -1,5 +1,5 @@
 [workspace]
-members = ["steel-core", "steel-codegen", "steel-runtime", "steel-cli"]
+members = ["shaperail-core", "shaperail-codegen", "shaperail-runtime", "shaperail-cli"]
 resolver = "2"
 
 [workspace.package]
@@ -7,8 +7,8 @@ version = "0.2.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "AI-native Rust backend framework — define your API in YAML, get a production-ready server"
-homepage = "https://steelapi.dev"
-repository = "https://github.com/muhammadmahindar/steel-api"
+homepage = "https://shaperail.dev"
+repository = "https://github.com/muhammadmahindar/shaperail"
 readme = "README.md"
 keywords = ["web", "api", "framework", "code-generation"]
 categories = ["web-programming::http-server", "development-tools"]

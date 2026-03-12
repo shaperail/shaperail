@@ -1,4 +1,4 @@
-# SteelAPI Framework — Build + Test Container
+# Shaperail Framework — Build + Test Container
 # Used by CI and contributors who don't have Rust installed locally
 
 FROM rust:1.75-slim AS base
@@ -11,15 +11,15 @@ WORKDIR /framework
 
 # Cache dependency layer (rebuild only when Cargo.toml changes)
 COPY Cargo.toml Cargo.lock ./
-COPY steel-core/Cargo.toml ./steel-core/
-COPY steel-codegen/Cargo.toml ./steel-codegen/
-COPY steel-runtime/Cargo.toml ./steel-runtime/
-COPY steel-cli/Cargo.toml ./steel-cli/
-RUN mkdir -p steel-core/src steel-codegen/src steel-runtime/src steel-cli/src \
-    && echo "fn main() {}" > steel-cli/src/main.rs \
-    && for c in steel-core steel-codegen steel-runtime; do echo "" > $c/src/lib.rs; done \
+COPY shaperail-core/Cargo.toml ./shaperail-core/
+COPY shaperail-codegen/Cargo.toml ./shaperail-codegen/
+COPY shaperail-runtime/Cargo.toml ./shaperail-runtime/
+COPY shaperail-cli/Cargo.toml ./shaperail-cli/
+RUN mkdir -p shaperail-core/src shaperail-codegen/src shaperail-runtime/src shaperail-cli/src \
+    && echo "fn main() {}" > shaperail-cli/src/main.rs \
+    && for c in shaperail-core shaperail-codegen shaperail-runtime; do echo "" > $c/src/lib.rs; done \
     && cargo build --workspace 2>/dev/null || true \
-    && rm -rf steel-core/src steel-codegen/src steel-runtime/src steel-cli/src
+    && rm -rf shaperail-core/src shaperail-codegen/src shaperail-runtime/src shaperail-cli/src
 
 # Full build
 COPY . .

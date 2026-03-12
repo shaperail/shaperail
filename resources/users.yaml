@@ -1,4 +1,4 @@
-# resources/users.resource.yaml
+# resources/users.yaml
 # This is the EXACT format users write — matches PRD spec.
 # The framework parses this and generates all Rust code.
 

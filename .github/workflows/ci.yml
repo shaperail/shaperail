@@ -31,13 +31,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: steelapi_test
-          POSTGRES_USER: steel
-          POSTGRES_PASSWORD: steel
+          POSTGRES_DB: shaperail_test
+          POSTGRES_USER: shaperail
+          POSTGRES_PASSWORD: shaperail
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U steel -d steelapi_test"
+          --health-cmd "pg_isready -U shaperail -d shaperail_test"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
@@ -51,7 +51,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://steel:steel@localhost:5432/steelapi_test
+      DATABASE_URL: postgresql://shaperail:shaperail@localhost:5432/shaperail_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-test-secret-do-not-use-in-production
     steps:

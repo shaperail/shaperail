@@ -1,0 +1,32 @@
+[package]
+name = "shaperail-cli"
+description = "CLI for Shaperail — shaperail init, generate, serve, build, migrate, and more"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "shaperail"
+path = "src/main.rs"
+
+[dependencies]
+shaperail-codegen = { version = "0.2.1", path = "../shaperail-codegen" }
+shaperail-core = { version = "0.2.1", path = "../shaperail-core" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+indexmap = { workspace = true }
+redis = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+tempfile = "3"

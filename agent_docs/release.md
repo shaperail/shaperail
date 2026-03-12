@@ -1,9 +1,9 @@
 # Release Process
 
 ## What Gets Released
-1. **crates.io** — `steel-core`, `steel-codegen`, `steel-runtime`, `steel-cli`
+1. **crates.io** — `shaperail-core`, `shaperail-codegen`, `shaperail-runtime`, `shaperail-cli`
 2. **GitHub Releases** — pre-built binaries for macOS, Linux, Windows
-3. **Install script** — `curl -fsSL https://steelapi.dev/install.sh | sh`
+3. **Install script** — `curl -fsSL https://shaperail.dev/install.sh | sh`
 
 ---
 
@@ -21,10 +21,10 @@ cargo install cargo-audit
 cargo audit
 
 # Check all crates publish correctly (dry run)
-cargo publish -p steel-core --dry-run
-cargo publish -p steel-codegen --dry-run
-cargo publish -p steel-runtime --dry-run
-cargo publish -p steel-cli --dry-run
+cargo publish -p shaperail-core --dry-run
+cargo publish -p shaperail-codegen --dry-run
+cargo publish -p shaperail-runtime --dry-run
+cargo publish -p shaperail-cli --dry-run
 
 # Performance benchmark — must meet PRD targets
 cargo bench --workspace
@@ -38,7 +38,7 @@ All 4 crates must have identical versions.
 ```bash
 # Update version in every Cargo.toml
 # workspace.package.version = "0.2.1"
-# Also update each crate's dependency on other steel-* crates
+# Also update each crate's dependency on other shaperail-* crates
 
 # Commit the version bump
 git add .
@@ -57,18 +57,18 @@ Publish in dependency order (core first, cli last):
 cargo login   # paste your crates.io API token
 
 # Publish in order — wait for each to propagate before next
-cargo publish -p steel-core
+cargo publish -p shaperail-core
 sleep 30
-cargo publish -p steel-codegen
+cargo publish -p shaperail-codegen
 sleep 30
-cargo publish -p steel-runtime
+cargo publish -p shaperail-runtime
 sleep 30
-cargo publish -p steel-cli
+cargo publish -p shaperail-cli
 ```
 
 After publishing, users can install with:
 ```bash
-cargo install steel-cli
+cargo install shaperail-cli
 ```
 
 ---
@@ -90,19 +90,19 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary: steel
+            binary: shaperail
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            binary: steel
+            binary: shaperail
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary: steel
+            binary: shaperail
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary: steel
+            binary: shaperail
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary: steel.exe
+            binary: shaperail.exe
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -110,11 +110,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - run: cargo build -p steel-cli --release --target ${{ matrix.target }}
+      - run: cargo build -p shaperail-cli --release --target ${{ matrix.target }}
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: steel-${{ matrix.target }}
+          name: shaperail-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
 
   release:
@@ -124,13 +124,13 @@ jobs:
       - uses: actions/download-artifact@v4
       - uses: softprops/action-gh-release@v1
         with:
-          files: steel-*/**
+          files: shaperail-*/**
 ```
 
 ---
 
 ## Step 5 — Install Script
-Create `install.sh` at the repo root (served at steelapi.dev/install.sh):
+Create `install.sh` at the repo root (served at shaperail.dev/install.sh):
 
 ```bash
 #!/bin/sh
@@ -139,7 +139,7 @@ Create `install.sh` at the repo root (served at steelapi.dev/install.sh):
 set -e
 
 VERSION="0.2.1"
-REPO="muhammadmahindar/steel-api"
+REPO="muhammadmahindar/shaperail"
 TMP_DIR=$(mktemp -d)
 
 cleanup() {
@@ -163,21 +163,21 @@ case "$OS" in
   *) echo "Unsupported OS: $OS"; exit 1 ;;
 esac
 
-ARCHIVE="steel-${TARGET}.tar.gz"
+ARCHIVE="shaperail-${TARGET}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE}"
-echo "Downloading steel ${VERSION} for ${TARGET}..."
+echo "Downloading shaperail ${VERSION} for ${TARGET}..."
 curl -fsSL "$URL" -o "${TMP_DIR}/${ARCHIVE}"
 tar -xzf "${TMP_DIR}/${ARCHIVE}" -C "${TMP_DIR}"
-chmod +x "${TMP_DIR}/steel"
-sudo mv "${TMP_DIR}/steel" /usr/local/bin/steel
-echo "steel installed successfully. Run: steel --version"
+chmod +x "${TMP_DIR}/shaperail"
+sudo mv "${TMP_DIR}/shaperail" /usr/local/bin/shaperail
+echo "shaperail installed successfully. Run: shaperail --version"
 ```
 
 Users can install with:
 ```bash
-curl -fsSL https://steelapi.dev/install.sh | sh
+curl -fsSL https://shaperail.dev/install.sh | sh
 # or directly:
-cargo install steel-cli
+cargo install shaperail-cli
 ```
 
 ---

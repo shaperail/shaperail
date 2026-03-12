@@ -1,4 +1,4 @@
-# SteelAPI Hook System
+# Shaperail Hook System
 
 ## What Hooks Are
 Hooks are escape hatches for custom business logic that can't be expressed declaratively.
@@ -6,7 +6,7 @@ They are Rust async functions with a fixed signature, injected at declared lifec
 
 ## Hook Signature (always this shape)
 ```rust
-pub async fn hook_name(ctx: &mut HookContext) -> Result<(), SteelError> {
+pub async fn hook_name(ctx: &mut HookContext) -> Result<(), ShaperailError> {
     // your logic here
     Ok(())
 }
@@ -40,12 +40,12 @@ pub struct HookContext {
 
 ### Validate input
 ```rust
-pub async fn validate_org_membership(ctx: &mut HookContext) -> Result<(), SteelError> {
+pub async fn validate_org_membership(ctx: &mut HookContext) -> Result<(), ShaperailError> {
     let org_id: Uuid = serde_json::from_value(ctx.input["org_id"].clone())?;
-    let user = ctx.user.as_ref().ok_or(SteelError::Unauthorized)?;
+    let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
 
     if user.org_id != org_id {
-        return Err(SteelError::Forbidden("Cannot create user in another org".into()));
+        return Err(ShaperailError::Forbidden("Cannot create user in another org".into()));
     }
     Ok(())
 }
@@ -53,7 +53,7 @@ pub async fn validate_org_membership(ctx: &mut HookContext) -> Result<(), SteelE
 
 ### Mutate input (before-hooks only)
 ```rust
-pub async fn hash_password(ctx: &mut HookContext) -> Result<(), SteelError> {
+pub async fn hash_password(ctx: &mut HookContext) -> Result<(), ShaperailError> {
     if let Some(password) = ctx.input.get("password").and_then(|v| v.as_str()) {
         let hash = bcrypt::hash(password, 12)?;
         ctx.input["password_hash"] = Value::String(hash);
@@ -65,10 +65,10 @@ pub async fn hash_password(ctx: &mut HookContext) -> Result<(), SteelError> {
 
 ### Enqueue a job (after-hooks)
 ```rust
-pub async fn send_welcome_email(ctx: &mut HookContext) -> Result<(), SteelError> {
+pub async fn send_welcome_email(ctx: &mut HookContext) -> Result<(), ShaperailError> {
     let user_id = ctx.output.as_ref()
         .and_then(|o| o["id"].as_str())
-        .ok_or(SteelError::Internal("Missing user id in output".into()))?;
+        .ok_or(ShaperailError::Internal("Missing user id in output".into()))?;
 
     ctx.jobs.enqueue("send_welcome_email", json!({ "user_id": user_id })).await?;
     Ok(())
@@ -77,7 +77,7 @@ pub async fn send_welcome_email(ctx: &mut HookContext) -> Result<(), SteelError>
 
 ### Emit a custom event
 ```rust
-pub async fn emit_user_created_event(ctx: &mut HookContext) -> Result<(), SteelError> {
+pub async fn emit_user_created_event(ctx: &mut HookContext) -> Result<(), ShaperailError> {
     ctx.events.emit("user.onboarded", ctx.output.clone().unwrap_or_default()).await?;
     Ok(())
 }
@@ -93,7 +93,7 @@ If any `before` hook returns `Err`, the DB write is aborted and the error is ret
 If any `after` hook returns `Err`, the error is logged but the response is still 200 (configurable).
 
 ## Hook File Location
-Custom hook implementations live in `steel-runtime/src/hooks/<resource>/`.
+Custom hook implementations live in `shaperail-runtime/src/hooks/<resource>/`.
 They are referenced by name in the resource YAML file.
 The codegen generates the hook registration; you write the implementation.
 

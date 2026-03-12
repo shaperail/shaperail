@@ -1,0 +1,6 @@
+---
+source: shaperail-codegen/tests/snapshot_tests.rs
+assertion_line: 132
+expression: err.to_string()
+---
+version: invalid type: sequence, expected u32 at line 2 column 10

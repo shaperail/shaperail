@@ -1,13 +1,13 @@
-# SteelAPI Code Generation Patterns
+# Shaperail Code Generation Patterns
 
 ## Principle
 The generator converts ResourceDefinition → Rust source files.
-Input: `steel-core::ResourceDefinition` (already validated)
-Output: Rust modules written to `steel-runtime/src/generated/<resource>/`
+Input: `shaperail-core::ResourceDefinition` (already validated)
+Output: Rust modules written to `shaperail-runtime/src/generated/<resource>/`
 
 ## Output File Structure Per Resource
 ```
-steel-runtime/src/generated/users/
+shaperail-runtime/src/generated/users/
 ├── mod.rs          # re-exports everything
 ├── model.rs        # serde struct, sqlx FromRow
 ├── handlers.rs     # Actix-web handler functions
@@ -55,7 +55,7 @@ pub struct UpdateUserInput {
 // Always use sqlx query_as! macro for compile-time verification
 // Never use raw string queries
 
-pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>, SteelError> {
+pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>, ShaperailError> {
     sqlx::query_as!(
         User,
         "SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL",
@@ -63,10 +63,10 @@ pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>, SteelEr
     )
     .fetch_optional(pool)
     .await
-    .map_err(SteelError::from)
+    .map_err(ShaperailError::from)
 }
 
-pub async fn list(pool: &PgPool, params: &ListParams) -> Result<Vec<User>, SteelError> {
+pub async fn list(pool: &PgPool, params: &ListParams) -> Result<Vec<User>, ShaperailError> {
     // Cursor pagination — preferred over offset for large tables
     // Offset pagination only when explicitly declared in resource file
     sqlx::query_as!(
@@ -83,7 +83,7 @@ pub async fn list(pool: &PgPool, params: &ListParams) -> Result<Vec<User>, Steel
     )
     .fetch_all(pool)
     .await
-    .map_err(SteelError::from)
+    .map_err(ShaperailError::from)
 }
 ```
 
@@ -99,7 +99,7 @@ pub async fn get_user(
 
     match queries::find_by_id(&state.db, id).await {
         Ok(Some(user)) => HttpResponse::Ok().json(user),
-        Ok(None) => SteelError::NotFound("user".into()).into_response(),
+        Ok(None) => ShaperailError::NotFound("user".into()).into_response(),
         Err(e) => e.into_response(),
     }
 }
@@ -115,7 +115,7 @@ pub struct ListResponse<T> {
 ## Error Handling Rule
 NEVER use `.unwrap()` or `.expect()` in generated code.
 ALWAYS propagate with `?` or explicit `match`.
-ALWAYS use `SteelError` variants — never raw `String` errors.
+ALWAYS use `ShaperailError` variants — never raw `String` errors.
 
 ## Enum Pattern
 ```rust
@@ -148,5 +148,5 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 - Generate code that uses `.unwrap()` or `.expect()`
 - Generate `pub` fields on input structs that bypass validation
 - Generate SQL with string interpolation (always use `$1`, `$2` placeholders)
-- Generate code that imports from outside `steel-core` or `steel-runtime`
+- Generate code that imports from outside `shaperail-core` or `shaperail-runtime`
 - Generate files that don't compile with `cargo clippy -- -D warnings`

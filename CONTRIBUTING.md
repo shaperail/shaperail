@@ -1,12 +1,12 @@
-# Contributing to SteelAPI
+# Contributing to Shaperail
 
-Thank you for your interest in contributing to SteelAPI.
+Thank you for your interest in contributing to Shaperail.
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/muhammadmahindar/steel-api.git
-cd steel-api
+git clone https://github.com/muhammadmahindar/shaperail.git
+cd shaperail
 docker compose up -d   # start Postgres + Redis
 cargo build --workspace
 cargo test --workspace
@@ -36,10 +36,10 @@ Every PR must pass:
 
 | Crate | What goes here |
 |-------|---------------|
-| `steel-core` | Shared types (`FieldType`, `ResourceDefinition`, `SteelError`) |
-| `steel-codegen` | YAML parsing, validation, OpenAPI/SDK generation |
-| `steel-runtime` | Actix-web server, DB, cache, auth, jobs, events, storage |
-| `steel-cli` | CLI commands (`steel init`, `steel serve`, etc.) |
+| `shaperail-core` | Shared types (`FieldType`, `ResourceDefinition`, `ShaperailError`) |
+| `shaperail-codegen` | YAML parsing, validation, OpenAPI/SDK generation |
+| `shaperail-runtime` | Actix-web server, DB, cache, auth, jobs, events, storage |
+| `shaperail-cli` | CLI commands (`shaperail init`, `shaperail serve`, etc.) |
 
 ## Design Rules
 
@@ -71,8 +71,8 @@ These are non-negotiable. PRs that violate them will be rejected:
 Format: `feat(crate-name): description`
 
 Examples:
-- `feat(steel-core): add ChannelDefinition type`
-- `fix(steel-runtime): handle null fields in response serialization`
+- `feat(shaperail-core): add ChannelDefinition type`
+- `fix(shaperail-runtime): handle null fields in response serialization`
 - `docs: update README with WebSocket examples`
 
 ## License

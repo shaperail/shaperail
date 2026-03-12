@@ -1,6 +1,0 @@
----
-source: steel-codegen/tests/snapshot_tests.rs
-assertion_line: 80
-expression: messages
----
-- "resource 'items': field 'status' is type enum but has no values"

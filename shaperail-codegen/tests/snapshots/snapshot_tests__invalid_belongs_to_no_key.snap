@@ -1,0 +1,6 @@
+---
+source: shaperail-codegen/tests/snapshot_tests.rs
+assertion_line: 125
+expression: messages
+---
+- "resource 'items': relation 'org' is belongs_to but has no key"

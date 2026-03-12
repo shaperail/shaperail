@@ -1,15 +1,34 @@
-# SteelAPI — AI-Native Rust Backend Framework
+# Shaperail — AI-Native Rust Backend Framework
 
 ## What We Are Building
 This repo IS the framework itself. We are building the tool that gets published
-to crates.io so others can install it with `cargo install steel-cli`.
+to crates.io so others can install it with `cargo install shaperail-cli`.
 
 The end-user experience we are building toward:
 ```bash
-cargo install steel-cli
-steel init my-app
-cd my-app && steel serve   # full working API, zero boilerplate
+cargo install shaperail-cli
+shaperail init my-app
+cd my-app && shaperail serve   # full working API, zero boilerplate
 ```
+
+## Main Goal
+Make Shaperail the backend framework that an LLM can use with very low mistake
+rates. A model trained on Shaperail docs, or given Shaperail docs in-context, should be
+able to generate valid resources, config, and commands on the first pass.
+
+## Core Value
+Shaperail gives users a small, explicit schema language that expands into a
+production-ready Rust backend. The value is not flexibility through many
+equivalent options. The value is correctness through one canonical way,
+deterministic generation, and loud failure on invalid input.
+
+## What AI-First Means Here
+- One canonical syntax per concept
+- Docs, scaffolds, parser, codegen, and runtime must match exactly
+- Unknown or unsupported fields must fail clearly
+- Common CRUD and API tasks should take very few tokens
+- Explicit declarations beat implicit framework behavior
+- If docs and code disagree, fix the disagreement immediately
 
 ## Tech Stack (PRD-mandated — do not deviate)
 | Component       | Library                        |
@@ -28,10 +47,10 @@ cd my-app && steel serve   # full working API, zero boilerplate
 | OpenAPI         | Custom deterministic generator |
 
 ## Crate Responsibilities
-- `steel-core`    → ResourceDefinition, FieldType, SteelError, all shared traits
-- `steel-codegen` → YAML parser + Rust/SQL/OpenAPI generator
-- `steel-runtime` → Actix-web server, handlers, middleware, DB, Redis, jobs
-- `steel-cli`     → `steel` binary — the developer-facing tool
+- `shaperail-core`    → ResourceDefinition, FieldType, ShaperailError, all shared traits
+- `shaperail-codegen` → YAML parser + Rust/SQL/OpenAPI generator
+- `shaperail-runtime` → Actix-web server, handlers, middleware, DB, Redis, jobs
+- `shaperail-cli`     → `shaperail` binary — the developer-facing tool
 
 ## Five Design Rules (NEVER violate — enforced by /run-checks)
 1. ONE WAY — no aliases, no alternative syntax, no shortcuts
@@ -106,17 +125,17 @@ indexes:
 - ≥ 90% of generated endpoints compile + pass tests on first try
 - ≤ 75% fewer tokens than Express/FastAPI for identical CRUD
 - 100% auto-generated valid OpenAPI 3.1 specs
-- `steel init myapp && cd myapp && steel serve` works end-to-end
+- `shaperail init myapp && cd myapp && shaperail serve` works end-to-end
 
 ## Docker Requirements (PRD-mandated)
 - `docker compose up` → starts Postgres + Redis for local dev
 - Framework CI runs inside Docker (no local Rust install needed)
-- `steel build --docker` → produces scratch-based image ≤ 25 MB for user apps
+- `shaperail build --docker` → produces scratch-based image ≤ 25 MB for user apps
 
 ## Release Targets
-- `steel-core`, `steel-codegen`, `steel-runtime`, `steel-cli` published to crates.io
+- `shaperail-core`, `shaperail-codegen`, `shaperail-runtime`, `shaperail-cli` published to crates.io
 - GitHub Releases with pre-built binaries for macOS, Linux, Windows
-- Install script: `curl -fsSL https://steelapi.dev/install.sh | sh`
+- Install script: `curl -fsSL https://shaperail.dev/install.sh | sh`
 
 ## Commands
 ```bash
@@ -146,4 +165,4 @@ Active: agent_docs/current-milestone.md
 ## Git Workflow
 - Branch per milestone: `git checkout -b feat/m01-core-types`
 - Only commit when clippy + tests pass
-- Commit format: `feat(steel-core): M01 — Core Types`
+- Commit format: `feat(shaperail-core): M01 — Core Types`

@@ -1,20 +1,49 @@
-# SteelAPI
+# Shaperail
 
 **The AI-native Rust backend framework.** Define your API in YAML, get a production-ready Rust server with zero boilerplate.
 
 ```bash
-cargo install steel-cli
-steel init my-app
-cd my-app && steel serve
+cargo install shaperail-cli
+shaperail init my-app
+cd my-app && shaperail serve
 ```
 
 That's it. Full REST API with auth, caching, background jobs, WebSockets, file storage, and observability — all from a single YAML file.
 
 ---
 
-## Why SteelAPI?
+## Main Goal
 
-| Problem | SteelAPI Solution |
+Shaperail exists to make backend development predictable enough that both humans
+and LLMs can produce correct Shaperail projects with very low mistake rates. The
+framework should turn a small, explicit schema into a working Rust API without
+hidden behavior, alias-heavy syntax, or mismatched docs.
+
+## Core Value
+
+Shaperail compresses backend intent into one deterministic schema.
+
+- One canonical way to define resources, endpoints, relations, and config
+- Much lower token cost than hand-written Express or FastAPI CRUD
+- Fail-closed validation so invalid or hallucinated keys error loudly
+- Production-ready Rust runtime generated from the same source of truth
+
+## What AI-First Means
+
+For Shaperail, AI-first does not mean adding more magic. It means reducing
+ambiguity until the correct answer is the easiest answer for both a developer
+and a model.
+
+- A model reading the docs should see one obvious valid way to do a task
+- Examples, scaffolds, parser behavior, codegen, and runtime behavior must match
+- Unsupported shapes should be rejected clearly instead of being silently ignored
+- `shaperail init my-app && cd my-app && shaperail serve` must stay the shortest correct path
+
+---
+
+## Why Shaperail?
+
+| Problem | Shaperail Solution |
 |---------|-------------------|
 | Writing CRUD endpoints is tedious | Define once in YAML, generate everything |
 | Rust backends need too much boilerplate | Zero boilerplate — schema is the source of truth |
@@ -28,16 +57,16 @@ That's it. Full REST API with auth, caching, background jobs, WebSockets, file s
 
 ```bash
 # Via cargo
-cargo install steel-cli
+cargo install shaperail-cli
 
 # Or via install script (macOS/Linux)
-curl -fsSL https://steelapi.dev/install.sh | sh
+curl -fsSL https://shaperail.dev/install.sh | sh
 ```
 
 ### Prerequisites
 
 ```bash
-steel doctor  # checks Rust, PostgreSQL, Redis, sqlx-cli
+shaperail doctor  # checks Rust, PostgreSQL, Redis, sqlx-cli
 ```
 
 You need:
@@ -48,7 +77,7 @@ You need:
 ### Create a project
 
 ```bash
-steel init my-app
+shaperail init my-app
 cd my-app
 ```
 
@@ -59,10 +88,13 @@ my-app/
 ├── migrations/         # Auto-generated SQL migrations
 ├── channels/           # WebSocket channel definitions
 ├── generated/          # Auto-generated Rust code (don't edit)
-├── steel.config.yaml   # Project configuration
+├── shaperail.config.yaml   # Project configuration
 ├── docker-compose.yml  # Postgres + Redis for local dev
 └── Cargo.toml
 ```
+
+Endpoints are explicit. If a resource omits `endpoints:`, Shaperail parses the file
+but generates no HTTP routes for that resource.
 
 ### Define a resource
 
@@ -132,31 +164,31 @@ indexes:
 
 ```bash
 docker compose up -d    # start Postgres + Redis
-steel generate          # generate Rust code from YAML
-steel migrate           # create and apply DB migrations
-steel serve             # start dev server with hot reload
+shaperail generate          # generate Rust code from YAML
+shaperail migrate           # create and apply DB migrations
+shaperail serve             # start dev server with hot reload
 ```
 
-Your API is live at `http://localhost:8080`:
+Your API is live at `http://localhost:3000`:
 
 ```bash
 # List users (with cursor pagination)
-curl http://localhost:8080/users
+curl http://localhost:3000/users
 
 # Create a user
-curl -X POST http://localhost:8080/users \
+curl -X POST http://localhost:3000/users \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"email": "alice@example.com", "name": "Alice", "org_id": "..."}'
 
 # Filter + search + sort
-curl "http://localhost:8080/users?filter[role]=admin&search=alice&sort=-created_at"
+curl "http://localhost:3000/users?filter[role]=admin&search=alice&sort=-created_at"
 
 # Field selection
-curl "http://localhost:8080/users?fields=name,email"
+curl "http://localhost:3000/users?fields=name,email"
 
 # Include relations
-curl "http://localhost:8080/users?include=organization"
+curl "http://localhost:3000/users?include=organization"
 ```
 
 ---
@@ -209,7 +241,7 @@ schema:
 
 ### Authentication & Authorization
 
-SteelAPI supports JWT and API key authentication out of the box.
+Shaperail supports JWT and API key authentication out of the box.
 
 ```yaml
 endpoints:
@@ -239,7 +271,7 @@ endpoints:
       invalidate_on: [create, update, delete]  # auto-bust on writes
 ```
 
-- Cache key: `steel:<resource>:<endpoint>:<query_hash>:<user_role>`
+- Cache key: `shaperail:<resource>:<endpoint>:<query_hash>:<user_role>`
 - Bypass: `?nocache=1` or admin role
 - Zero DB queries on cache hit
 
@@ -259,7 +291,7 @@ endpoints:
 - **Job status**: query by job ID (pending/running/completed/failed)
 - **Timeout**: auto-fail jobs exceeding configured duration
 
-Monitor with: `steel jobs:status`
+Monitor with: `shaperail jobs:status`
 
 ### Events & Webhooks
 
@@ -271,7 +303,7 @@ endpoints:
     events: [user.created]     # emitted after successful create
 ```
 
-Configure subscribers in `steel.config.yaml`:
+Configure subscribers in `shaperail.config.yaml`:
 
 ```yaml
 events:
@@ -288,7 +320,7 @@ events:
 ```
 
 - Events never block HTTP responses (async via job queue)
-- Outbound webhooks signed with HMAC-SHA256: `X-Steel-Signature: sha256=...`
+- Outbound webhooks signed with HMAC-SHA256: `X-Shaperail-Signature: sha256=...`
 - Webhook retry: 3 attempts with exponential backoff
 - Full event log for audit and replay
 - Inbound webhook verification (Stripe/GitHub patterns)
@@ -309,7 +341,7 @@ hooks:
   on_message: [validate_message]
 ```
 
-Client connects to `ws://localhost:8080/ws/notifications` with JWT, then:
+Client connects to `ws://localhost:3000/ws/notifications` with JWT, then:
 
 ```json
 { "action": "subscribe", "room": "org:123" }
@@ -329,10 +361,10 @@ schema:
 
 endpoints:
   create:
-    upload: { field: avatar, max_size: 5mb, mime: [image/png, image/jpeg] }
+    upload: { field: avatar, storage: local, max_size: 5mb, types: [png, jpg] }
 ```
 
-Backends (set via `STEEL_STORAGE_BACKEND`):
+Backends (set via `SHAPERAIL_STORAGE_BACKEND`):
 - `local` — filesystem (dev default)
 - `s3` — Amazon S3
 - `gcs` — Google Cloud Storage
@@ -354,16 +386,16 @@ GET /metrics       # Prometheus format
 - **PII redaction**: `sensitive: true` fields never appear in logs
 - **OpenTelemetry**: spans for HTTP, DB, cache, and job execution
 - **Prometheus metrics**: request count, latency histogram, DB pool size, cache hit ratio, job queue depth, error rate
-- **Slow query log**: configurable via `STEEL_SLOW_QUERY_MS`
+- **Slow query log**: configurable via `SHAPERAIL_SLOW_QUERY_MS`
 
 ### OpenAPI & SDK Generation
 
 Auto-generated API documentation:
 
 ```bash
-steel export openapi                       # print to stdout
-steel export openapi --output api.yaml     # write to file
-steel export sdk --lang ts                 # TypeScript client SDK
+shaperail export openapi                       # print to stdout
+shaperail export openapi --output api.yaml     # write to file
+shaperail export sdk --lang ts                 # TypeScript client SDK
 ```
 
 - OpenAPI 3.1 spec with all endpoints, schemas, auth, pagination, filters
@@ -384,7 +416,7 @@ relations:
 Load relations via query parameter:
 
 ```bash
-curl "http://localhost:8080/users/123?include=organization"
+curl "http://localhost:3000/users/123?include=organization"
 ```
 
 ### Indexes
@@ -436,45 +468,52 @@ Soft-deleted records are automatically excluded from queries.
 
 | Command | Description |
 |---------|-------------|
-| `steel init <name>` | Scaffold a new project |
-| `steel generate` | Generate Rust code from resource YAML files |
-| `steel serve` | Start dev server with hot reload |
-| `steel build` | Build release binary |
-| `steel build --docker` | Build scratch-based Docker image |
-| `steel validate` | Validate all resource files |
-| `steel test` | Run generated + custom tests |
-| `steel migrate` | Generate + apply SQL migrations |
-| `steel migrate --rollback` | Rollback last migration batch |
-| `steel seed` | Load fixture YAML files into database |
-| `steel export openapi` | Export OpenAPI 3.1 spec |
-| `steel export sdk --lang ts` | Generate TypeScript client SDK |
-| `steel doctor` | Check system dependencies |
-| `steel routes` | Print all routes with auth requirements |
-| `steel jobs:status` | Show job queue depth and recent failures |
+| `shaperail init <name>` | Scaffold a new project |
+| `shaperail generate` | Generate Rust code from resource YAML files |
+| `shaperail serve` | Start dev server with hot reload |
+| `shaperail build` | Build release binary |
+| `shaperail build --docker` | Build scratch-based Docker image |
+| `shaperail validate` | Validate all resource files |
+| `shaperail test` | Run generated + custom tests |
+| `shaperail migrate` | Generate + apply SQL migrations |
+| `shaperail migrate --rollback` | Rollback last migration batch |
+| `shaperail seed` | Load fixture YAML files into database |
+| `shaperail export openapi` | Export OpenAPI 3.1 spec |
+| `shaperail export sdk --lang ts` | Generate TypeScript client SDK |
+| `shaperail doctor` | Check system dependencies |
+| `shaperail routes` | Print all routes with auth requirements |
+| `shaperail jobs:status` | Show job queue depth and recent failures |
 
 ---
 
 ## Configuration
 
-### steel.config.yaml
+### shaperail.config.yaml
 
 ```yaml
-name: my-app
-port: 8080
+project: my-app
+port: 3000
+workers: auto
 
 database:
-  url: ${DATABASE_URL}
+  type: postgresql
+  host: ${SHAPERAIL_DB_HOST:localhost}
+  port: 5432
+  name: my_app_db
+  pool_size: 20
 
 cache:
-  url: ${REDIS_URL}
+  type: redis
+  url: ${REDIS_URL:redis://localhost:6379}
 
 auth:
-  jwt_secret: ${JWT_SECRET}
-  token_expiry: 3600
+  provider: jwt
+  secret_env: JWT_SECRET
+  expiry: 24h
+  refresh_expiry: 30d
 
 storage:
-  backend: local          # local | s3 | gcs | azure
-  path: ./uploads
+  provider: local
 
 logging:
   level: info
@@ -491,8 +530,8 @@ events:
 | `DATABASE_URL` | PostgreSQL connection string | required |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
 | `JWT_SECRET` | Secret for signing JWTs | required |
-| `STEEL_STORAGE_BACKEND` | File storage backend | `local` |
-| `STEEL_SLOW_QUERY_MS` | Slow query threshold | `100` |
+| `SHAPERAIL_STORAGE_BACKEND` | File storage backend | `local` |
+| `SHAPERAIL_SLOW_QUERY_MS` | Slow query threshold | `100` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry collector endpoint | disabled |
 
 ---
@@ -547,13 +586,13 @@ All endpoints return consistent JSON envelopes:
 
 ```bash
 docker compose up -d   # starts Postgres + Redis
-steel serve            # start your app
+shaperail serve            # start your app
 ```
 
 ### Production build
 
 ```bash
-steel build --docker   # produces scratch-based image
+shaperail build --docker   # produces scratch-based image
 ```
 
 The generated image is based on `scratch` for minimal size (target: under 25 MB).
@@ -562,27 +601,27 @@ The generated image is based on `scratch` for minimal size (target: under 25 MB)
 
 ## Project Structure
 
-SteelAPI is a workspace of four crates:
+Shaperail is a workspace of four crates:
 
 | Crate | Purpose |
 |-------|---------|
-| [`steel-core`](./steel-core) | Shared types: `ResourceDefinition`, `FieldType`, `SteelError` |
-| [`steel-codegen`](./steel-codegen) | YAML parser, validator, Rust/SQL/OpenAPI code generation |
-| [`steel-runtime`](./steel-runtime) | Actix-web server, handlers, DB, cache, auth, jobs, events, storage |
-| [`steel-cli`](./steel-cli) | The `steel` binary — developer-facing CLI tool |
+| [`shaperail-core`](./shaperail-core) | Shared types: `ResourceDefinition`, `FieldType`, `ShaperailError` |
+| [`shaperail-codegen`](./shaperail-codegen) | YAML parser, validator, Rust/SQL/OpenAPI code generation |
+| [`shaperail-runtime`](./shaperail-runtime) | Actix-web server, handlers, DB, cache, auth, jobs, events, storage |
+| [`shaperail-cli`](./shaperail-cli) | The `shaperail` binary — developer-facing CLI tool |
 
 Dependency graph (flat — max depth 2):
 ```
-steel-cli ──→ steel-codegen ──→ steel-core
+shaperail-cli ──→ shaperail-codegen ──→ shaperail-core
                                     ↑
-steel-runtime ──────────────────────┘
+shaperail-runtime ──────────────────────┘
 ```
 
 ---
 
 ## Performance
 
-SteelAPI is designed to meet these targets:
+Shaperail is designed to meet these targets:
 
 | Metric | Target |
 |--------|--------|

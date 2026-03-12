@@ -1,4 +1,4 @@
-# SteelAPI — All Milestones
+# Shaperail — All Milestones
 
 ## How to use
 Run `/milestone <number>` in any Claude Code session.
@@ -13,12 +13,12 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 
 ## VERSION 2 — Foundation (M01–M13)
 > Single-service REST backend. Must be complete before starting v3.
-> End goal: `cargo install steel-cli` && `steel init myapp && steel serve` works.
+> End goal: `cargo install shaperail-cli` && `shaperail init myapp && shaperail serve` works.
 
 ---
 
 ### M01 — Core Types
-**Crate:** `steel-core` | **Status:** [x]
+**Crate:** `shaperail-core` | **Status:** [x]
 
 **Deliverables:**
 - [x] `FieldType` enum: uuid, string, integer, bigint, number, boolean, timestamp, date, enum, json, array, file
@@ -29,38 +29,38 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 - [x] `RelationSpec` struct: resource, type (belongs_to/has_many/has_one), key/foreign_key
 - [x] `IndexSpec` struct: fields, unique, order
 - [x] `CacheSpec` struct: ttl, invalidate_on
-- [x] `SteelError` enum: NotFound, Unauthorized, Forbidden, Validation(Vec<FieldError>), Conflict, RateLimited, Internal — with Display + HTTP status + From<sqlx::Error>
-- [x] `ProjectConfig` struct — matches steel.config.yaml format from PRD
+- [x] `ShaperailError` enum: NotFound, Unauthorized, Forbidden, Validation(Vec<FieldError>), Conflict, RateLimited, Internal — with Display + HTTP status + From<sqlx::Error>
+- [x] `ProjectConfig` struct — matches shaperail.config.yaml format from PRD
 - [x] All public types have `///` doc comments
 - [x] Unit tests cover every enum variant and struct field
 
 **Acceptance Criteria:**
-- `cargo build -p steel-core` zero warnings
-- `cargo clippy -p steel-core -- -D warnings` passes
+- `cargo build -p shaperail-core` zero warnings
+- `cargo clippy -p shaperail-core -- -D warnings` passes
 - Error response JSON shape matches PRD: `{ "error": { "code", "status", "message", "request_id", "details" } }`
 
 ---
 
 ### M02 — YAML Parser
-**Crate:** `steel-codegen` | **Status:** [x]
+**Crate:** `shaperail-codegen` | **Status:** [x]
 
 **Deliverables:**
 - [x] `parser` module: YAML string → `ResourceDefinition` (exact PRD format: `resource:` key, inline fields)
-- [x] `config_parser` module: steel.config.yaml → `ProjectConfig`
+- [x] `config_parser` module: shaperail.config.yaml → `ProjectConfig`
 - [x] `validator` module: semantic checks — enum needs values, soft_delete needs updated_at, ref field must be uuid type, hooks list must be strings
 - [x] Error messages in format: `"resource 'users': field 'role' is type enum but has no values"`
-- [x] `steel validate <file>` CLI subcommand: reads resource file, prints errors or "✓ valid"
+- [x] `shaperail validate <file>` CLI subcommand: reads resource file, prints errors or "✓ valid"
 - [x] Snapshot tests (insta): 5 valid resources → snapshot parsed output; 10 invalid → snapshot error messages
 
 **Acceptance Criteria:**
-- `cargo test -p steel-codegen` all pass
+- `cargo test -p shaperail-codegen` all pass
 - Parses the exact format in agent_docs/resource-format.md
 - Invalid files produce human-readable errors, not raw serde panics
 
 ---
 
 ### M03 — Database Layer
-**Crate:** `steel-runtime` | **Status:** [x]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] `db` module: PgPool setup from DATABASE_URL, health check query
@@ -80,7 +80,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M04 — REST Handlers
-**Crate:** `steel-runtime` | **Status:** [x]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] Handler generator: ResourceDefinition → Actix-web handlers for every declared endpoint
@@ -99,7 +99,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M05 — Auth System
-**Crate:** `steel-runtime` | **Status:** [x]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] JWT middleware: validates Bearer token, attaches AuthUser to request
@@ -108,7 +108,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 - [x] Owner check: `AuthRule::Owner` → resource.created_by == auth_user.id
 - [x] API key auth: X-API-Key header as alternative to JWT
 - [x] Rate limiting: sliding window per IP + per token via Redis, configurable per endpoint
-- [x] JWT issue + refresh token endpoint (used by `steel init` auth scaffold)
+- [x] JWT issue + refresh token endpoint (used by `shaperail init` auth scaffold)
 - [x] Tests: 401 no token, 403 wrong role, 200 correct role, owner allows own, owner blocks other's
 
 **Acceptance Criteria:**
@@ -118,12 +118,12 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M06 — Redis Caching
-**Crate:** `steel-runtime` | **Status:** [x]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] Redis client via deadpool-redis, pool from REDIS_URL
 - [x] Cache middleware: GET endpoints with `cache.ttl` check Redis before DB
-- [x] Cache key: `steel:<resource>:<endpoint>:<query_hash>:<user_role>`
+- [x] Cache key: `shaperail:<resource>:<endpoint>:<query_hash>:<user_role>`
 - [x] Auto-invalidation: create/update/delete deletes all keys for that resource
 - [x] `invalidate_on` from endpoint spec controls which operations bust cache
 - [x] Cache bypass: `?nocache=1` or admin role
@@ -136,14 +136,14 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M07 — Background Jobs
-**Crate:** `steel-runtime` | **Status:** [x]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] `JobQueue` struct: enqueue(name, payload, priority) → job_id
 - [x] Priority queues: critical, high, normal, low (separate Redis lists)
 - [x] Worker: polls Redis, executes registered job handler, acks on success
 - [x] Retry: exponential backoff, configurable max_retries per job
-- [x] Dead letter queue: failed jobs move to `steel:jobs:dead` after max retries
+- [x] Dead letter queue: failed jobs move to `shaperail:jobs:dead` after max retries
 - [x] Job status: pending/running/completed/failed queryable by job_id
 - [x] Job timeout: auto-fail jobs exceeding configured duration
 - [x] `ctx.jobs.enqueue()` available in HookContext
@@ -156,7 +156,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M08 — WebSockets
-**Crate:** `steel-runtime` | **Status:** [x]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] Channel YAML format: `channels/<name>.channel.yaml` (see PRD format)
@@ -175,7 +175,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M09 — File Storage
-**Crate:** `steel-runtime` | **Status:** [x]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] `StorageBackend` trait: upload, download, delete, signed_url
@@ -190,18 +190,18 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 - [x] Tests: upload local, retrieve, delete, signed URL, invalid mime type rejected
 
 **Acceptance Criteria:**
-- Backend selected via `STEEL_STORAGE_BACKEND=s3|gcs|azure|local` env var
+- Backend selected via `SHAPERAIL_STORAGE_BACKEND=s3|gcs|azure|local` env var
 - File metadata (path, size, mime) stored in DB with resource record
 
 ---
 
 ### M10 — Events + Webhooks
-**Crate:** `steel-runtime` | **Status:** [x]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] `EventEmitter`: emit(name, payload) — non-blocking, via job queue
 - [x] Auto-emit: every create/update/delete emits `<resource>.<action>` automatically
-- [x] Event subscribers in steel.config.yaml: job / webhook / channel / hook targets
+- [x] Event subscribers in shaperail.config.yaml: job / webhook / channel / hook targets
 - [x] Event log table: append-only, stores all emitted events for audit + replay
 - [x] Outbound webhooks: POST to URL on event, HMAC-SHA256 signature header
 - [x] Webhook retry: 3 attempts exponential backoff via job queue
@@ -211,40 +211,40 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 
 **Acceptance Criteria:**
 - Events never block HTTP response — always async via job queue
-- Webhook signature: `X-Steel-Signature: sha256=HMAC(secret, body)`
+- Webhook signature: `X-Shaperail-Signature: sha256=HMAC(secret, body)`
 
 ---
 
 ### M11 — CLI
-**Crate:** `steel-cli` | **Status:** [x]
+**Crate:** `shaperail-cli` | **Status:** [x]
 
 **Deliverables (exact commands from PRD):**
-- [x] `steel init <n>` — scaffold project with correct structure (all dirs + steel.config.yaml)
-- [x] `steel generate` — run codegen for all resource files, write to generated/
-- [x] `steel serve` — start dev server with hot reload via cargo-watch
-- [x] `steel build` — release binary: `cargo build --release`
-- [x] `steel build --docker` — generate Dockerfile + build scratch image ≤ 25 MB
-- [x] `steel validate` — validate all resource files, report errors
-- [x] `steel test` — run generated + custom tests
-- [x] `steel migrate` — generate + apply SQL migration from resource diff
-- [x] `steel migrate --rollback` — rollback last migration batch
-- [x] `steel seed` — load fixture YAML files into DB
-- [x] `steel export openapi` — output OpenAPI spec to stdout or --output file
-- [x] `steel export sdk --lang ts` — generate TypeScript client SDK
-- [x] `steel doctor` — check system deps: Rust, PostgreSQL, Redis, sqlx-cli
-- [x] `steel routes` — print all routes with auth requirements
-- [x] `steel jobs:status` — show job queue depth and recent failures
-- [x] Tests: assert_cmd for every command, `steel init + steel serve` end-to-end test
+- [x] `shaperail init <n>` — scaffold project with correct structure (all dirs + shaperail.config.yaml)
+- [x] `shaperail generate` — run codegen for all resource files, write to generated/
+- [x] `shaperail serve` — start dev server with hot reload via cargo-watch
+- [x] `shaperail build` — release binary: `cargo build --release`
+- [x] `shaperail build --docker` — generate Dockerfile + build scratch image ≤ 25 MB
+- [x] `shaperail validate` — validate all resource files, report errors
+- [x] `shaperail test` — run generated + custom tests
+- [x] `shaperail migrate` — generate + apply SQL migration from resource diff
+- [x] `shaperail migrate --rollback` — rollback last migration batch
+- [x] `shaperail seed` — load fixture YAML files into DB
+- [x] `shaperail export openapi` — output OpenAPI spec to stdout or --output file
+- [x] `shaperail export sdk --lang ts` — generate TypeScript client SDK
+- [x] `shaperail doctor` — check system deps: Rust, PostgreSQL, Redis, sqlx-cli
+- [x] `shaperail routes` — print all routes with auth requirements
+- [x] `shaperail jobs:status` — show job queue depth and recent failures
+- [x] Tests: assert_cmd for every command, `shaperail init + shaperail serve` end-to-end test
 
 **Acceptance Criteria:**
-- `steel init myapp && cd myapp && steel serve` works end-to-end (PRD success metric)
+- `shaperail init myapp && cd myapp && shaperail serve` works end-to-end (PRD success metric)
 - All commands have `--help` output
-- `steel doctor` catches missing dependencies with clear fix instructions
+- `shaperail doctor` catches missing dependencies with clear fix instructions
 
 ---
 
 ### M12 — Observability
-**Crate:** `steel-runtime` | **Status:** [x]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] Structured JSON logging via tracing crate, request_id on every line
@@ -255,7 +255,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 - [x] Prometheus metrics at `GET /metrics`: req_count, latency_histogram, db_pool_size, cache_hit_ratio, job_queue_depth, error_rate
 - [x] `GET /health` — shallow: returns 200 if process running
 - [x] `GET /health/ready` — deep: checks DB connection + Redis + storage
-- [x] Slow query log: queries exceeding `STEEL_SLOW_QUERY_MS` threshold
+- [x] Slow query log: queries exceeding `SHAPERAIL_SLOW_QUERY_MS` threshold
 - [x] Tests: /metrics returns valid Prometheus format, /health/ready returns 503 when DB down
 
 **Acceptance Criteria:**
@@ -265,17 +265,17 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M13 — OpenAPI Generation
-**Crate:** `steel-codegen` | **Status:** [x]
+**Crate:** `shaperail-codegen` | **Status:** [x]
 
 **Deliverables:**
 - [x] `openapi` module: Vec<ResourceDefinition> → OpenAPI 3.1 spec (JSON + YAML)
 - [x] All endpoints documented: path, method, request body, response schemas, auth
 - [x] Pagination, filter, sort, search params documented per endpoint
 - [x] Standard error responses: 401, 403, 404, 422, 429, 500
-- [x] `x-steelapi-hooks` and `x-steelapi-events` vendor extensions
+- [x] `x-shaperail-hooks` and `x-shaperail-events` vendor extensions
 - [x] Deterministic output: same resource files → byte-identical spec every time
 - [x] TypeScript SDK generation from spec via openapi-typescript
-- [x] `steel export openapi` CLI command
+- [x] `shaperail export openapi` CLI command
 - [x] Tests: spec passes OpenAPI 3.1 validation, deterministic (run twice, diff is empty)
 
 **Acceptance Criteria:**
@@ -290,26 +290,26 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M14 — Multi-Database
-**Crates:** `steel-core`, `steel-codegen`, `steel-runtime` | **Status:** [ ]
+**Crates:** `shaperail-core`, `shaperail-codegen`, `shaperail-runtime` | **Status:** [ ]
 
 **Deliverables:**
-- [ ] `DatabaseEngine` enum: Postgres, MySQL, SQLite, MongoDB in steel-core
+- [ ] `DatabaseEngine` enum: Postgres, MySQL, SQLite, MongoDB in shaperail-core
 - [ ] `db:` key in resource YAML: routes resource to named DB connection
-- [ ] Multi-DB config in steel.config.yaml: `databases:` map with named connections
+- [ ] Multi-DB config in shaperail.config.yaml: `databases:` map with named connections
 - [ ] MySQL backend: sqlx mysql driver, migration support, 95% feature coverage
 - [ ] SQLite backend: sqlx sqlite driver, WAL mode, 85% feature coverage
 - [ ] MongoDB backend: mongodb crate, schema validation, 75% feature coverage
-- [ ] Engine-specific query emitters in steel-codegen
-- [ ] `steel migrate` runs all engines in dependency order
+- [ ] Engine-specific query emitters in shaperail-codegen
+- [ ] `shaperail migrate` runs all engines in dependency order
 - [ ] Tests: full CRUD on each engine, same API behaviour, cross-DB project works
 
 ---
 
 ### M15 — GraphQL
-**Crates:** `steel-codegen`, `steel-runtime` | **Status:** [ ]
+**Crates:** `shaperail-codegen`, `shaperail-runtime` | **Status:** [ ]
 
 **Deliverables:**
-- [ ] `protocols: [rest, graphql]` in steel.config.yaml
+- [ ] `protocols: [rest, graphql]` in shaperail.config.yaml
 - [ ] GraphQL type generation from resource schema via async-graphql crate
 - [ ] Query resolvers: list (filter/sort/pagination), get, nested relations
 - [ ] DataLoader generated for all relations — N+1 impossible
@@ -322,10 +322,10 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M16 — gRPC
-**Crates:** `steel-codegen`, `steel-runtime` | **Status:** [ ]
+**Crates:** `shaperail-codegen`, `shaperail-runtime` | **Status:** [ ]
 
 **Deliverables:**
-- [ ] `protocols: [rest, grpc]` in steel.config.yaml
+- [ ] `protocols: [rest, grpc]` in shaperail.config.yaml
 - [ ] `.proto` generation from resource schema (auto-generated, never hand-edited)
 - [ ] Tonic gRPC server implementation
 - [ ] Streaming RPCs for list endpoints
@@ -337,20 +337,20 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M17 — Multi-Service
-**Crates:** `steel-core`, `steel-cli` | **Status:** [ ]
+**Crates:** `shaperail-core`, `shaperail-cli` | **Status:** [ ]
 
 **Deliverables:**
-- [ ] `steel.workspace.yaml` format: declares multiple services
+- [ ] `shaperail.workspace.yaml` format: declares multiple services
 - [ ] Service registry via Redis: services register on startup, discover peers
 - [ ] Typed inter-service clients: auto-generated from peer's resource definitions
-- [ ] `steel serve --workspace` starts all services
+- [ ] `shaperail serve --workspace` starts all services
 - [ ] Distributed saga support via saga YAML files
 - [ ] Tests: Service A calls Service B with typed client, type mismatch = compile error
 
 ---
 
 ### M18 — Multi-Tenancy
-**Crate:** `steel-runtime` | **Status:** [ ]
+**Crate:** `shaperail-runtime` | **Status:** [ ]
 
 **Deliverables:**
 - [ ] `tenant_key:` field in resource YAML
@@ -363,7 +363,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M19 — WASM Plugins
-**Crates:** `steel-core`, `steel-runtime` | **Status:** [ ]
+**Crates:** `shaperail-core`, `shaperail-runtime` | **Status:** [ ]
 
 **Deliverables:**
 - [ ] WasmHook runtime via wasmtime
@@ -376,14 +376,14 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M20 — Embedded AI + Admin Panel
-**Crates:** `steel-runtime`, `steel-cli` | **Status:** [ ]
+**Crates:** `shaperail-runtime`, `shaperail-cli` | **Status:** [ ]
 
 **Deliverables:**
-- [ ] `steel.ai.yaml` config for local model or OpenAI-compatible API
+- [ ] `shaperail.ai.yaml` config for local model or OpenAI-compatible API
 - [ ] `POST /ai/query` — natural language → SQL → result, scoped to user permissions
 - [ ] Auto-generated admin panel at `/admin` from resource definitions
 - [ ] Admin auth: separate `admin_roles` config
-- [ ] `steel generate --admin` CLI command
+- [ ] `shaperail generate --admin` CLI command
 - [ ] Tests: AI query returns correct results, admin panel enforces auth
 
 ---
@@ -394,60 +394,60 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M21 — Self-Healing Runtime
-**Crate:** `steel-runtime` | **Status:** [ ]
+**Crate:** `shaperail-runtime` | **Status:** [ ]
 
 **Deliverables:**
 - [ ] Anomaly detection: EMA on latency, error rate, throughput per endpoint
-- [ ] Configurable thresholds in `steel.autopilot.yaml`
+- [ ] Configurable thresholds in `shaperail.autopilot.yaml`
 - [ ] Diagnosis engine: correlate anomaly with deployments, DB patterns, upstream failures
 - [ ] Auto-remediation for: slow query (index), pool exhaustion (scale), cache stampede (stagger TTL), OOM, rate spike, connection leak, upstream timeout (circuit breaker), job backlog
 - [ ] Modes: observe / approve / auto
-- [ ] Healing log + rollback: every action is reversible with `steel autopilot rollback <id>`
+- [ ] Healing log + rollback: every action is reversible with `shaperail autopilot rollback <id>`
 - [ ] Tests: inject slow query → index recommended; inject pool exhaustion → pool scaled
 
 ---
 
 ### M22 — Self-Optimizing Performance
-**Crate:** `steel-runtime` | **Status:** [ ]
+**Crate:** `shaperail-runtime` | **Status:** [ ]
 
 **Deliverables:**
 - [ ] Query pattern analysis → index suggestions + auto-apply
 - [ ] Adaptive cache TTL based on actual write frequency
 - [ ] Cache warming prediction from access patterns
 - [ ] Connection pool auto-tuning from concurrency patterns
-- [ ] Weekly report: `steel autopilot report` — slow endpoints, unused indexes, cache recommendations, cost estimate
+- [ ] Weekly report: `shaperail autopilot report` — slow endpoints, unused indexes, cache recommendations, cost estimate
 - [ ] Tests: generate traffic pattern → correct optimization suggested
 
 ---
 
 ### M23 — MCP Server
-**Crates:** `steel-runtime`, `steel-cli` | **Status:** [ ]
+**Crates:** `shaperail-runtime`, `shaperail-cli` | **Status:** [ ]
 
 **Deliverables:**
 - [ ] MCP server exposing tools: list_resources, get_schema, create_resource, update_resource, delete_resource, run_migration, get_metrics, get_healing_log, apply_optimization
-- [ ] Agent permission tiers: read-only / read-write / admin in `steel.agents.yaml`
+- [ ] Agent permission tiers: read-only / read-write / admin in `shaperail.agents.yaml`
 - [ ] Approval flow: write ops require human approval in approve mode
 - [ ] Agent activity log: every MCP call logged with agent identity + result
-- [ ] `steel serve --mcp` starts MCP alongside HTTP
+- [ ] `shaperail serve --mcp` starts MCP alongside HTTP
 - [ ] Tests: Claude Code connects via MCP and performs CRUD, permissions enforced
 
 ---
 
 ### M24 — Self-Evolving Codebase
-**Crates:** `steel-runtime`, `steel-codegen` | **Status:** [ ]
+**Crates:** `shaperail-runtime`, `shaperail-codegen` | **Status:** [ ]
 
 **Deliverables:**
 - [ ] Field usage tracking: record which fields are read/written in production
 - [ ] Schema evolution suggestions: unused fields, type mismatches, new indexes
 - [ ] Relation discovery: frequent cross-resource queries → suggest declared relation
-- [ ] `steel autopilot suggest` — outputs data-driven suggestions with impact estimates
+- [ ] `shaperail autopilot suggest` — outputs data-driven suggestions with impact estimates
 - [ ] One-command apply: generates resource diff + migration + git commit
 - [ ] Tests: simulate access pattern → correct suggestion generated
 
 ---
 
 ### M25 — Autonomous Testing
-**Crate:** `steel-runtime` | **Status:** [ ]
+**Crate:** `shaperail-runtime` | **Status:** [ ]
 
 **Deliverables:**
 - [ ] Auto-generated integration tests per endpoint: happy path, validation, auth, edge cases
@@ -462,7 +462,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M26 — Autonomous Security
-**Crate:** `steel-runtime` | **Status:** [ ]
+**Crate:** `shaperail-runtime` | **Status:** [ ]
 
 **Deliverables:**
 - [ ] `cargo audit` on schedule + auto-PR for CVE patches

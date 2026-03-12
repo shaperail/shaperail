@@ -1,36 +1,36 @@
-# SteelAPI Testing Strategy
+# Shaperail Testing Strategy
 
 ## Layer-by-Layer Rules
 
-### steel-core (unit tests only)
+### shaperail-core (unit tests only)
 - Test every FieldType variant parses correctly from YAML
 - Test validation logic for every field constraint
 - Test error formatting and conversion
 - No DB, no HTTP, no async — pure functions only
-- Location: `steel-core/src/` inline `#[cfg(test)]` modules
+- Location: `shaperail-core/src/` inline `#[cfg(test)]` modules
 
-### steel-codegen (unit + snapshot tests)
+### shaperail-codegen (unit + snapshot tests)
 - Test YAML → ResourceDefinition parsing for valid and invalid inputs
 - Snapshot test generated Rust code using `insta` crate
   - If generated code changes, snapshot must be explicitly approved
 - Test that invalid resource files produce correct error messages
-- Do NOT test that generated code compiles here — that's steel-runtime's job
-- Location: `steel-codegen/tests/`
+- Do NOT test that generated code compiles here — that's shaperail-runtime's job
+- Location: `shaperail-codegen/tests/`
 
-### steel-runtime (integration tests — require running Postgres + Redis)
+### shaperail-runtime (integration tests — require running Postgres + Redis)
 - Use `sqlx::test` macro — spins up isolated DB per test, auto-rollback
 - Test every generated endpoint: happy path, auth failure, validation failure, not found
 - Test cache invalidation: verify Redis key is deleted after write
 - Test soft delete: verify deleted records don't appear in list
 - Test pagination: cursor and offset, edge cases (empty page, last page)
-- Location: `steel-runtime/tests/`
+- Location: `shaperail-runtime/tests/`
 
-### steel-cli (end-to-end tests)
-- Test `steel init` produces correct file structure
-- Test `steel generate` produces files that compile (`cargo check`)
-- Test `steel validate` catches invalid resource files
+### shaperail-cli (end-to-end tests)
+- Test `shaperail init` produces correct file structure
+- Test `shaperail generate` produces files that compile (`cargo check`)
+- Test `shaperail validate` catches invalid resource files
 - Use `assert_cmd` crate for CLI testing
-- Location: `steel-cli/tests/`
+- Location: `shaperail-cli/tests/`
 
 ## Test Naming Convention
 ```rust

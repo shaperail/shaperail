@@ -1,18 +1,21 @@
-# SteelAPI Resource File Format
+# Shaperail Resource File Format
 
 ## IMPORTANT
 This is the exact format from the PRD. Every parser, validator, and codegen
 module must support this format precisely. Do not invent alternative syntax.
 
 ## File Location
-`resources/<resource-name>.resource.yaml`
+Canonical convention: `resources/<resource-name>.yaml`
+
+The CLI loads `*.yaml` resource files from `resources/`. `.yml` is not part of
+the canonical Shaperail resource format.
 
 ## Top-Level Keys
 ```
 resource:   # required — snake_case plural name
 version:    # required — integer, starts at 1
 schema:     # required — field definitions
-endpoints:  # optional — defaults to full CRUD if omitted
+endpoints:  # optional — if omitted, no HTTP routes are generated
 relations:  # optional
 indexes:    # optional — additional DB indexes beyond schema defaults
 ```
@@ -45,7 +48,7 @@ primary: true      # primary key
 generated: true    # auto-generate on insert (uuid/timestamp)
 required: true     # NOT NULL, validated on input
 unique: true       # DB unique constraint
-nullable: true     # explicitly nullable (non-required fields are nullable by default)
+nullable: true     # explicitly nullable; non-required fields are treated as optional in generated Rust types
 ref: resource.id   # foreign key reference
 min: N             # minimum value (number) or length (string)
 max: N             # maximum value or length
@@ -96,9 +99,9 @@ relations:
 ```
 
 ## Complete Example
-See resources/users.resource.yaml
+See resources/users.yaml
 
-## steel.config.yaml Format
+## shaperail.config.yaml Format
 ```yaml
 project: my-api
 port: 3000
@@ -106,14 +109,14 @@ workers: auto
 
 database:
   type: postgresql
-  host: ${STEEL_DB_HOST:localhost}
+  host: ${SHAPERAIL_DB_HOST:localhost}
   port: 5432
   name: my_api_db
   pool_size: 20
 
 cache:
   type: redis
-  url: ${STEEL_REDIS_URL:redis://localhost:6379}
+  url: ${SHAPERAIL_REDIS_URL:redis://localhost:6379}
 
 auth:
   provider: jwt
@@ -123,11 +126,15 @@ auth:
 
 storage:
   provider: s3
-  bucket: ${STEEL_S3_BUCKET}
-  region: ${STEEL_S3_REGION:us-east-1}
+  bucket: ${SHAPERAIL_S3_BUCKET}
+  region: ${SHAPERAIL_S3_REGION:us-east-1}
 
 logging:
-  level: ${STEEL_LOG_LEVEL:info}
+  level: ${SHAPERAIL_LOG_LEVEL:info}
   format: json
-  otlp_endpoint: ${STEEL_OTLP_ENDPOINT:}
+  otlp_endpoint: ${SHAPERAIL_OTLP_ENDPOINT:}
 ```
+
+Interpolation rules:
+- `${VAR}` → requires `VAR` to be set in the environment
+- `${VAR:default}` → uses `default` when `VAR` is unset

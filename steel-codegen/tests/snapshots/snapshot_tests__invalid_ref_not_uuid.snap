@@ -1,6 +1,0 @@
----
-source: steel-codegen/tests/snapshot_tests.rs
-assertion_line: 89
-expression: messages
----
-- "resource 'items': field 'org_id' has ref but is not type uuid"

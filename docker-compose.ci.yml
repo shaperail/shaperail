@@ -1,15 +1,15 @@
-# SteelAPI Framework — CI Test Environment
+# Shaperail Framework — CI Test Environment
 # Usage: docker compose -f docker-compose.ci.yml up --abort-on-container-exit
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: steelapi_test
-      POSTGRES_USER: steel
-      POSTGRES_PASSWORD: steel
+      POSTGRES_DB: shaperail_test
+      POSTGRES_USER: shaperail
+      POSTGRES_PASSWORD: shaperail
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U steel -d steelapi_test"]
+      test: ["CMD-SHELL", "pg_isready -U shaperail -d shaperail_test"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -30,7 +30,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     environment:
-      DATABASE_URL: postgresql://steel:steel@postgres:5432/steelapi_test
+      DATABASE_URL: postgresql://shaperail:shaperail@postgres:5432/shaperail_test
       REDIS_URL: redis://redis:6379
       JWT_SECRET: test-secret-not-for-production
     command: cargo test --workspace
