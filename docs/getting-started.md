@@ -1,7 +1,7 @@
 ---
 title: Getting started
-description: Install the CLI, scaffold a new service, boot local dependencies with Docker, and verify the generated app end to end.
-eyebrow: Quickstart
+parent: Guides
+nav_order: 1
 ---
 
 This guide gets you from zero to a running Shaperail service with browser docs,
@@ -100,7 +100,7 @@ shaperail serve
 
 `shaperail serve` applies the SQL files that already exist in `migrations/`.
 
-## Quick troubleshooting
+## Troubleshooting
 
 | Problem | What to check |
 | --- | --- |
@@ -109,8 +109,8 @@ shaperail serve
 | `shaperail migrate` fails | Install `sqlx-cli` and confirm `DATABASE_URL` points at the same local Postgres service |
 | Docs page loads but API calls fail | Confirm `.env`, Docker ports, and `DATABASE_URL` are aligned |
 
-## Next pages
+## Related pages
 
-- [CLI Reference](./cli-reference.md)
-- [Resource Guide](./resource-guide.md)
-- [Blog API Example](./blog-api-example.md)
+- [CLI reference]({{ '/cli-reference/' | relative_url }})
+- [Resource guide]({{ '/resource-guide/' | relative_url }})
+- [Blog API example]({{ '/blog-api-example/' | relative_url }})

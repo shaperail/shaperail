@@ -1,7 +1,7 @@
 ---
 title: CLI reference
-description: The user-facing commands for scaffolding, validating, migrating, serving, and packaging Shaperail applications.
-eyebrow: Command reference
+parent: Reference
+nav_order: 1
 ---
 
 The `shaperail` binary is the operational interface to the framework. Most

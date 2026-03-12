@@ -1,7 +1,7 @@
 ---
 title: Auth and ownership
-description: Model public routes, role checks, owner-based access, and the request headers that carry credentials.
-eyebrow: Access control
+parent: Guides
+nav_order: 2
 ---
 
 Shaperail lets you declare auth at the endpoint layer so the access contract
@@ -94,5 +94,5 @@ You need to choose one of these patterns:
 
 ## Example
 
-The [Blog API example](./blog-api-example.md) shows `owner`-based updates for
+The [Blog API example]({{ '/blog-api-example/' | relative_url }}) shows `owner`-based updates for
 both posts and comments using a shared `created_by` pattern.

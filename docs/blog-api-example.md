@@ -1,7 +1,7 @@
 ---
 title: Blog API example
-description: A complete two-resource example that demonstrates public reads, protected writes, relations, pagination, and checked-in migrations.
-eyebrow: Example application
+parent: Examples
+nav_order: 1
 ---
 
 This example shows the files a Shaperail user actually authors:

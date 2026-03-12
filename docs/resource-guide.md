@@ -1,7 +1,7 @@
 ---
 title: Resource guide
-description: The canonical YAML format for Shaperail resources and the keys that control generated runtime behavior.
-eyebrow: Schema reference
+parent: Reference
+nav_order: 2
 ---
 
 Resource files are the source of truth in Shaperail. Routes, validation,
@@ -171,5 +171,5 @@ Why:
 
 ## See a complete example
 
-Use the [Blog API example](./blog-api-example.md) for a two-resource app with
+Use the [Blog API example]({{ '/blog-api-example/' | relative_url }}) for a two-resource app with
 public reads, protected writes, relations, and checked-in migrations.

@@ -1,7 +1,7 @@
 ---
 title: Docker deployment
-description: The Docker-first local development path and the runtime expectations for packaged Shaperail applications.
-eyebrow: Local and release packaging
+parent: Guides
+nav_order: 4
 ---
 
 Shaperail is Docker-first for local development. Generated apps should boot

@@ -1,7 +1,7 @@
 ---
 title: Migrations and schema changes
-description: How resource edits turn into SQL files, what to review before you commit, and how Shaperail applies migrations at runtime.
-eyebrow: Database workflow
+parent: Guides
+nav_order: 3
 ---
 
 Shaperail treats resource YAML as the schema source of truth, but the running
@@ -73,6 +73,6 @@ cargo install sqlx-cli
 
 ## Example flow
 
-The [Blog API example](./blog-api-example.md) includes two checked-in
+The [Blog API example]({{ '/blog-api-example/' | relative_url }}) includes two checked-in
 migrations that match its resource files, so you can inspect the schema-to-SQL
 relationship directly.

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Rebuilt the public documentation as a custom GitHub Pages site with structured navigation, professional styling, and release-aware layout metadata
+- Rebuilt the public documentation around a standard Jekyll documentation theme with conventional navigation and search
 - Added first-class user guides for CLI workflows and the Blog API example so the published docs site is self-contained
 - Updated release-facing metadata and install/docs URLs to use `https://shaperail.io`
 - Removed the remaining Node 20-based GitHub Actions from CI and release workflows
