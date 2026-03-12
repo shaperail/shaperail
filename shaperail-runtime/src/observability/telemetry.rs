@@ -9,8 +9,8 @@ use shaperail_core::ShaperailError;
 /// If `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, telemetry is disabled (no-op).
 ///
 /// Spans are created for: HTTP requests, DB queries, cache operations, job execution.
-pub fn init_telemetry() -> Result<Option<opentelemetry_sdk::trace::TracerProvider>, ShaperailError>
-{
+pub fn init_telemetry(
+) -> Result<Option<opentelemetry_sdk::trace::SdkTracerProvider>, ShaperailError> {
     let endpoint = match std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
         Ok(ep) if !ep.is_empty() => ep,
         _ => return Ok(None),
@@ -20,42 +20,39 @@ pub fn init_telemetry() -> Result<Option<opentelemetry_sdk::trace::TracerProvide
         std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "shaperail".to_string());
 
     use opentelemetry::KeyValue;
+    use opentelemetry_otlp::SpanExporter;
     use opentelemetry_otlp::WithExportConfig;
-    use opentelemetry_sdk::trace::TracerProvider;
+    use opentelemetry_sdk::trace::SdkTracerProvider;
     use opentelemetry_sdk::Resource;
 
-    let exporter = opentelemetry_otlp::new_exporter()
-        .tonic()
-        .with_endpoint(&endpoint);
+    let exporter = SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(endpoint)
+        .build()
+        .map_err(|e| ShaperailError::Internal(format!("Failed to create OTLP exporter: {e}")))?;
 
-    let config = opentelemetry_sdk::trace::Config::default().with_resource(Resource::new(vec![
-        KeyValue::new("service.name", service_name),
-    ]));
-
-    let provider = TracerProvider::builder()
-        .with_batch_exporter(
-            exporter.build_span_exporter().map_err(|e| {
-                ShaperailError::Internal(format!("Failed to create OTLP exporter: {e}"))
-            })?,
-            opentelemetry_sdk::runtime::Tokio,
+    let provider = SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(
+            Resource::builder_empty()
+                .with_attributes([KeyValue::new("service.name", service_name)])
+                .build(),
         )
-        .with_config(config)
         .build();
 
     Ok(Some(provider))
 }
 
 /// Shuts down the OpenTelemetry tracer provider, flushing pending spans.
-pub fn shutdown_telemetry(provider: Option<opentelemetry_sdk::trace::TracerProvider>) {
+pub fn shutdown_telemetry(provider: Option<opentelemetry_sdk::trace::SdkTracerProvider>) {
     if let Some(provider) = provider {
-        // In opentelemetry_sdk 0.23, shutdown happens via drop.
-        // Force flush first to ensure all spans are exported.
-        for result in provider.force_flush() {
-            if let Err(e) = result {
-                tracing::warn!(error = %e, "Failed to flush OpenTelemetry spans");
-            }
+        if let Err(e) = provider.force_flush() {
+            tracing::warn!(error = %e, "Failed to flush OpenTelemetry spans");
         }
-        drop(provider);
+
+        if let Err(e) = provider.shutdown() {
+            tracing::warn!(error = %e, "Failed to shut down OpenTelemetry tracer provider");
+        }
     }
 }
 

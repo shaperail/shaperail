@@ -46,13 +46,14 @@ tokio-cron-scheduler = "0.10"
 # Observability — PRD spec: tracing + opentelemetry
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.24"
-opentelemetry = "0.23"
-opentelemetry-otlp = "0.31"
+tracing-opentelemetry = "0.32"
+opentelemetry = "0.31"
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "grpc-tonic"] }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 prometheus = { version = "0.14", default-features = false }
 
 # Auth
-jsonwebtoken = "10"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 bcrypt = "0.15"
 
 # Types

@@ -38,7 +38,7 @@ tracing-subscriber = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
-opentelemetry_sdk = { version = "0.23", features = ["rt-tokio"] }
+opentelemetry_sdk = { workspace = true }
 prometheus = { workspace = true }
 
 [dev-dependencies]
