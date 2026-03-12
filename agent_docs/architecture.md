@@ -63,12 +63,20 @@ Key modules:
 - `jobs` — Redis job queue, worker, retry logic
 
 ## shaperail-cli — Developer Interface
-Commands (v2 target):
+Commands (v2 — all implemented):
 - `shaperail init <name>`        — scaffold new Shaperail project
-- `shaperail generate <resource>` — run codegen for one resource file
-- `shaperail generate --all`     — codegen for all resource files
+- `shaperail generate`           — run codegen for all resource files
+- `shaperail validate [path]`    — validate resource files without generating
 - `shaperail migrate`            — generate + apply SQL migration
+- `shaperail migrate --rollback` — rollback last migration batch
+- `shaperail seed [path]`        — load YAML fixtures into DB via transaction
 - `shaperail serve`              — start development server with hot reload
+- `shaperail serve --check`      — validate project without starting server
 - `shaperail build`              — production build (single static binary)
-- `shaperail validate`           — validate all resource files without generating
-- `shaperail new resource <name>` — scaffold a new resource YAML file
+- `shaperail build --docker`     — scratch-based Docker image ≤ 25 MB
+- `shaperail test`               — run all tests
+- `shaperail export openapi`     — output OpenAPI 3.1 spec
+- `shaperail export sdk --lang ts` — generate TypeScript SDK
+- `shaperail doctor`             — check system deps
+- `shaperail routes`             — print all routes with auth requirements
+- `shaperail jobs:status`        — show Redis queue depths and dead letter count

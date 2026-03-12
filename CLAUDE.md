@@ -140,9 +140,10 @@ indexes:
 ## Commands
 ```bash
 cargo build --workspace          # build all crates
-cargo test --workspace           # run all tests
+cargo test --workspace           # run all tests (385 as of v0.2.2)
 cargo clippy -- -D warnings      # lint — must pass before every commit
 cargo fmt                        # format — run after every edit
+cargo bench -p shaperail-runtime # run performance benchmarks (no DB needed)
 docker compose up -d             # start dev postgres + redis
 docker compose down              # stop dev services
 ```
@@ -161,6 +162,15 @@ Active: agent_docs/current-milestone.md
 - agent_docs/testing-strategy.md  → what to test at each layer
 - agent_docs/docker.md            → Docker dev + CI + release image setup
 - agent_docs/release.md           → crates.io publish + GitHub Releases
+
+## Documentation Rule
+After every code change that alters behavior, CLI commands, APIs, or test
+infrastructure, update the relevant docs BEFORE committing:
+- `docs/` — user-facing documentation (CLI reference, guides, examples)
+- `agent_docs/` — internal developer docs (architecture, testing strategy, milestones)
+- `CLAUDE.md` — if the change affects project-level conventions or workflows
+
+If docs and code disagree, fix the disagreement immediately (AI-First rule).
 
 ## Git Workflow
 - Branch per milestone: `git checkout -b feat/m01-core-types`
