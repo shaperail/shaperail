@@ -435,6 +435,325 @@ const DOCS_HTML: &str = r##"<!DOCTYPE html>
       return method.toLowerCase();
     }
 
+    function schemaRefName(ref) {
+      return ref.split("/").filter(Boolean).at(-1) || ref;
+    }
+
+    function resolvePointer(spec, pointer) {
+      if (!pointer || !pointer.startsWith("#/")) {
+        return null;
+      }
+
+      return pointer
+        .slice(2)
+        .split("/")
+        .reduce((value, segment) => {
+          if (value == null) {
+            return null;
+          }
+          const key = segment.replaceAll("~1", "/").replaceAll("~0", "~");
+          return value[key];
+        }, spec);
+    }
+
+    function resolveSchema(schema, spec, seen = new Set()) {
+      if (!schema) {
+        return null;
+      }
+
+      if (schema.$ref) {
+        if (seen.has(schema.$ref)) {
+          return { title: schemaRefName(schema.$ref) };
+        }
+
+        const target = resolvePointer(spec, schema.$ref);
+        if (!target) {
+          return { title: schemaRefName(schema.$ref) };
+        }
+
+        const nextSeen = new Set(seen);
+        nextSeen.add(schema.$ref);
+        const resolved = resolveSchema(target, spec, nextSeen) || {};
+        return {
+          ...resolved,
+          title: resolved.title || schemaRefName(schema.$ref)
+        };
+      }
+
+      if (schema.allOf && schema.allOf.length) {
+        const merged = {
+          ...schema,
+          properties: {},
+          required: []
+        };
+
+        for (const part of schema.allOf) {
+          const resolved = resolveSchema(part, spec, seen) || {};
+          if (resolved.properties) {
+            Object.assign(merged.properties, resolved.properties);
+          }
+          if (resolved.required) {
+            merged.required.push(...resolved.required);
+          }
+        }
+
+        merged.required = [...new Set(merged.required)];
+        schema = merged;
+      }
+
+      const resolved = { ...schema };
+
+      if (resolved.properties) {
+        resolved.properties = Object.fromEntries(
+          Object.entries(resolved.properties).map(([key, value]) => [
+            key,
+            resolveSchema(value, spec, new Set(seen)) || value
+          ])
+        );
+      }
+
+      if (resolved.items) {
+        resolved.items = resolveSchema(resolved.items, spec, new Set(seen)) || resolved.items;
+      }
+
+      if (resolved.additionalProperties && typeof resolved.additionalProperties === "object") {
+        resolved.additionalProperties =
+          resolveSchema(resolved.additionalProperties, spec, new Set(seen)) ||
+          resolved.additionalProperties;
+      }
+
+      if (resolved.oneOf) {
+        resolved.oneOf = resolved.oneOf.map((value) => resolveSchema(value, spec, new Set(seen)) || value);
+      }
+
+      if (resolved.anyOf) {
+        resolved.anyOf = resolved.anyOf.map((value) => resolveSchema(value, spec, new Set(seen)) || value);
+      }
+
+      return resolved;
+    }
+
+    function schemaLabel(schema, spec) {
+      if (!schema) {
+        return "No schema";
+      }
+
+      if (schema.$ref) {
+        return schemaRefName(schema.$ref);
+      }
+
+      if (schema.oneOf?.length) {
+        return schema.oneOf.map((entry) => schemaLabel(entry, spec)).join(" | ");
+      }
+
+      if (schema.anyOf?.length) {
+        return schema.anyOf.map((entry) => schemaLabel(entry, spec)).join(" | ");
+      }
+
+      if (schema.allOf?.length) {
+        return schema.allOf.map((entry) => schemaLabel(entry, spec)).join(" & ");
+      }
+
+      if (schema.enum?.length) {
+        return `enum(${schema.enum.join(", ")})`;
+      }
+
+      if (schema.type === "array") {
+        return `${schemaLabel(schema.items, spec)}[]`;
+      }
+
+      if (schema.title) {
+        return schema.title;
+      }
+
+      if (schema.type === "object" || schema.properties) {
+        return "object";
+      }
+
+      if (schema.type && schema.format) {
+        return `${schema.type} (${schema.format})`;
+      }
+
+      return schema.type || "object";
+    }
+
+    function schemaSummary(schema, spec) {
+      const resolved = resolveSchema(schema, spec);
+      if (resolved?.properties?.data) {
+        return `data: ${schemaLabel(resolved.properties.data, spec)}`;
+      }
+      if (resolved?.properties?.error) {
+        return "error response";
+      }
+      return schemaLabel(schema, spec);
+    }
+
+    function exampleForSchema(schema, spec, depth = 0, seen = new Set()) {
+      if (!schema || depth > 6) {
+        return null;
+      }
+
+      if (schema.example !== undefined) {
+        return schema.example;
+      }
+
+      if (schema.default !== undefined) {
+        return schema.default;
+      }
+
+      if (schema.const !== undefined) {
+        return schema.const;
+      }
+
+      if (schema.$ref) {
+        if (seen.has(schema.$ref)) {
+          return schemaRefName(schema.$ref);
+        }
+
+        const target = resolvePointer(spec, schema.$ref);
+        if (!target) {
+          return schemaRefName(schema.$ref);
+        }
+
+        const nextSeen = new Set(seen);
+        nextSeen.add(schema.$ref);
+        return exampleForSchema(target, spec, depth + 1, nextSeen);
+      }
+
+      if (schema.oneOf?.length) {
+        return exampleForSchema(schema.oneOf[0], spec, depth + 1, seen);
+      }
+
+      if (schema.anyOf?.length) {
+        return exampleForSchema(schema.anyOf[0], spec, depth + 1, seen);
+      }
+
+      if (schema.allOf?.length) {
+        const merged = {};
+        let hasObjectShape = false;
+
+        for (const part of schema.allOf) {
+          const value = exampleForSchema(part, spec, depth + 1, seen);
+          if (value && typeof value === "object" && !Array.isArray(value)) {
+            Object.assign(merged, value);
+            hasObjectShape = true;
+          }
+        }
+
+        return hasObjectShape ? merged : null;
+      }
+
+      if (schema.enum?.length) {
+        return schema.enum[0];
+      }
+
+      switch (schema.type) {
+        case "object": {
+          const output = {};
+          for (const [key, value] of Object.entries(schema.properties || {})) {
+            output[key] = exampleForSchema(value, spec, depth + 1, seen);
+          }
+
+          if (Object.keys(output).length) {
+            return output;
+          }
+
+          if (schema.additionalProperties) {
+            return {
+              key: exampleForSchema(schema.additionalProperties, spec, depth + 1, seen)
+            };
+          }
+
+          return {};
+        }
+        case "array":
+          return [exampleForSchema(schema.items || {}, spec, depth + 1, seen)];
+        case "string":
+          if (schema.format === "uuid") {
+            return "00000000-0000-0000-0000-000000000000";
+          }
+          if (schema.format === "date-time") {
+            return "2026-01-01T00:00:00Z";
+          }
+          if (schema.format === "date") {
+            return "2026-01-01";
+          }
+          if (schema.format === "email") {
+            return "user@example.com";
+          }
+          if (schema.format === "uri" || schema.format === "url") {
+            return "https://example.com";
+          }
+          return "string";
+        case "integer":
+          return 1;
+        case "number":
+          return 1.0;
+        case "boolean":
+          return false;
+        default:
+          return null;
+      }
+    }
+
+    function renderSchemaPanel(schema, spec) {
+      if (!schema) {
+        return '<span class="muted">No schema</span>';
+      }
+
+      const resolved = resolveSchema(schema, spec);
+      const example = exampleForSchema(schema, spec);
+      const rawSchema = resolved ? JSON.stringify(resolved, null, 2) : null;
+
+      return `
+        <div>
+          <div class="pills">
+            <span class="pill">${escapeHtml(schemaSummary(schema, spec))}</span>
+          </div>
+          ${example !== null
+            ? `<pre>${escapeHtml(JSON.stringify(example, null, 2))}</pre>`
+            : '<span class="muted">No example available</span>'}
+          ${rawSchema
+            ? `<details><summary class="section-title">View schema</summary><pre>${escapeHtml(rawSchema)}</pre></details>`
+            : ""}
+        </div>
+      `;
+    }
+
+    function renderContentBlock(content, spec) {
+      const entries = Object.entries(content || {});
+      if (!entries.length) {
+        return '<span class="muted">No body</span>';
+      }
+
+      return entries.map(([contentType, mediaType]) => `
+        <div>
+          <div class="pills">
+            <span class="pill">${escapeHtml(contentType)}</span>
+            <span class="pill">${escapeHtml(schemaSummary(mediaType.schema, spec))}</span>
+          </div>
+          ${renderSchemaPanel(mediaType.schema, spec)}
+        </div>
+      `).join("");
+    }
+
+    function renderResponses(responses, spec) {
+      const responseEntries = Object.entries(responses || {});
+      if (!responseEntries.length) {
+        return '<span class="muted">None</span>';
+      }
+
+      return responseEntries.map(([status, response]) => `
+        <div>
+          <div class="pills">
+            <span class="pill">${escapeHtml(status)}</span>
+            <span class="pill">${escapeHtml(response.description || "No description")}</span>
+          </div>
+          ${renderContentBlock(response.content, spec)}
+        </div>
+      `).join("");
+    }
+
     function renderPills(values, formatter) {
       if (!values.length) {
         return '<span class="muted">None</span>';
@@ -443,12 +762,10 @@ const DOCS_HTML: &str = r##"<!DOCTYPE html>
       return `<div class="pills">${values.map((value) => `<span class="pill">${formatter(value)}</span>`).join("")}</div>`;
     }
 
-    function renderOperation(path, method, operation) {
+    function renderOperation(path, method, operation, spec) {
       const parameters = operation.parameters || [];
       const security = operation.security || [];
-      const responses = operation.responses || {};
       const requestBody = operation.requestBody || null;
-      const responseEntries = Object.entries(responses);
       const description = operation.description || operation.summary || "No description provided.";
       const summary = operation.summary || `${method.toUpperCase()} ${path}`;
 
@@ -484,19 +801,12 @@ const DOCS_HTML: &str = r##"<!DOCTYPE html>
             <div>
               <h3 class="section-title">Request body</h3>
               ${requestBody
-                ? `<pre>${escapeHtml(JSON.stringify(requestBody, null, 2))}</pre>`
+                ? renderContentBlock(requestBody.content, spec)
                 : '<span class="muted">None</span>'}
             </div>
             <div>
               <h3 class="section-title">Responses</h3>
-              ${responseEntries.length
-                ? responseEntries.map(([status, response]) => `
-                    <div>
-                      <div class="pill">${escapeHtml(status)}</div>
-                      <pre>${escapeHtml(JSON.stringify(response, null, 2))}</pre>
-                    </div>
-                  `).join("")
-                : '<span class="muted">None</span>'}
+              ${renderResponses(operation.responses, spec)}
             </div>
           </div>
         </details>
@@ -545,7 +855,7 @@ const DOCS_HTML: &str = r##"<!DOCTYPE html>
       `;
 
       operationsEl.innerHTML = operations
-        .map(({ path, method, operation }) => renderOperation(path, method, operation))
+        .map(({ path, method, operation }) => renderOperation(path, method, operation, spec))
         .join("");
 
       statusEl.remove();
