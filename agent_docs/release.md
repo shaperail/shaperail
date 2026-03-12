@@ -3,7 +3,7 @@
 ## What Gets Released
 1. **crates.io** — `shaperail-core`, `shaperail-codegen`, `shaperail-runtime`, `shaperail-cli`
 2. **GitHub Releases** — pre-built binaries for macOS, Linux, Windows
-3. **Install script** — `curl -fsSL https://shaperail.dev/install.sh | sh`
+3. **Install script** — `curl -fsSL https://shaperail.io/install.sh | sh`
 
 ---
 
@@ -32,102 +32,65 @@ cargo bench --workspace --no-run
 
 ---
 
-## Step 2 — Version Bump
-All 4 crates must have identical versions.
+## Step 2 — Prepare The Release PR
+Use either the release issue commands or the GitHub Actions **Prepare Release**
+workflow instead of editing versions and tags by hand.
 
-```bash
-# Update version in every Cargo.toml
-# workspace.package.version = "0.2.1"
-# Also update each crate's dependency on other shaperail-* crates
+Inputs:
 
-# Commit the version bump
-git add .
-git commit -m "chore: bump version to 0.2.1"
-git tag v0.2.1
-git push && git push --tags
-```
+- `version` — semver without a leading `v`, for example `0.2.3`
+- `base_ref` — normally `main`
+- `changelog_summary` — optional bullet points, one per line
 
----
+What it does:
 
-## Step 3 — Publish to crates.io
-Publish in dependency order (core first, cli last):
+- updates `workspace.package.version`
+- updates internal `shaperail-*` dependency versions across crate manifests
+- updates `docs/_config.yml` release metadata
+- adds a changelog section and release link if missing
+- refreshes `Cargo.lock`
+- opens a release PR from `codex/release-v<version>`
 
-```bash
-# Login once
-cargo login   # paste your crates.io API token
+Merge that PR only after CI is green.
 
-# Publish in order and wait for each exact version to propagate before the next
-VERSION=0.2.1
-bash .github/scripts/publish-crates.sh "$VERSION"
-```
+Issue-driven option:
 
-After publishing, users can install with:
-```bash
-cargo install shaperail-cli
-```
+- open a release issue from `.github/ISSUE_TEMPLATE/release.md`
+- comment `/prepare-release 0.2.3`
+- GitHub will queue the same workflow for you
 
 ---
 
-## Step 4 — Build Release Binaries
-Cross-compile for all platforms using GitHub Actions (see .github/workflows/release.yml):
+## Step 3 — Run The Release Workflow
+After the release PR is merged, use the release issue commands or the GitHub
+Actions **Release** workflow.
 
-```yaml
-# .github/workflows/release.yml
-name: Release
-on:
-  push:
-    tags: ['v*']
+Inputs:
 
-jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            binary: shaperail
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            binary: shaperail
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            binary: shaperail
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            binary: shaperail
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            binary: shaperail.exe
+- `version` — the merged semver, for example `0.2.3`
+- `ref` — normally `main`
+- `dry_run` — set to `true` to validate without publishing
 
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - run: cargo build -p shaperail-cli --release --locked --target ${{ matrix.target }}
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: shaperail-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+What it does:
 
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: dtolnay/rust-toolchain@stable
-      - run: bash .github/scripts/publish-crates.sh "${GITHUB_REF_NAME#v}"
+- validates release metadata with `.github/scripts/assert-release-version.sh`
+- runs formatting, clippy, tests, audit, install-path validation, and publish dry-run checks
+- builds release binaries for Linux, macOS, and Windows
+- publishes crates to crates.io in dependency order with `.github/scripts/publish-crates.sh`
+- creates and pushes the git tag
+- creates or updates the GitHub Release and uploads binaries
 
-  release:
-    needs: publish
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/**/*
-```
+The release workflow is self-contained on purpose. It does not depend on a
+second tag-triggered workflow.
+
+Issue-driven commands:
+
+- `/release-dry-run 0.2.3` — run the full release validation without publishing
+- `/release 0.2.3` — publish crates, create the tag, and create/update the GitHub Release
+
+The comment router lives in `.github/workflows/release-command.yml` and only
+accepts commands from repository owners, members, or collaborators on issues
+marked as release issues.
 
 ---
 
@@ -143,6 +106,6 @@ jobs:
 ## Rules for Claude
 - Never publish without all checks passing
 - Always publish in order: core → codegen → runtime → cli
-- The GitHub Actions release workflow lives in `.github/workflows/release.yml`
+- The GitHub Actions release workflows live in `.github/workflows/prepare-release.yml`, `.github/workflows/release.yml`, and `.github/workflows/release-command.yml`
 - The install script lives in `install.sh` at the repo root
 - Benchmark results must be committed to `BENCHMARKS.md` before any tagged release

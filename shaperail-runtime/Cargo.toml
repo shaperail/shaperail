@@ -11,7 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-shaperail-core = { version = "0.2.1", path = "../shaperail-core" }
+shaperail-core = { version = "0.2.2", path = "../shaperail-core" }
 actix-web = { workspace = true }
 actix-ws = { workspace = true }
 sqlx = { workspace = true }
