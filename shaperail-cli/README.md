@@ -1,6 +1,6 @@
 # shaperail-cli
 
-The developer-facing CLI for [Shaperail](https://github.com/muhammadmahindar/shaperail).
+The developer-facing CLI for [Shaperail](https://github.com/shaperail/shaperail).
 
 ## Install
 

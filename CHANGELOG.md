@@ -35,5 +35,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Observability** — Structured JSON logging with request IDs, PII redaction, OpenTelemetry tracing, Prometheus metrics at `/metrics`, health checks at `/health` and `/health/ready`
 - **OpenAPI Generation** — Deterministic OpenAPI 3.1 spec generation from resource definitions, TypeScript SDK generation
 
-[0.2.1]: https://github.com/muhammadmahindar/shaperail/releases/tag/v0.2.1
-[0.2.0]: https://github.com/muhammadmahindar/shaperail/releases/tag/v0.2.0
+[0.2.1]: https://github.com/shaperail/shaperail/releases/tag/v0.2.1
+[0.2.0]: https://github.com/shaperail/shaperail/releases/tag/v0.2.0

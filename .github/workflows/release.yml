@@ -42,7 +42,7 @@ jobs:
       DATABASE_URL: postgresql://shaperail:shaperail@localhost:5432/shaperail_dev
       REDIS_URL: redis://localhost:6379
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -100,7 +100,7 @@ jobs:
             archive: shaperail-x86_64-pc-windows-msvc.zip
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -140,7 +140,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Publish crates in dependency order
@@ -156,7 +156,7 @@ jobs:
     needs: publish
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
         with:
           path: artifacts

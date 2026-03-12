@@ -1,6 +1,6 @@
 # shaperail-codegen
 
-YAML parser, validator, and code generator for the [Shaperail](https://github.com/muhammadmahindar/shaperail) framework.
+YAML parser, validator, and code generator for the [Shaperail](https://github.com/shaperail/shaperail) framework.
 
 ## What it does
 

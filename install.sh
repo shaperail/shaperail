@@ -5,7 +5,7 @@
 set -e
 
 VERSION="${SHAPERAIL_VERSION:-0.2.1}"
-REPO="muhammadmahindar/shaperail"
+REPO="shaperail/shaperail"
 INSTALL_DIR="${SHAPERAIL_INSTALL_DIR:-/usr/local/bin}"
 TMP_DIR="$(mktemp -d)"
 
