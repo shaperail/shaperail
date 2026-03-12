@@ -1,6 +1,6 @@
 # shaperail-runtime
 
-The Actix-web runtime for [Shaperail](https://github.com/muhammadmahindar/shaperail) — handles everything from HTTP to database to background jobs.
+The Actix-web runtime for [Shaperail](https://github.com/shaperail/shaperail) — handles everything from HTTP to database to background jobs.
 
 ## Modules
 

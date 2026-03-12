@@ -5,7 +5,7 @@ Thank you for your interest in contributing to Shaperail.
 ## Getting Started
 
 ```bash
-git clone https://github.com/muhammadmahindar/shaperail.git
+git clone https://github.com/shaperail/shaperail.git
 cd shaperail
 docker compose up -d   # start Postgres + Redis
 cargo build --workspace
