@@ -1,0 +1,49 @@
+resource: comments
+version: 1
+
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  post_id:    { type: uuid, ref: posts.id, required: true }
+  body:       { type: string, min: 1, required: true }
+  author_name: { type: string, min: 1, max: 100, required: true }
+  created_by: { type: uuid, required: true }
+  created_at: { type: timestamp, generated: true }
+  updated_at: { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    method: GET
+    path: /comments
+    auth: public
+    filters: [post_id, created_by]
+    pagination: offset
+    sort: [created_at]
+
+  get:
+    method: GET
+    path: /comments/:id
+    auth: public
+
+  create:
+    method: POST
+    path: /comments
+    auth: [admin, member]
+    input: [post_id, body, author_name, created_by]
+
+  update:
+    method: PATCH
+    path: /comments/:id
+    auth: [admin, owner]
+    input: [body]
+
+  delete:
+    method: DELETE
+    path: /comments/:id
+    auth: [admin, owner]
+
+relations:
+  post: { resource: posts, type: belongs_to, key: post_id }
+
+indexes:
+  - { fields: [post_id] }
+  - { fields: [created_at], order: desc }

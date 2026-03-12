@@ -202,6 +202,26 @@ curl "http://localhost:3000/users?include=organization"
 
 ---
 
+## User Guide
+
+Public user-facing docs now live in `docs/`. Start with:
+
+- [docs/README.md](./docs/README.md)
+- [docs/getting-started.md](./docs/getting-started.md)
+- [docs/resource-guide.md](./docs/resource-guide.md)
+- [docs/auth-and-ownership.md](./docs/auth-and-ownership.md)
+- [docs/migrations-and-schema-changes.md](./docs/migrations-and-schema-changes.md)
+- [docs/docker-deployment.md](./docs/docker-deployment.md)
+
+The first complete example app files live in:
+
+- [examples/blog-api/README.md](./examples/blog-api/README.md)
+
+`agent_docs/` remains maintainer documentation for building the framework
+itself.
+
+---
+
 ## Features
 
 ### Schema Types
