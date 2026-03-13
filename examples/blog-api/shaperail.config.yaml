@@ -2,6 +2,12 @@ project: blog-api
 port: 3000
 workers: auto
 
+# Single-database (default). For multiple DBs use "databases:" instead:
+# databases:
+#   default:
+#     engine: postgres
+#     url: ${DATABASE_URL}
+#     pool_size: 20
 database:
   type: postgresql
   host: localhost

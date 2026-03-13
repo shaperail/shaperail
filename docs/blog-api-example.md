@@ -25,6 +25,7 @@ you out of the docs site.
 - cursor pagination on posts
 - offset pagination on comments
 - soft delete on posts
+- single-database setup; for multi-database use `databases:` in config and optional `db:` on each resource (see [Configuration reference]({{ '/configuration/' | relative_url }}#databases-multi-database))
 
 ## Quick start
 
@@ -43,6 +44,7 @@ want the exact sample project layout.
 ```yaml
 resource: posts
 version: 1
+# db: default   # optional; for multi-DB set databases: in config and db: per resource
 
 schema:
   id:           { type: uuid, primary: true, generated: true }
@@ -115,6 +117,7 @@ See the [Controllers guide]({{ '/controllers/' | relative_url }}) for details.
 ```yaml
 resource: comments
 version: 1
+# db: default   # optional; for multi-DB
 
 schema:
   id:          { type: uuid, primary: true, generated: true }

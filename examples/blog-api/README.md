@@ -46,6 +46,7 @@ Open:
 - cursor pagination on posts
 - offset pagination on comments
 - soft delete on posts
+- single-database config (`database:`); for multi-DB use `databases:` in config and optional `db:` on resources (see [Configuration reference](https://shaperail.dev/configuration/#databases-multi-database))
 
 ## Files
 
@@ -60,3 +61,4 @@ Open:
 - `owner` auth works by comparing the token user ID to `created_by`
 - this example keeps reads public and requires auth only for writes
 - the app still uses the standard Rust scaffold created by `shaperail init`
+- resources omit `db:` so they use the default connection; with `databases:` in config you can set `db: <name>` per resource

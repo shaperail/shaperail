@@ -5,7 +5,7 @@
 **Version:** v2
 **Status:** [x] Complete
 
-**Next:** M14 — Multi-Database
+**Current:** M14 — Multi-Database (in progress)
 **Crates:** shaperail-core, shaperail-codegen, shaperail-runtime
 
 To work on next milestone: `/milestone 14`

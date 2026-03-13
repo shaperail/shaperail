@@ -636,6 +636,7 @@ mod tests {
             port: 3000,
             workers: shaperail_core::WorkerCount::Auto,
             database: None,
+            databases: None,
             cache: None,
             auth: None,
             storage: None,
@@ -848,6 +849,7 @@ mod tests {
         ResourceDefinition {
             resource: "users".to_string(),
             version: 1,
+            db: None,
             schema,
             endpoints: Some(endpoints),
             relations: None,
@@ -947,6 +949,7 @@ mod tests {
         ResourceDefinition {
             resource: "assets".to_string(),
             version: 1,
+            db: None,
             schema,
             endpoints: Some(endpoints),
             relations: None,

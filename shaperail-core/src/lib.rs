@@ -8,6 +8,7 @@
 
 mod channel;
 mod config;
+mod database;
 mod endpoint;
 mod error;
 mod field_type;
@@ -18,8 +19,10 @@ mod schema;
 pub use channel::{ChannelDefinition, ChannelHooks, WsClientMessage, WsServerMessage};
 pub use config::{
     AuthConfig, CacheConfig, DatabaseConfig, EventSubscriber, EventTarget, EventsConfig,
-    InboundWebhookConfig, LoggingConfig, ProjectConfig, StorageConfig, WebhookConfig, WorkerCount,
+    InboundWebhookConfig, LoggingConfig, NamedDatabaseConfig, ProjectConfig, StorageConfig,
+    WebhookConfig, WorkerCount,
 };
+pub use database::DatabaseEngine;
 pub use endpoint::{
     AuthRule, CacheSpec, ControllerSpec, EndpointSpec, HttpMethod, PaginationStyle, UploadSpec,
 };

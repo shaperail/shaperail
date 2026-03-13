@@ -15,6 +15,7 @@ the canonical Shaperail resource format.
 resource:   # required — snake_case plural name
 version:    # required — integer, starts at 1
 schema:     # required — field definitions
+db:         # optional (M14) — named database connection; default "default"
 endpoints:  # optional — if omitted, no HTTP routes are generated
 relations:  # optional
 indexes:    # optional — additional DB indexes beyond schema defaults

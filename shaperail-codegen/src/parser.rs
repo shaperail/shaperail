@@ -103,4 +103,19 @@ schema:
         assert!(err.to_string().contains("unknown field"));
         assert!(err.to_string().contains("searchable"));
     }
+
+    #[test]
+    fn parse_resource_with_db_key() {
+        let yaml = r#"
+resource: events
+version: 1
+db: analytics
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        assert_eq!(rd.resource, "events");
+        assert_eq!(rd.db.as_deref(), Some("analytics"));
+    }
 }

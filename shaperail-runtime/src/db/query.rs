@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use shaperail_core::{FieldSchema, FieldType, ResourceDefinition, ShaperailError};
+use shaperail_core::{DatabaseEngine, FieldSchema, FieldType, ResourceDefinition, ShaperailError};
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 
@@ -639,10 +639,32 @@ fn log_slow_query(sql: &str, duration_ms: u64) {
     }
 }
 
-/// Builds a SQL `CREATE TABLE` statement from a `ResourceDefinition`.
+/// Builds a SQL `CREATE TABLE` statement for the given engine (M14 multi-DB).
+///
+/// Returns engine-specific SQL (Postgres, MySQL, or SQLite). MongoDB is not supported for CREATE TABLE.
+pub fn build_create_table_sql_for_engine(
+    engine: DatabaseEngine,
+    resource: &ResourceDefinition,
+) -> String {
+    match engine {
+        DatabaseEngine::Postgres => build_create_table_sql_postgres(resource),
+        DatabaseEngine::MySQL => build_create_table_sql_mysql(resource),
+        DatabaseEngine::SQLite => build_create_table_sql_sqlite(resource),
+        DatabaseEngine::MongoDB => {
+            // MongoDB uses collections, not CREATE TABLE
+            String::new()
+        }
+    }
+}
+
+/// Builds a SQL `CREATE TABLE` statement from a `ResourceDefinition` (Postgres).
 ///
 /// Used by the migration generator to produce initial table creation SQL.
 pub fn build_create_table_sql(resource: &ResourceDefinition) -> String {
+    build_create_table_sql_postgres(resource)
+}
+
+fn build_create_table_sql_postgres(resource: &ResourceDefinition) -> String {
     let mut columns = Vec::new();
     let mut constraints = Vec::new();
     let has_soft_delete = resource
@@ -749,6 +771,220 @@ pub fn build_create_table_sql(resource: &ResourceDefinition) -> String {
     sql
 }
 
+fn build_create_table_sql_mysql(resource: &ResourceDefinition) -> String {
+    let q = |s: &str| format!("`{s}`");
+    let mut columns = Vec::new();
+    let mut constraints = Vec::new();
+    let has_soft_delete = resource
+        .endpoints
+        .as_ref()
+        .map(|eps| eps.values().any(|ep| ep.soft_delete))
+        .unwrap_or(false);
+
+    for (name, field) in &resource.schema {
+        let mut col = format!(
+            "{} {}",
+            q(name),
+            field_type_to_sql_mysql(&field.field_type, field)
+        );
+        if field.primary {
+            col.push_str(" PRIMARY KEY");
+        }
+        if field.required && !field.primary && !field.nullable {
+            col.push_str(" NOT NULL");
+        }
+        if field.unique && !field.primary {
+            col.push_str(" UNIQUE");
+        }
+        if let Some(default) = &field.default {
+            col.push_str(&format!(" DEFAULT {}", sql_default_value(default, field)));
+        }
+        if field.field_type == FieldType::Uuid && field.generated {
+            col.push_str(" DEFAULT (UUID())");
+        }
+        if field.field_type == FieldType::Timestamp && field.generated {
+            col.push_str(" DEFAULT (CURRENT_TIMESTAMP)");
+        }
+        if field.field_type == FieldType::Date && field.generated {
+            col.push_str(" DEFAULT (CURDATE())");
+        }
+        if field.field_type == FieldType::Enum {
+            if let Some(values) = &field.values {
+                let vals = values
+                    .iter()
+                    .map(|v| format!("'{v}'"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                constraints.push(format!(
+                    "CONSTRAINT chk_{}_{} CHECK ({} IN ({vals}))",
+                    resource.resource,
+                    name,
+                    q(name),
+                ));
+            }
+        }
+        if let Some(reference) = &field.reference {
+            if let Some((ref_table, ref_col)) = reference.split_once('.') {
+                constraints.push(format!(
+                    "CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {}({})",
+                    resource.resource,
+                    name,
+                    q(name),
+                    q(ref_table),
+                    q(ref_col),
+                ));
+            }
+        }
+        columns.push(col);
+    }
+    if has_soft_delete && !resource.schema.contains_key("deleted_at") {
+        columns.push(format!("{} DATETIME", q("deleted_at")));
+    }
+    let mut sql = format!(
+        "CREATE TABLE IF NOT EXISTS {} (\n  {}",
+        q(&resource.resource),
+        columns.join(",\n  ")
+    );
+    if !constraints.is_empty() {
+        sql.push_str(",\n  ");
+        sql.push_str(&constraints.join(",\n  "));
+    }
+    sql.push_str("\n)");
+    if let Some(indexes) = &resource.indexes {
+        for (i, idx) in indexes.iter().enumerate() {
+            let idx_cols = idx
+                .fields
+                .iter()
+                .map(|f| q(f))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let unique = if idx.unique { "UNIQUE " } else { "" };
+            let order = idx
+                .order
+                .as_deref()
+                .map(|o| format!(" {}", o.to_uppercase()))
+                .unwrap_or_default();
+            sql.push_str(&format!(
+                ";\nCREATE {unique}INDEX idx_{resource}_{i} ON {tbl} ({idx_cols}{order})",
+                unique = unique,
+                resource = resource.resource,
+                i = i,
+                tbl = q(&resource.resource),
+                idx_cols = idx_cols,
+                order = order,
+            ));
+        }
+    }
+    sql
+}
+
+fn build_create_table_sql_sqlite(resource: &ResourceDefinition) -> String {
+    let q = |s: &str| format!("\"{s}\"");
+    let mut columns = Vec::new();
+    let mut constraints = Vec::new();
+    let has_soft_delete = resource
+        .endpoints
+        .as_ref()
+        .map(|eps| eps.values().any(|ep| ep.soft_delete))
+        .unwrap_or(false);
+
+    for (name, field) in &resource.schema {
+        let mut col = format!(
+            "{} {}",
+            q(name),
+            field_type_to_sql_sqlite(&field.field_type, field)
+        );
+        if field.primary {
+            col.push_str(" PRIMARY KEY");
+        }
+        if field.required && !field.primary && !field.nullable {
+            col.push_str(" NOT NULL");
+        }
+        if field.unique && !field.primary {
+            col.push_str(" UNIQUE");
+        }
+        if let Some(default) = &field.default {
+            col.push_str(&format!(" DEFAULT {}", sql_default_value(default, field)));
+        }
+        if field.field_type == FieldType::Uuid && field.generated {
+            col.push_str(" DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6))))");
+        }
+        if field.field_type == FieldType::Timestamp && field.generated {
+            col.push_str(" DEFAULT (datetime('now'))");
+        }
+        if field.field_type == FieldType::Date && field.generated {
+            col.push_str(" DEFAULT (date('now'))");
+        }
+        if field.field_type == FieldType::Enum {
+            if let Some(values) = &field.values {
+                let vals = values
+                    .iter()
+                    .map(|v| format!("'{v}'"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                constraints.push(format!(
+                    "CONSTRAINT chk_{}_{} CHECK ({} IN ({vals}))",
+                    resource.resource,
+                    name,
+                    q(name),
+                ));
+            }
+        }
+        if let Some(reference) = &field.reference {
+            if let Some((ref_table, ref_col)) = reference.split_once('.') {
+                constraints.push(format!(
+                    "CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {}({})",
+                    resource.resource,
+                    name,
+                    q(name),
+                    q(ref_table),
+                    q(ref_col),
+                ));
+            }
+        }
+        columns.push(col);
+    }
+    if has_soft_delete && !resource.schema.contains_key("deleted_at") {
+        columns.push(format!("{} TEXT", q("deleted_at")));
+    }
+    let mut sql = format!(
+        "CREATE TABLE IF NOT EXISTS {} (\n  {}",
+        q(&resource.resource),
+        columns.join(",\n  ")
+    );
+    if !constraints.is_empty() {
+        sql.push_str(",\n  ");
+        sql.push_str(&constraints.join(",\n  "));
+    }
+    sql.push_str("\n)");
+    if let Some(indexes) = &resource.indexes {
+        for (i, idx) in indexes.iter().enumerate() {
+            let idx_cols = idx
+                .fields
+                .iter()
+                .map(|f| q(f))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let unique = if idx.unique { "UNIQUE " } else { "" };
+            let order = idx
+                .order
+                .as_deref()
+                .map(|o| format!(" {}", o.to_uppercase()))
+                .unwrap_or_default();
+            sql.push_str(&format!(
+                ";\nCREATE {unique}INDEX IF NOT EXISTS idx_{resource}_{i} ON {tbl} ({idx_cols}{order})",
+                unique = unique,
+                resource = resource.resource,
+                i = i,
+                tbl = q(&resource.resource),
+                idx_cols = idx_cols,
+                order = order,
+            ));
+        }
+    }
+    sql
+}
+
 /// Maps a `FieldType` to its PostgreSQL SQL type string.
 fn field_type_to_sql(ft: &FieldType, field: &FieldSchema) -> String {
     match ft {
@@ -782,6 +1018,54 @@ fn field_type_to_sql(ft: &FieldType, field: &FieldSchema) -> String {
                 "TEXT[]".to_string()
             }
         }
+        FieldType::File => "TEXT".to_string(),
+    }
+}
+
+fn field_type_to_sql_mysql(ft: &FieldType, field: &FieldSchema) -> String {
+    match ft {
+        FieldType::Uuid => "CHAR(36)".to_string(),
+        FieldType::String => {
+            if let Some(max) = &field.max {
+                if let Some(n) = max.as_u64() {
+                    return format!("VARCHAR({n})");
+                }
+            }
+            "TEXT".to_string()
+        }
+        FieldType::Integer => "INTEGER".to_string(),
+        FieldType::Bigint => "BIGINT".to_string(),
+        FieldType::Number => "DECIMAL(65,30)".to_string(),
+        FieldType::Boolean => "BOOLEAN".to_string(),
+        FieldType::Timestamp => "DATETIME(6)".to_string(),
+        FieldType::Date => "DATE".to_string(),
+        FieldType::Enum => "VARCHAR(255)".to_string(),
+        FieldType::Json => "JSON".to_string(),
+        FieldType::Array => "JSON".to_string(),
+        FieldType::File => "TEXT".to_string(),
+    }
+}
+
+fn field_type_to_sql_sqlite(ft: &FieldType, field: &FieldSchema) -> String {
+    match ft {
+        FieldType::Uuid => "TEXT".to_string(),
+        FieldType::String => {
+            if let Some(max) = &field.max {
+                if let Some(n) = max.as_u64() {
+                    return format!("VARCHAR({n})");
+                }
+            }
+            "TEXT".to_string()
+        }
+        FieldType::Integer => "INTEGER".to_string(),
+        FieldType::Bigint => "INTEGER".to_string(),
+        FieldType::Number => "REAL".to_string(),
+        FieldType::Boolean => "INTEGER".to_string(),
+        FieldType::Timestamp => "TEXT".to_string(),
+        FieldType::Date => "TEXT".to_string(),
+        FieldType::Enum => "TEXT".to_string(),
+        FieldType::Json => "TEXT".to_string(),
+        FieldType::Array => "TEXT".to_string(),
         FieldType::File => "TEXT".to_string(),
     }
 }
@@ -953,6 +1237,7 @@ mod tests {
         ResourceDefinition {
             resource: "users".to_string(),
             version: 1,
+            db: None,
             schema,
             endpoints: None,
             relations: None,
@@ -1008,6 +1293,24 @@ mod tests {
         assert!(sql.contains(
             "CREATE INDEX IF NOT EXISTS \"idx_users_1\" ON \"users\" (\"created_at\" DESC)"
         ));
+    }
+
+    #[test]
+    fn create_table_sql_for_engine_mysql() {
+        let resource = test_resource();
+        let sql = build_create_table_sql_for_engine(DatabaseEngine::MySQL, &resource);
+        assert!(sql.contains("CREATE TABLE IF NOT EXISTS `users`"));
+        assert!(sql.contains("CHAR(36)"));
+        assert!(sql.contains("DEFAULT (UUID())"));
+        assert!(sql.contains("DEFAULT (CURRENT_TIMESTAMP)"));
+    }
+
+    #[test]
+    fn create_table_sql_for_engine_sqlite() {
+        let resource = test_resource();
+        let sql = build_create_table_sql_for_engine(DatabaseEngine::SQLite, &resource);
+        assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"users\""));
+        assert!(sql.contains("DEFAULT (datetime('now'))"));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 resource: comments
 version: 1
+# db: default   # optional; omit for default connection (see multi-DB in docs)
 
 schema:
   id:         { type: uuid, primary: true, generated: true }

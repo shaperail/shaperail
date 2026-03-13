@@ -123,6 +123,7 @@ mod tests {
         let resources = vec![ResourceDefinition {
             resource: "users".to_string(),
             version: 1,
+            db: None,
             schema,
             endpoints: None,
             relations: None,

@@ -187,6 +187,7 @@ fn test_resource() -> ResourceDefinition {
     ResourceDefinition {
         resource: "test_users".to_string(),
         version: 1,
+        db: None,
         schema,
         endpoints: None,
         relations: None,

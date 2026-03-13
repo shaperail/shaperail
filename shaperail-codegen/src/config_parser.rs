@@ -159,6 +159,30 @@ database:
     }
 
     #[test]
+    fn parse_config_databases_multi_db() {
+        let yaml = r#"
+project: multi-db-app
+databases:
+  default:
+    engine: postgres
+    url: postgresql://localhost/main
+    pool_size: 10
+  analytics:
+    engine: postgres
+    url: postgresql://localhost/analytics
+"#;
+        let cfg = parse_config(yaml).unwrap();
+        let dbs = cfg.databases.as_ref().unwrap();
+        assert_eq!(dbs.len(), 2);
+        assert!(dbs.contains_key("default"));
+        assert!(dbs.contains_key("analytics"));
+        assert_eq!(
+            dbs.get("default").unwrap().url,
+            "postgresql://localhost/main"
+        );
+    }
+
+    #[test]
     fn parse_config_unknown_key_fails() {
         let yaml = r#"
 project: my-app

@@ -290,16 +290,18 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M14 — Multi-Database
-**Crates:** `shaperail-core`, `shaperail-codegen`, `shaperail-runtime` | **Status:** [ ]
+**Crates:** `shaperail-core`, `shaperail-codegen`, `shaperail-runtime` | **Status:** [~]
 
 **Deliverables:**
-- [ ] `DatabaseEngine` enum: Postgres, MySQL, SQLite, MongoDB in shaperail-core
-- [ ] `db:` key in resource YAML: routes resource to named DB connection
-- [ ] Multi-DB config in shaperail.config.yaml: `databases:` map with named connections
-- [ ] MySQL backend: sqlx mysql driver, migration support, 95% feature coverage
-- [ ] SQLite backend: sqlx sqlite driver, WAL mode, 85% feature coverage
+- [x] `DatabaseEngine` enum: Postgres, MySQL, SQLite, MongoDB in shaperail-core
+- [x] `db:` key in resource YAML: routes resource to named DB connection
+- [x] Multi-DB config in shaperail.config.yaml: `databases:` map with named connections
+- [x] SeaORM + SeaQuery in runtime; `DatabaseManager` for named SQL connections (Postgres wired)
+- [x] Engine-specific migration SQL: `build_create_table_sql_for_engine` (Postgres, MySQL, SQLite)
+- [ ] MySQL backend: enable sqlx-mysql in SeaORM, migration support, 95% feature coverage
+- [ ] SQLite backend: enable sqlx-sqlite in SeaORM, WAL mode, 85% feature coverage
 - [ ] MongoDB backend: mongodb crate, schema validation, 75% feature coverage
-- [ ] Engine-specific query emitters in shaperail-codegen
+- [ ] ORM-backed CRUD path: use SeaQuery for dialect-agnostic queries (optional; current sqlx path retained)
 - [ ] `shaperail migrate` runs all engines in dependency order
 - [ ] Tests: full CRUD on each engine, same API behaviour, cross-DB project works
 

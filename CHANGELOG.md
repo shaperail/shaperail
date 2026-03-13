@@ -5,6 +5,24 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-13
+
+### Added
+
+- **Multi-database (M14)** — Optional `databases:` in `shaperail.config.yaml` with named connections (e.g. `default`, `analytics`). Resources can set `db: <name>` to use a specific connection; omit for the default. When `databases` is set, the server uses an ORM-backed store (SeaORM) and runs migrations against the `default` connection.
+- **`DatabaseEngine`** — Core enum: Postgres, MySQL, SQLite, MongoDB. Config supports `engine` and `url` per named database.
+- **`DatabaseManager`** — Runtime connection manager for named SQL backends (Postgres wired; MySQL/SQLite config accepted, runtime support in progress).
+- **Engine-specific migration SQL** — `build_create_table_sql_for_engine` for Postgres, MySQL, and SQLite dialect output.
+- **ORM-backed CRUD path** — `OrmResourceQuery` and `OrmBackedStore`; `build_orm_store_registry(manager, resources)` builds a store registry when using `databases:`.
+- **Scaffolded main** — When `config.databases` is present, app creates `DatabaseManager`, runs migrations on default DB URL, and uses ORM stores; otherwise keeps single-DB `generated::build_store_registry(pool)`.
+- **Documentation** — Configuration reference documents `databases:` and `db:`; resource guide and Blog API example updated for multi-DB; index and reference pages mention multi-database.
+
+### Changed
+
+- **BREAKING:** `ResourceDefinition` now has an optional `db: Option<String>` field. All struct literals in tests/benches were updated with `db: None`.
+- **BREAKING:** `ProjectConfig` now has optional `databases: Option<IndexMap<String, NamedDatabaseConfig>>`. All config literals updated with `databases: None`.
+- Blog API example and docs now show optional `db:` and commented `databases:` config.
+
 ## [0.3.0] - 2026-03-13
 
 ### Added
@@ -60,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Observability** — Structured JSON logging with request IDs, PII redaction, OpenTelemetry tracing, Prometheus metrics at `/metrics`, health checks at `/health` and `/health/ready`
 - **OpenAPI Generation** — Deterministic OpenAPI 3.1 spec generation from resource definitions, TypeScript SDK generation
 
+[0.4.0]: https://github.com/shaperail/shaperail/releases/tag/v0.4.0
 [0.3.0]: https://github.com/shaperail/shaperail/releases/tag/v0.3.0
 [0.2.2]: https://github.com/shaperail/shaperail/releases/tag/v0.2.2
 [0.2.1]: https://github.com/shaperail/shaperail/releases/tag/v0.2.1

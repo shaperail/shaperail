@@ -23,6 +23,10 @@ pub struct ResourceDefinition {
     /// Schema version number (starts at 1).
     pub version: u32,
 
+    /// Named database connection for this resource (M14). Default: "default".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub db: Option<String>,
+
     /// Field definitions, keyed by field name. Uses IndexMap to preserve declaration order.
     pub schema: IndexMap<String, FieldSchema>,
 
@@ -130,6 +134,7 @@ mod tests {
         ResourceDefinition {
             resource: "users".to_string(),
             version: 1,
+            db: None,
             schema,
             endpoints: Some(endpoints),
             relations: Some(relations),
@@ -171,6 +176,7 @@ mod tests {
         let rd = ResourceDefinition {
             resource: "tags".to_string(),
             version: 1,
+            db: None,
             schema: IndexMap::new(),
             endpoints: None,
             relations: None,

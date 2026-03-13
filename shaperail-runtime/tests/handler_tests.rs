@@ -250,6 +250,7 @@ mod handler_unit_tests {
         ResourceDefinition {
             resource: "users".to_string(),
             version: 1,
+            db: None,
             schema,
             endpoints: Some(endpoints),
             relations: None,

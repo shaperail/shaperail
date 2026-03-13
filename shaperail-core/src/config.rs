@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::DatabaseEngine;
+
 /// Project-level configuration, parsed from `shaperail.config.yaml`.
 ///
 /// ```yaml
@@ -12,6 +14,20 @@ use serde::{Deserialize, Serialize};
 ///   port: 5432
 ///   name: my_api_db
 ///   pool_size: 20
+/// ```
+///
+/// Multi-database (M14):
+/// ```yaml
+/// databases:
+///   default:
+///     engine: postgres
+///     url: ${DATABASE_URL}
+///   analytics:
+///     engine: mysql
+///     url: mysql://user:pass@localhost/analytics
+///   cache_db:
+///     engine: sqlite
+///     url: file:cache.db
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,9 +43,13 @@ pub struct ProjectConfig {
     #[serde(default = "default_workers")]
     pub workers: WorkerCount,
 
-    /// Database configuration.
+    /// Single database configuration (legacy). Ignored if `databases` is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database: Option<DatabaseConfig>,
+
+    /// Named database connections (M14). When set, resources use `db: <name>` to select connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub databases: Option<indexmap::IndexMap<String, NamedDatabaseConfig>>,
 
     /// Cache (Redis) configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,7 +114,7 @@ impl<'de> Deserialize<'de> for WorkerCount {
     }
 }
 
-/// Database connection configuration.
+/// Database connection configuration (legacy single-DB).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatabaseConfig {
@@ -114,6 +134,21 @@ pub struct DatabaseConfig {
     pub name: String,
 
     /// Connection pool size.
+    #[serde(default = "default_pool_size")]
+    pub pool_size: u32,
+}
+
+/// Named database connection (M14 multi-database). Used in `databases: <name>: <config>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NamedDatabaseConfig {
+    /// Engine: postgres, mysql, sqlite, mongodb.
+    pub engine: DatabaseEngine,
+
+    /// Connection URL. Env var interpolation supported (e.g. ${DATABASE_URL}).
+    pub url: String,
+
+    /// Connection pool size (SQL only). Default 20.
     #[serde(default = "default_pool_size")]
     pub pool_size: u32,
 }
@@ -427,6 +462,7 @@ mod tests {
                 name: "test".to_string(),
                 pool_size: 20,
             }),
+            databases: None,
             cache: None,
             auth: None,
             storage: None,
@@ -511,5 +547,31 @@ mod tests {
         assert!(cfg.subscribers.is_empty());
         assert!(cfg.webhooks.is_none());
         assert!(cfg.inbound.is_empty());
+    }
+
+    #[test]
+    fn named_database_config() {
+        let json =
+            r#"{"engine": "postgres", "url": "postgresql://localhost/mydb", "pool_size": 10}"#;
+        let cfg: NamedDatabaseConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.engine, DatabaseEngine::Postgres);
+        assert_eq!(cfg.url, "postgresql://localhost/mydb");
+        assert_eq!(cfg.pool_size, 10);
+    }
+
+    #[test]
+    fn project_config_databases() {
+        let json = r#"{
+            "project": "multi-db",
+            "databases": {
+                "default": {"engine": "postgres", "url": "postgresql:///main"},
+                "analytics": {"engine": "mysql", "url": "mysql://localhost/analytics"}
+            }
+        }"#;
+        let cfg: ProjectConfig = serde_json::from_str(json).unwrap();
+        let dbs = cfg.databases.as_ref().unwrap();
+        assert_eq!(dbs.len(), 2);
+        assert_eq!(dbs.get("default").unwrap().engine, DatabaseEngine::Postgres);
+        assert_eq!(dbs.get("analytics").unwrap().engine, DatabaseEngine::MySQL);
     }
 }

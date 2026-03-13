@@ -80,6 +80,7 @@ Generated Rust, OpenAPI, and routes live in `generated/` and are not hand-edited
 ## Features at a glance
 
 - **REST API** — List, get, create, update, delete, bulk create/delete; cursor or offset pagination; filters, sort, full-text search; field selection and relation loading (`?include=…`).
+- **Multi-database** — Optional `databases:` in config with named connections (e.g. `default`, `analytics`). Per-resource `db:` routes that resource to a connection; migrations run against `default`.
 - **API versioning** — Per-resource `version` field prefixes all routes (`/v1/users`, `/v2/orders`). OpenAPI spec and CLI output reflect versioned paths.
 - **Controllers** — Synchronous before/after business logic on write endpoints. Validate input, normalize data, enrich responses — all within the request lifecycle.
 - **Auth** — JWT (Bearer) and API keys (`X-API-Key`); role-based and owner-based rules; rate limiting via Redis.

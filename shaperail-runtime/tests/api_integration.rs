@@ -293,6 +293,7 @@ fn test_asset_resource() -> ResourceDefinition {
     ResourceDefinition {
         resource: "test_assets".to_string(),
         version: 1,
+        db: None,
         schema,
         endpoints: Some(endpoints),
         relations: None,
@@ -502,6 +503,7 @@ fn test_resource() -> ResourceDefinition {
     ResourceDefinition {
         resource: "test_users".to_string(),
         version: 1,
+        db: None,
         schema,
         endpoints: None,
         relations: None,
@@ -1820,6 +1822,7 @@ fn org_resource() -> ResourceDefinition {
     ResourceDefinition {
         resource: "test_orgs".to_string(),
         version: 1,
+        db: None,
         schema,
         endpoints: Some(endpoints),
         relations: None,

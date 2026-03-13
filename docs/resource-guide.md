@@ -24,6 +24,7 @@ Use `.yaml`, not `.yml`, for the canonical format.
 resource:
 version:
 schema:
+db:          # optional — named database connection
 endpoints:
 relations:
 indexes:
@@ -32,6 +33,10 @@ indexes:
 Rules:
 
 - `resource`, `version`, and `schema` are required.
+- `db` is optional. When your project uses **multi-database** (`databases:` in
+  `shaperail.config.yaml`), set `db` to a connection name (e.g. `analytics`) to
+  route this resource’s data to that connection. Omit `db` or set it to a name
+  that is not in `databases` to use the **default** connection.
 - `endpoints` is optional. If you omit it, Shaperail parses the resource but
   generates no HTTP routes.
 - `relations` and `indexes` are optional.
@@ -41,6 +46,7 @@ Rules:
 ```yaml
 resource: users
 version: 1
+# db: default   # optional; use when multi-database is configured
 
 schema:
   id:         { type: uuid, primary: true, generated: true }
@@ -100,6 +106,28 @@ The version prefix appears in:
 
 Each resource carries its own version independently. When you scaffold a new
 project with `shaperail init`, resources default to `version: 1`.
+
+## Multi-database (optional)
+
+When your project config defines **`databases:`** (see
+[Configuration reference]({{ '/configuration/' | relative_url }}#databases-multi-database)),
+you can route a resource to a specific connection with the top-level **`db`** key:
+
+```yaml
+resource: events
+version: 1
+db: analytics    # use the "analytics" connection from databases: in config
+
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+  # ...
+```
+
+- Omit `db` (or use a name that resolves to the default) to use the **default**
+  connection. Migrations always run against the `default` connection.
+- All endpoints for that resource (list, get, create, update, delete) use the
+  same connection. Cross-database relations are not supported.
 
 ## Schema fields
 

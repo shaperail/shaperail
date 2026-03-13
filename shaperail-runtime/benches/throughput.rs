@@ -172,6 +172,7 @@ fn user_resource() -> ResourceDefinition {
     ResourceDefinition {
         resource: "users".to_string(),
         version: 1,
+        db: None,
         schema,
         endpoints: None,
         relations: None,

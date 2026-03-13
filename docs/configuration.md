@@ -99,7 +99,9 @@ events:
 
 ### `database`
 
-Optional. When omitted, no database pool is created.
+Optional. Single-database (legacy) mode. When omitted, no database pool is
+created. **Ignored when `databases` is set** — use `databases` for
+multi-database or to name your primary connection explicitly.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
@@ -108,6 +110,44 @@ Optional. When omitted, no database pool is created.
 | `port` | integer | no | `5432` | Database server port. |
 | `name` | string | yes | -- | Database name. |
 | `pool_size` | integer | no | `20` | Maximum connections in the sqlx pool. |
+
+### `databases` (multi-database)
+
+Optional. Named database connections for multi-database projects. When set,
+the server uses an ORM-backed store and routes each resource to the connection
+named by its `db:` key (or `default` when omitted).
+
+You must include a connection named **`default`**; migrations run against the
+`default` connection. Use `${VAR}` or `${VAR:default}` in URLs for environment
+variable interpolation.
+
+```yaml
+databases:
+  default:
+    engine: postgres
+    url: ${DATABASE_URL}
+    pool_size: 20
+  analytics:
+    engine: postgres
+    url: postgres://user:pass@analytics-db.example.com/analytics
+    pool_size: 10
+```
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| *name* | object | yes | -- | Connection name (e.g. `default`, `analytics`). Resources select via `db: <name>`. |
+| `engine` | string | yes | -- | One of: `postgres`, `mysql`, `sqlite`. |
+| `url` | string | yes | -- | Connection URL (e.g. `postgres://...`, `mysql://...`, `file:data.db`). |
+| `pool_size` | integer | no | `20` | Maximum connections in the pool for this database. |
+
+Supported engines:
+
+- **postgres** — PostgreSQL. Full CRUD, filters, sort, pagination, migrations.
+- **mysql** — Planned; config accepted, runtime support in progress.
+- **sqlite** — Planned; config accepted, runtime support in progress.
+
+When `databases` is present, `database` is ignored and `DATABASE_URL` is only
+used if you reference it inside a `databases.*.url` value (e.g. `default`).
 
 ### `cache`
 
