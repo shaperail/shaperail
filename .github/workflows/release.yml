@@ -212,7 +212,10 @@ jobs:
           fi
 
           shopt -s globstar nullglob
-          files=(artifacts/**/*)
+          files=()
+          for f in artifacts/**/*; do
+            [[ -f "$f" ]] && files+=("$f")
+          done
           if gh release view "${release_tag}" >/dev/null 2>&1; then
             gh release upload "${release_tag}" "${files[@]}" --clobber
           else
