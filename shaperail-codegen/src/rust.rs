@@ -70,6 +70,7 @@ pub fn generate_resource_module(resource: &ResourceDefinition) -> Result<String,
 use serde::{{Deserialize, Serialize}};
 use serde_json::{{Map, Value}};
 use shaperail_core::EndpointSpec;
+#[allow(unused_imports)]
 use shaperail_runtime::db::{{
     async_trait, parse_embedded_json, parse_filter, parse_optional_json, require_field,
     row_from_model, sort_direction_at, sort_field_at, FilterSet, PageRequest, ResourceRow,
