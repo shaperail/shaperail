@@ -1,7 +1,7 @@
 ---
 title: Observability
 parent: Guides
-nav_order: 10
+nav_order: 11
 ---
 
 # Observability

@@ -1,7 +1,7 @@
 ---
 title: File storage
 parent: Guides
-nav_order: 8
+nav_order: 9
 ---
 
 # File storage

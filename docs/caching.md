@@ -1,7 +1,7 @@
 ---
 title: Caching
 parent: Guides
-nav_order: 5
+nav_order: 6
 ---
 
 Shaperail caches GET endpoint responses in Redis. You declare caching in the

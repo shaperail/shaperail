@@ -1,7 +1,7 @@
 ---
 title: Background jobs
 parent: Guides
-nav_order: 6
+nav_order: 7
 ---
 
 Shaperail includes a Redis-backed background job queue with priority levels,

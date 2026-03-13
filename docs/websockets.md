@@ -1,7 +1,7 @@
 ---
 title: WebSockets
 parent: Guides
-nav_order: 7
+nav_order: 8
 ---
 
 Shaperail provides real-time WebSocket support through channel definitions.

@@ -1,7 +1,7 @@
 ---
 title: Migrations and schema changes
 parent: Guides
-nav_order: 3
+nav_order: 4
 ---
 
 Shaperail treats resource YAML as the schema source of truth, but the running
