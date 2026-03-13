@@ -97,6 +97,23 @@ events:
 | --- | --- | --- | --- | --- |
 | `workers` | `"auto"` or integer | no | `auto` | Number of Actix-web worker threads. `auto` uses the number of CPU cores. |
 
+### `protocols` (M15)
+
+Optional. List of API protocols to enable. When omitted, defaults to `["rest"]`.
+
+```yaml
+protocols:
+  - rest
+  - graphql
+```
+
+| Value | Description |
+| --- | --- |
+| `rest` | REST API (list, get, create, update, delete) — always available when a database is configured. |
+| `graphql` | GraphQL endpoint at `/graphql` with queries, mutations, and subscriptions (M15; in progress). |
+
+Only `rest` and `graphql` are allowed. Unknown values cause a parse error.
+
 ### `database`
 
 Optional. Single-database (legacy) mode. When omitted, no database pool is

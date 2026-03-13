@@ -642,6 +642,7 @@ mod tests {
             storage: None,
             logging: None,
             events: None,
+            protocols: vec!["rest".to_string()],
         }
     }
 

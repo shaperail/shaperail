@@ -201,4 +201,16 @@ unknown: true
         let err = parse_config(yaml).unwrap_err();
         assert!(err.to_string().contains("SHAPERAIL_TEST_MISSING"));
     }
+
+    #[test]
+    fn parse_config_protocols() {
+        let yaml = r#"
+project: gql-api
+protocols:
+  - rest
+  - graphql
+"#;
+        let cfg = parse_config(yaml).unwrap();
+        assert_eq!(cfg.protocols, vec!["rest", "graphql"]);
+    }
 }

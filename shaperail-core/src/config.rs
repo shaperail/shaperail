@@ -70,10 +70,18 @@ pub struct ProjectConfig {
     /// Events and webhooks configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub events: Option<EventsConfig>,
+
+    /// Enabled API protocols (M15). Default when omitted: `["rest"]`. Allowed: `rest`, `graphql`.
+    #[serde(default = "default_protocols")]
+    pub protocols: Vec<String>,
 }
 
 fn default_port() -> u16 {
     3000
+}
+
+fn default_protocols() -> Vec<String> {
+    vec!["rest".to_string()]
 }
 
 fn default_workers() -> WorkerCount {
@@ -360,6 +368,7 @@ mod tests {
         assert_eq!(cfg.port, 3000);
         assert_eq!(cfg.workers, WorkerCount::Auto);
         assert!(cfg.database.is_none());
+        assert_eq!(cfg.protocols, vec!["rest"]);
     }
 
     #[test]
@@ -468,6 +477,7 @@ mod tests {
             storage: None,
             logging: None,
             events: None,
+            protocols: vec!["rest".to_string()],
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: ProjectConfig = serde_json::from_str(&json).unwrap();
@@ -573,5 +583,12 @@ mod tests {
         assert_eq!(dbs.len(), 2);
         assert_eq!(dbs.get("default").unwrap().engine, DatabaseEngine::Postgres);
         assert_eq!(dbs.get("analytics").unwrap().engine, DatabaseEngine::MySQL);
+    }
+
+    #[test]
+    fn project_config_protocols() {
+        let json = r#"{"project": "gql-api", "protocols": ["rest", "graphql"]}"#;
+        let cfg: ProjectConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.protocols, vec!["rest", "graphql"]);
     }
 }
