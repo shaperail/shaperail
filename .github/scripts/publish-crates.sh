@@ -27,6 +27,7 @@ wait_for_crate_version() {
   echo "Waiting for ${crate} ${version} to appear on crates.io..."
   for attempt in $(seq 1 "${availability_attempts}"); do
     http_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+      -H 'User-Agent: Shaperail-Release (https://github.com/shaperail/shaperail)' \
       "https://crates.io/api/v1/crates/${crate}/${version}" || true)"
 
     if [[ "${http_code}" == "200" ]]; then
