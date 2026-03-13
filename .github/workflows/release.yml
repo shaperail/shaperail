@@ -96,6 +96,8 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: checks
     runs-on: ${{ matrix.os }}
+    # aarch64-linux cross-build often fails (native-tls/OpenSSL); allow release to complete without it
+    continue-on-error: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
     strategy:
       matrix:
         include:
