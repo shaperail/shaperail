@@ -6,20 +6,25 @@
 //!
 //! Run with: cargo test -p shaperail-runtime --test api_integration
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
 use actix_web::{test as actix_test, web, App};
+use async_trait::async_trait;
 use deadpool_redis::Pool;
 use indexmap::IndexMap;
 use redis::AsyncCommands;
 use serde_json::json;
 use shaperail_core::{
     AuthRule, CacheSpec, EndpointSpec, FieldSchema, FieldType, HttpMethod, PaginationStyle,
-    ResourceDefinition,
+    RelationSpec, RelationType, ResourceDefinition,
 };
 use shaperail_runtime::auth::jwt::JwtConfig;
 use shaperail_runtime::cache::{create_redis_pool, RedisCache};
+use shaperail_runtime::db::{
+    FilterSet, PageRequest, ResourceQuery, ResourceRow, ResourceStore, SortParam, StoreRegistry,
+};
 use shaperail_runtime::handlers::crud::AppState;
 use shaperail_runtime::handlers::routes::register_resource;
 use shaperail_runtime::observability::{metrics_handler, MetricsState, RequestLogger};
@@ -40,6 +45,7 @@ fn make_state(pool: sqlx::PgPool, jwt: Option<JwtConfig>) -> Arc<AppState> {
     Arc::new(AppState {
         pool,
         resources: vec![],
+        stores: None,
         jwt_config: jwt.map(Arc::new),
         cache: None,
         event_emitter: None,
@@ -1197,6 +1203,7 @@ async fn test_metrics_capture_requests_errors_and_cache(pool: sqlx::PgPool) {
     let state = Arc::new(AppState {
         pool: pool.clone(),
         resources: vec![],
+        stores: None,
         jwt_config: None,
         cache: Some(RedisCache::new(redis_pool.clone())),
         event_emitter: None,
@@ -1285,6 +1292,7 @@ async fn test_list_cache_hit_serves_stale_data_after_db_delete(pool: sqlx::PgPoo
     let state = Arc::new(AppState {
         pool: pool.clone(),
         resources: vec![],
+        stores: None,
         jwt_config: None,
         cache: Some(RedisCache::new(redis_pool.clone())),
         event_emitter: None,
@@ -1358,6 +1366,7 @@ async fn test_write_invalidates_cached_list(pool: sqlx::PgPool) {
     let state = Arc::new(AppState {
         pool: pool.clone(),
         resources: vec![],
+        stores: None,
         jwt_config: None,
         cache: Some(RedisCache::new(redis_pool.clone())),
         event_emitter: None,
@@ -1432,6 +1441,7 @@ async fn test_nocache_bypasses_cached_response(pool: sqlx::PgPool) {
     let state = Arc::new(AppState {
         pool: pool.clone(),
         resources: vec![],
+        stores: None,
         jwt_config: None,
         cache: Some(RedisCache::new(redis_pool.clone())),
         event_emitter: None,
@@ -1594,9 +1604,15 @@ async fn test_delete_endpoint_cleans_up_uploaded_file(pool: sqlx::PgPool) {
     let body: serde_json::Value = actix_test::read_body_json(resp).await;
     let data = body["data"].as_object().expect("created asset");
     let id = data["id"].as_str().expect("asset id").to_string();
-    let path = data["attachment"].as_str().expect("attachment path").to_string();
+    let path = data["attachment"]
+        .as_str()
+        .expect("attachment path")
+        .to_string();
     let stored_path = storage_dir.path().join(&path);
-    assert!(stored_path.exists(), "uploaded file should exist before delete");
+    assert!(
+        stored_path.exists(),
+        "uploaded file should exist before delete"
+    );
 
     let req = actix_test::TestRequest::delete()
         .uri(&format!("/test_assets/{id}"))
@@ -1616,4 +1632,293 @@ async fn test_delete_endpoint_cleans_up_uploaded_file(pool: sqlx::PgPool) {
     .expect("file cleanup should finish");
 
     std::env::remove_var("SHAPERAIL_STORAGE_LOCAL_DIR");
+}
+
+// ---------------------------------------------------------------------------
+// Relation loading with store (?include=)
+// ---------------------------------------------------------------------------
+
+/// Store implementation that delegates to ResourceQuery (used to test store path in relation loading).
+struct QueryBackedStore {
+    resource: ResourceDefinition,
+    pool: sqlx::PgPool,
+}
+
+#[async_trait]
+impl ResourceStore for QueryBackedStore {
+    fn resource_name(&self) -> &str {
+        &self.resource.resource
+    }
+
+    async fn find_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+        ResourceQuery::new(&self.resource, &self.pool)
+            .find_by_id(id)
+            .await
+    }
+
+    async fn find_all(
+        &self,
+        _endpoint: &EndpointSpec,
+        filters: &FilterSet,
+        search: Option<&shaperail_runtime::db::SearchParam>,
+        sort: &SortParam,
+        page: &PageRequest,
+    ) -> Result<(Vec<ResourceRow>, serde_json::Value), shaperail_core::ShaperailError> {
+        ResourceQuery::new(&self.resource, &self.pool)
+            .find_all(filters, search, sort, page)
+            .await
+    }
+
+    async fn insert(
+        &self,
+        data: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+        ResourceQuery::new(&self.resource, &self.pool)
+            .insert(data)
+            .await
+    }
+
+    async fn update_by_id(
+        &self,
+        id: &uuid::Uuid,
+        data: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+        ResourceQuery::new(&self.resource, &self.pool)
+            .update_by_id(id, data)
+            .await
+    }
+
+    async fn soft_delete_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+        ResourceQuery::new(&self.resource, &self.pool)
+            .soft_delete_by_id(id)
+            .await
+    }
+
+    async fn hard_delete_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+        ResourceQuery::new(&self.resource, &self.pool)
+            .hard_delete_by_id(id)
+            .await
+    }
+}
+
+fn org_resource() -> ResourceDefinition {
+    let mut schema = IndexMap::new();
+    schema.insert(
+        "id".to_string(),
+        FieldSchema {
+            field_type: FieldType::Uuid,
+            primary: true,
+            generated: true,
+            required: false,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+        },
+    );
+    schema.insert(
+        "name".to_string(),
+        FieldSchema {
+            field_type: FieldType::String,
+            primary: false,
+            generated: false,
+            required: true,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+        },
+    );
+
+    let mut endpoints = IndexMap::new();
+    endpoints.insert(
+        "list".to_string(),
+        EndpointSpec {
+            method: HttpMethod::Get,
+            path: "/test_orgs".to_string(),
+            auth: None,
+            input: None,
+            filters: None,
+            search: None,
+            pagination: Some(PaginationStyle::Cursor),
+            sort: None,
+            cache: None,
+            hooks: None,
+            events: None,
+            jobs: None,
+            upload: None,
+            soft_delete: false,
+        },
+    );
+    endpoints.insert(
+        "get".to_string(),
+        EndpointSpec {
+            method: HttpMethod::Get,
+            path: "/test_orgs/:id".to_string(),
+            auth: None,
+            input: None,
+            filters: None,
+            search: None,
+            pagination: None,
+            sort: None,
+            cache: None,
+            hooks: None,
+            events: None,
+            jobs: None,
+            upload: None,
+            soft_delete: false,
+        },
+    );
+    endpoints.insert(
+        "create".to_string(),
+        EndpointSpec {
+            method: HttpMethod::Post,
+            path: "/test_orgs".to_string(),
+            auth: None,
+            input: Some(vec!["name".to_string()]),
+            filters: None,
+            search: None,
+            pagination: None,
+            sort: None,
+            cache: None,
+            hooks: None,
+            events: None,
+            jobs: None,
+            upload: None,
+            soft_delete: false,
+        },
+    );
+
+    ResourceDefinition {
+        resource: "test_orgs".to_string(),
+        version: 1,
+        schema,
+        endpoints: Some(endpoints),
+        relations: None,
+        indexes: None,
+    }
+}
+
+fn users_resource_with_organization_relation() -> ResourceDefinition {
+    let mut resource = test_resource();
+    resource.endpoints = Some(full_crud_endpoints());
+    let mut relations = IndexMap::new();
+    relations.insert(
+        "organization".to_string(),
+        RelationSpec {
+            resource: "test_orgs".to_string(),
+            relation_type: RelationType::BelongsTo,
+            key: Some("org_id".to_string()),
+            foreign_key: None,
+        },
+    );
+    resource.relations = Some(relations);
+    resource
+}
+
+fn build_test_store_registry(
+    pool: sqlx::PgPool,
+    resources: &[ResourceDefinition],
+) -> StoreRegistry {
+    let mut map: HashMap<String, Arc<dyn ResourceStore>> = HashMap::new();
+    for resource in resources {
+        let store = Arc::new(QueryBackedStore {
+            resource: resource.clone(),
+            pool: pool.clone(),
+        });
+        map.insert(resource.resource.clone(), store);
+    }
+    Arc::new(map)
+}
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn test_list_with_include_uses_store(pool: sqlx::PgPool) {
+    let org_res = org_resource();
+    let users_res = users_resource_with_organization_relation();
+    let resources = vec![users_res.clone(), org_res.clone()];
+    let stores = build_test_store_registry(pool.clone(), &resources);
+
+    let state = Arc::new(AppState {
+        pool: pool.clone(),
+        resources: resources.clone(),
+        stores: Some(stores),
+        jwt_config: None,
+        cache: None,
+        event_emitter: None,
+        job_queue: None,
+        metrics: Some(MetricsState::new().expect("metrics state")),
+    });
+
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .configure(|cfg| {
+                for res in &resources {
+                    register_resource(cfg, res, state.clone());
+                }
+            }),
+    )
+    .await;
+
+    // Create one org
+    let create_org = actix_test::TestRequest::post()
+        .uri("/test_orgs")
+        .set_json(json!({ "name": "Acme Corp" }))
+        .to_request();
+    let resp = actix_test::call_service(&app, create_org).await;
+    assert_eq!(resp.status(), 201, "Create org should return 201");
+    let org_body: serde_json::Value = actix_test::read_body_json(resp).await;
+    let org_id = org_body["data"]["id"].as_str().expect("org has id");
+
+    // Create user with that org_id
+    let create_user = actix_test::TestRequest::post()
+        .uri("/test_users")
+        .set_json(user_payload(
+            "include@example.com",
+            "Include User",
+            "member",
+            org_id,
+        ))
+        .to_request();
+    let resp = actix_test::call_service(&app, create_user).await;
+    assert_eq!(resp.status(), 201, "Create user should return 201");
+
+    // List users with include=organization; store path is used for relation loading
+    let req = actix_test::TestRequest::get()
+        .uri("/test_users?include=organization")
+        .to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200, "List with include should return 200");
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    let data = body["data"].as_array().expect("data is array");
+    assert!(!data.is_empty(), "At least one user");
+    let user = &data[0];
+    assert!(
+        user.get("organization").is_some(),
+        "User should have embedded organization from ?include=organization"
+    );
+    assert_eq!(user["organization"]["name"], "Acme Corp");
 }

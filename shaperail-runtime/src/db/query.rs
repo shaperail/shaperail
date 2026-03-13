@@ -16,6 +16,15 @@ pub struct ResourceRow(pub serde_json::Value);
 ///
 /// Generates and executes parameterized SQL queries against a PgPool,
 /// returning results as `ResourceRow` (JSON objects).
+///
+/// # SQL injection safety
+///
+/// All user-controllable input (filter values, search term, cursor, pagination
+/// offset/limit, insert/update body) is passed only as bound parameters via
+/// `BindValue` and `query.bind()`. Table and column names in the SQL string
+/// come solely from `ResourceDefinition` (trusted schema). Filter/sort field
+/// names are allow-listed (FilterSet::from_query_params, SortParam::parse).
+/// See db_integration tests `test_sql_injection_*` for verification.
 pub struct ResourceQuery<'a> {
     pub resource: &'a ResourceDefinition,
     pub pool: &'a PgPool,

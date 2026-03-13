@@ -35,7 +35,10 @@ pub fn collect_resource_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error
 
 /// Parse all resource files from the resources/ directory.
 pub fn load_all_resources() -> Result<Vec<ResourceDefinition>, String> {
-    let resources_dir = Path::new("resources");
+    load_all_resources_from(Path::new("resources"))
+}
+
+pub fn load_all_resources_from(resources_dir: &Path) -> Result<Vec<ResourceDefinition>, String> {
     if !resources_dir.is_dir() {
         return Err(
             "No resources/ directory found. Run this from a Shaperail project root.".into(),

@@ -12,7 +12,7 @@ use actix_web::{body::to_bytes, http::StatusCode, test::TestRequest, web};
 use indexmap::IndexMap;
 use shaperail_core::{EndpointSpec, FieldSchema, FieldType, HttpMethod, ResourceDefinition};
 use shaperail_runtime::db::{
-    health_check, FilterParam, FilterSet, PageRequest, ResourceQuery, SortParam,
+    health_check, FilterParam, FilterSet, PageRequest, ResourceQuery, SearchParam, SortParam,
 };
 use shaperail_runtime::handlers::crud::{handle_delete, AppState};
 use shaperail_runtime::observability::MetricsState;
@@ -360,6 +360,7 @@ async fn test_handle_delete_soft_delete_returns_no_content(pool: sqlx::PgPool) {
     let state = Arc::new(AppState {
         pool: pool.clone(),
         resources: vec![resource.clone()],
+        stores: None,
         jwt_config: None,
         cache: None,
         event_emitter: None,
@@ -592,4 +593,197 @@ async fn test_find_by_id_not_found(pool: sqlx::PgPool) {
 
     let result = q.find_by_id(&uuid::Uuid::new_v4()).await;
     assert!(result.is_err());
+}
+
+// --- SQL injection tests: user input is always bound as parameters, never concatenated into SQL ---
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn test_sql_injection_filter_value(pool: sqlx::PgPool) {
+    let resource = test_resource();
+    let q = ResourceQuery::new(&resource, &pool);
+
+    let org_id = uuid::Uuid::new_v4();
+    let mut data = serde_json::Map::new();
+    data.insert("email".to_string(), serde_json::json!("safe@example.com"));
+    data.insert("name".to_string(), serde_json::json!("Safe User"));
+    data.insert("role".to_string(), serde_json::json!("member"));
+    data.insert("org_id".to_string(), serde_json::json!(org_id.to_string()));
+    q.insert(&data).await.expect("Insert failed");
+
+    // Count rows before
+    let (rows_before, _) = q
+        .find_all(
+            &FilterSet::default(),
+            None,
+            &SortParam::default(),
+            &PageRequest::Cursor {
+                after: None,
+                limit: 100,
+            },
+        )
+        .await
+        .expect("Find all failed");
+    let count_before = rows_before.len();
+
+    // Attempt injection via filter value: should be bound as literal, no SQL executed
+    let filters = FilterSet {
+        filters: vec![
+            FilterParam {
+                field: "role".to_string(),
+                value: "'; DROP TABLE test_users; --".to_string(),
+            },
+            FilterParam {
+                field: "org_id".to_string(),
+                value: org_id.to_string(),
+            },
+        ],
+    };
+    let result = q
+        .find_all(
+            &filters,
+            None,
+            &SortParam::default(),
+            &PageRequest::Cursor {
+                after: None,
+                limit: 25,
+            },
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "find_all should not crash on injection attempt"
+    );
+    let (rows_after, _) = result.expect("ok");
+    // No row matches role = "'; DROP TABLE test_users; --"
+    assert!(rows_after.is_empty());
+
+    // Table must still exist with same row count
+    let (rows_still, _) = q
+        .find_all(
+            &FilterSet::default(),
+            None,
+            &SortParam::default(),
+            &PageRequest::Cursor {
+                after: None,
+                limit: 100,
+            },
+        )
+        .await
+        .expect("Find all still works");
+    assert_eq!(
+        rows_still.len(),
+        count_before,
+        "Table must be unchanged after filter injection attempt"
+    );
+}
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn test_sql_injection_search_term(pool: sqlx::PgPool) {
+    let resource = test_resource();
+    let q = ResourceQuery::new(&resource, &pool);
+
+    let org_id = uuid::Uuid::new_v4();
+    let mut data = serde_json::Map::new();
+    data.insert("email".to_string(), serde_json::json!("search@example.com"));
+    data.insert("name".to_string(), serde_json::json!("Search User"));
+    data.insert("role".to_string(), serde_json::json!("member"));
+    data.insert("org_id".to_string(), serde_json::json!(org_id.to_string()));
+    q.insert(&data).await.expect("Insert failed");
+
+    let search = SearchParam {
+        term: "1'; DELETE FROM test_users WHERE '1'='1".to_string(),
+        fields: vec!["name".to_string(), "email".to_string()],
+    };
+    let result = q
+        .find_all(
+            &FilterSet::default(),
+            Some(&search),
+            &SortParam::default(),
+            &PageRequest::Cursor {
+                after: None,
+                limit: 25,
+            },
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "find_all with malicious search term should not crash"
+    );
+    let (rows, _) = result.expect("ok");
+    // Search term is bound; no literal match, so may be empty
+    assert!(rows.len() <= 1, "No extra rows from injection");
+
+    // Table must still have our row
+    let (all_rows, _) = q
+        .find_all(
+            &FilterSet::default(),
+            None,
+            &SortParam::default(),
+            &PageRequest::Cursor {
+                after: None,
+                limit: 100,
+            },
+        )
+        .await
+        .expect("Find all still works");
+    assert!(
+        all_rows
+            .iter()
+            .any(|r| r.0["email"] == "search@example.com"),
+        "Row must still exist after search injection attempt"
+    );
+}
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn test_sql_injection_sort_field(pool: sqlx::PgPool) {
+    let resource = test_resource();
+    let q = ResourceQuery::new(&resource, &pool);
+
+    // SortParam::parse uses allow-list; malicious field names are dropped
+    let allowed = vec!["id".to_string(), "name".to_string(), "email".to_string()];
+    let sort = SortParam::parse("id; DROP TABLE test_users; --", &allowed);
+    assert!(
+        sort.fields.is_empty() || sort.fields.iter().all(|f| allowed.contains(&f.field)),
+        "Malicious sort field must not appear"
+    );
+
+    let result = q
+        .find_all(
+            &FilterSet::default(),
+            None,
+            &sort,
+            &PageRequest::Cursor {
+                after: None,
+                limit: 25,
+            },
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "find_all with parsed sort must not execute injected SQL"
+    );
+}
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn test_sql_injection_cursor_invalid(pool: sqlx::PgPool) {
+    use shaperail_runtime::db::decode_cursor;
+
+    // Invalid base64 cursor must not be used in SQL
+    let result = decode_cursor("'; DROP TABLE test_users; --");
+    assert!(result.is_err(), "Invalid cursor must return error");
+
+    // find_all with malicious cursor string must fail with Validation, not execute raw SQL
+    let resource = test_resource();
+    let q = ResourceQuery::new(&resource, &pool);
+    let page = PageRequest::Cursor {
+        after: Some("'; DROP TABLE test_users; --".to_string()),
+        limit: 10,
+    };
+    let result = q
+        .find_all(&FilterSet::default(), None, &SortParam::default(), &page)
+        .await;
+    assert!(
+        result.is_err(),
+        "Malicious cursor must yield error, not execute SQL"
+    );
 }

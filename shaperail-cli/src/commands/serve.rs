@@ -24,6 +24,11 @@ pub fn run(port: Option<u16>, check: bool) -> i32 {
         return 1;
     }
 
+    if let Err(e) = super::generate::write_generated_modules(&resources, Path::new("generated")) {
+        eprintln!("Error generating typed query modules: {e}");
+        return 1;
+    }
+
     let port = port.unwrap_or(config.port);
 
     // Try cargo-watch first for hot reload
@@ -102,7 +107,19 @@ fn validate_project_layout() -> Result<(), String> {
 
 fn serve_command(has_cargo_watch: bool) -> Vec<&'static str> {
     if has_cargo_watch {
-        vec!["watch", "-x", "run", "-w", "src", "-w", "resources"]
+        vec![
+            "watch",
+            "-s",
+            "shaperail generate",
+            "-x",
+            "run",
+            "-w",
+            "src",
+            "-w",
+            "resources",
+            "-w",
+            "generated",
+        ]
     } else {
         vec!["run"]
     }

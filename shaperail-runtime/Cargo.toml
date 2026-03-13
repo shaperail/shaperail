@@ -17,6 +17,7 @@ actix-ws = { workspace = true }
 actix-multipart = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
+async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

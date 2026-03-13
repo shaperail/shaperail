@@ -1,11 +1,31 @@
 use std::sync::Arc;
 
 use actix_web::web;
-use shaperail_core::{RelationType, ResourceDefinition, ShaperailError};
+use shaperail_core::{EndpointSpec, HttpMethod, RelationType, ResourceDefinition, ShaperailError};
 
-use crate::db::ResourceQuery;
+use crate::db::{FilterParam, FilterSet, PageRequest, ResourceQuery, SortParam};
 
 use super::crud::AppState;
+
+/// Returns the generated store for a resource when the app has a store registry and the resource is registered.
+fn store_for(
+    state: &AppState,
+    resource: &ResourceDefinition,
+) -> Option<Arc<dyn crate::db::ResourceStore>> {
+    state
+        .stores
+        .as_ref()
+        .and_then(|stores| stores.get(&resource.resource).cloned())
+}
+
+/// Returns a list endpoint for the resource (GET without :id) for use with store.find_all. Returns None if none declared.
+fn list_endpoint_for(resource: &ResourceDefinition) -> Option<&EndpointSpec> {
+    resource.endpoints.as_ref().and_then(|eps| {
+        eps.iter()
+            .find(|(_, ep)| ep.method == HttpMethod::Get && !ep.path.contains(":id"))
+            .map(|(_, ep)| ep)
+    })
+}
 
 /// Loads related resources into each data item based on `?include=` parameter.
 ///
@@ -38,6 +58,7 @@ pub async fn load_relations(
             continue;
         };
 
+        let store = store_for(state, related_resource);
         let rq = ResourceQuery::new(related_resource, &state.pool);
 
         match relation.relation_type {
@@ -48,7 +69,12 @@ pub async fn load_relations(
                 for item in items.iter_mut() {
                     if let Some(fk_value) = item.get(key).and_then(|v| v.as_str()) {
                         if let Ok(fk_uuid) = uuid::Uuid::parse_str(fk_value) {
-                            match rq.find_by_id(&fk_uuid).await {
+                            let result = if let Some(ref s) = store {
+                                s.find_by_id(&fk_uuid).await
+                            } else {
+                                rq.find_by_id(&fk_uuid).await
+                            };
+                            match result {
                                 Ok(row) => {
                                     if let Some(obj) = item.as_object_mut() {
                                         obj.insert(relation_name.clone(), row.0);
@@ -68,7 +94,6 @@ pub async fn load_relations(
             RelationType::HasMany | RelationType::HasOne => {
                 let foreign_key = relation.foreign_key.as_deref().unwrap_or("id");
 
-                // Find the primary key field name on the current resource
                 let pk = resource
                     .schema
                     .iter()
@@ -76,23 +101,30 @@ pub async fn load_relations(
                     .map(|(name, _)| name.as_str())
                     .unwrap_or("id");
 
+                let filter_set = FilterSet {
+                    filters: vec![FilterParam {
+                        field: foreign_key.to_string(),
+                        value: String::new(), // filled per item
+                    }],
+                };
+                let sort = SortParam::default();
+                let page = PageRequest::Cursor {
+                    after: None,
+                    limit: 100,
+                };
+
+                let list_ep = list_endpoint_for(related_resource);
+
                 for item in items.iter_mut() {
                     if let Some(pk_value) = item.get(pk).and_then(|v| v.as_str()) {
-                        // Query the related table where foreign_key = pk_value
-                        let filter_set = crate::db::FilterSet {
-                            filters: vec![crate::db::FilterParam {
-                                field: foreign_key.to_string(),
-                                value: pk_value.to_string(),
-                            }],
-                        };
-                        let search = None;
-                        let sort = crate::db::SortParam::default();
-                        let page = crate::db::PageRequest::Cursor {
-                            after: None,
-                            limit: 100,
-                        };
+                        let mut filters = filter_set.clone();
+                        filters.filters[0].value = pk_value.to_string();
 
-                        let (rows, _meta) = rq.find_all(&filter_set, search, &sort, &page).await?;
+                        let (rows, _meta) = if let (Some(ref s), Some(ep)) = (&store, list_ep) {
+                            s.find_all(ep, &filters, None, &sort, &page).await?
+                        } else {
+                            rq.find_all(&filters, None, &sort, &page).await?
+                        };
 
                         let values: Vec<serde_json::Value> =
                             rows.into_iter().map(|r| r.0).collect();

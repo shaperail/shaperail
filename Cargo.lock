@@ -3314,6 +3314,7 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "actix-ws",
+ "async-trait",
  "bytestring",
  "chrono",
  "criterion",

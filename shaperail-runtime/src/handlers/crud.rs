@@ -9,7 +9,7 @@ use crate::auth::extractor::{try_extract_auth, AuthenticatedUser};
 use crate::auth::jwt::JwtConfig;
 use crate::auth::rbac;
 use crate::cache::RedisCache;
-use crate::db::ResourceQuery;
+use crate::db::{ResourceQuery, ResourceStore};
 use crate::events::EventEmitter;
 use crate::jobs::{JobPriority, JobQueue};
 use crate::observability::MetricsState;
@@ -24,6 +24,7 @@ use super::validate::validate_input;
 pub struct AppState {
     pub pool: sqlx::PgPool,
     pub resources: Vec<ResourceDefinition>,
+    pub stores: Option<crate::db::StoreRegistry>,
     pub jwt_config: Option<Arc<JwtConfig>>,
     pub cache: Option<RedisCache>,
     pub event_emitter: Option<EventEmitter>,
@@ -61,6 +62,32 @@ fn user_role_for_cache(user: Option<&AuthenticatedUser>) -> &str {
         Some(u) => u.role.as_str(),
         None => "anonymous",
     }
+}
+
+fn store_for(state: &AppState, resource: &ResourceDefinition) -> Option<Arc<dyn ResourceStore>> {
+    state
+        .stores
+        .as_ref()
+        .and_then(|stores| stores.get(&resource.resource).cloned())
+}
+
+/// When the app has a store registry, every resource must have a generated store.
+/// Returns the store if present, or None if the app has no registry (tests/fallback).
+/// Errors if registry exists but this resource has no store.
+fn store_for_or_error(
+    state: &AppState,
+    resource: &ResourceDefinition,
+) -> Result<Option<Arc<dyn ResourceStore>>, ShaperailError> {
+    if let Some(store) = store_for(state, resource) {
+        return Ok(Some(store));
+    }
+    if state.stores.is_some() {
+        return Err(ShaperailError::Internal(format!(
+            "Resource '{}' has no generated store; run shaperail generate",
+            resource.resource
+        )));
+    }
+    Ok(None)
 }
 
 /// Generates an Actix-web list handler for a resource endpoint.
@@ -116,16 +143,27 @@ async fn execute_list(
     _user: Option<AuthenticatedUser>,
 ) -> Result<serde_json::Value, ShaperailError> {
     let params = parse_list_params(req, endpoint);
-    let rq = ResourceQuery::new(resource, &state.pool);
-
-    let (rows, meta) = rq
-        .find_all(
+    let store_opt = store_for_or_error(state, resource)?;
+    let (rows, meta) = if let Some(store) = store_opt {
+        store
+            .find_all(
+                endpoint,
+                &params.filters,
+                params.search.as_ref(),
+                &params.sort,
+                &params.page,
+            )
+            .await?
+    } else {
+        let rq = ResourceQuery::new(resource, &state.pool);
+        rq.find_all(
             &params.filters,
             params.search.as_ref(),
             &params.sort,
             &params.page,
         )
-        .await?;
+        .await?
+    };
 
     let mut data: Vec<serde_json::Value> = rows.into_iter().map(|r| r.0).collect();
 
@@ -203,8 +241,13 @@ async fn execute_get(
     user: Option<&AuthenticatedUser>,
     req: &HttpRequest,
 ) -> Result<serde_json::Value, ShaperailError> {
-    let rq = ResourceQuery::new(resource, &state.pool);
-    let row = rq.find_by_id(id).await?;
+    let store_opt = store_for_or_error(state, resource)?;
+    let row = if let Some(store) = store_opt {
+        store.find_by_id(id).await?
+    } else {
+        let rq = ResourceQuery::new(resource, &state.pool);
+        rq.find_by_id(id).await?
+    };
     let params = parse_item_params(req);
     let mut data = row.0;
 
@@ -453,8 +496,13 @@ pub async fn handle_create(
     let input_data = extract_input(&body, &resource, &endpoint)?;
     validate_input(&input_data, &resource)?;
 
-    let rq = ResourceQuery::new(&resource, &state.pool);
-    let row = rq.insert(&input_data).await?;
+    let store_opt = store_for_or_error(&state, &resource)?;
+    let row = if let Some(store) = store_opt {
+        store.insert(&input_data).await?
+    } else {
+        let rq = ResourceQuery::new(&resource, &state.pool);
+        rq.insert(&input_data).await?
+    };
     let params = parse_item_params(&req);
     let side_effect_data = row.0.clone();
     let mut data = row.0;
@@ -479,8 +527,13 @@ pub async fn handle_create_upload(
     let input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
     validate_input(&input_data, &resource)?;
 
-    let rq = ResourceQuery::new(&resource, &state.pool);
-    let row = rq.insert(&input_data).await?;
+    let store_opt = store_for_or_error(&state, &resource)?;
+    let row = if let Some(store) = store_opt {
+        store.insert(&input_data).await?
+    } else {
+        let rq = ResourceQuery::new(&resource, &state.pool);
+        rq.insert(&input_data).await?
+    };
     let params = parse_item_params(&req);
     let side_effect_data = row.0.clone();
     let mut data = row.0;
@@ -505,18 +558,27 @@ pub async fn handle_update(
     let user = enforce_auth(&req, &endpoint)?;
     let id = parse_uuid(&path)?;
     let input_data = extract_input(&body, &resource, &endpoint)?;
-
-    let rq = ResourceQuery::new(&resource, &state.pool);
+    let store_opt = store_for_or_error(&state, &resource)?;
 
     // Owner check: fetch record first to verify ownership
     if rbac::needs_owner_check(endpoint.auth.as_ref(), user.as_ref()) {
-        let existing = rq.find_by_id(&id).await?;
+        let existing = if let Some(ref store) = store_opt {
+            store.find_by_id(&id).await?
+        } else {
+            let rq = ResourceQuery::new(&resource, &state.pool);
+            rq.find_by_id(&id).await?
+        };
         if let Some(ref u) = user {
             rbac::check_owner(u, &existing.0)?;
         }
     }
 
-    let row = rq.update_by_id(&id, &input_data).await?;
+    let row = if let Some(store) = store_opt {
+        store.update_by_id(&id, &input_data).await?
+    } else {
+        let rq = ResourceQuery::new(&resource, &state.pool);
+        rq.update_by_id(&id, &input_data).await?
+    };
     let params = parse_item_params(&req);
     let side_effect_data = row.0.clone();
     let mut data = row.0;
@@ -541,11 +603,15 @@ pub async fn handle_update_upload(
     let user = enforce_auth(&req, &endpoint)?;
     let id = parse_uuid(&path)?;
     let input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
-
-    let rq = ResourceQuery::new(&resource, &state.pool);
+    let store_opt = store_for_or_error(&state, &resource)?;
 
     if rbac::needs_owner_check(endpoint.auth.as_ref(), user.as_ref()) {
-        let existing = rq.find_by_id(&id).await?;
+        let existing = if let Some(ref store) = store_opt {
+            store.find_by_id(&id).await?
+        } else {
+            let rq = ResourceQuery::new(&resource, &state.pool);
+            rq.find_by_id(&id).await?
+        };
         if let Some(ref u) = user {
             rbac::check_owner(u, &existing.0)?;
         }
@@ -553,7 +619,12 @@ pub async fn handle_update_upload(
 
     validate_input(&input_data, &resource)?;
 
-    let row = rq.update_by_id(&id, &input_data).await?;
+    let row = if let Some(store) = store_opt {
+        store.update_by_id(&id, &input_data).await?
+    } else {
+        let rq = ResourceQuery::new(&resource, &state.pool);
+        rq.update_by_id(&id, &input_data).await?
+    };
     let params = parse_item_params(&req);
     let side_effect_data = row.0.clone();
     let mut data = row.0;
@@ -576,22 +647,37 @@ pub async fn handle_delete(
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
     let id = parse_uuid(&path)?;
-    let rq = ResourceQuery::new(&resource, &state.pool);
+    let store_opt = store_for_or_error(&state, &resource)?;
 
     // Owner check: fetch record first
     if rbac::needs_owner_check(endpoint.auth.as_ref(), user.as_ref()) {
-        let existing = rq.find_by_id(&id).await?;
+        let existing = if let Some(ref store) = store_opt {
+            store.find_by_id(&id).await?
+        } else {
+            let rq = ResourceQuery::new(&resource, &state.pool);
+            rq.find_by_id(&id).await?
+        };
         if let Some(ref u) = user {
             rbac::check_owner(u, &existing.0)?;
         }
     }
 
     let (result, deleted_data) = if endpoint.soft_delete {
-        let row = rq.soft_delete_by_id(&id).await?;
+        let row = if let Some(ref store) = store_opt {
+            store.soft_delete_by_id(&id).await?
+        } else {
+            let rq = ResourceQuery::new(&resource, &state.pool);
+            rq.soft_delete_by_id(&id).await?
+        };
         let data = row.0.clone();
         (response::no_content(), data)
     } else {
-        let row = rq.hard_delete_by_id(&id).await?;
+        let row = if let Some(ref store) = store_opt {
+            store.hard_delete_by_id(&id).await?
+        } else {
+            let rq = ResourceQuery::new(&resource, &state.pool);
+            rq.hard_delete_by_id(&id).await?
+        };
         (response::no_content(), row.0)
     };
 
@@ -635,13 +721,18 @@ pub async fn handle_bulk_create(
         }]));
     }
 
-    let rq = ResourceQuery::new(&resource, &state.pool);
+    let store_opt = store_for_or_error(&state, &resource)?;
     let mut results = Vec::with_capacity(items.len());
 
     for item in items {
         let input_data = extract_input_from_value(item, &resource, &endpoint)?;
         validate_input(&input_data, &resource)?;
-        let row = rq.insert(&input_data).await?;
+        let row = if let Some(ref store) = store_opt {
+            store.insert(&input_data).await?
+        } else {
+            let rq = ResourceQuery::new(&resource, &state.pool);
+            rq.insert(&input_data).await?
+        };
         results.push(row.0);
     }
 
@@ -672,7 +763,7 @@ pub async fn handle_bulk_delete(
         }])
     })?;
 
-    let rq = ResourceQuery::new(&resource, &state.pool);
+    let store_opt = store_for_or_error(&state, &resource)?;
     let mut results = Vec::with_capacity(ids.len());
 
     for id_value in ids {
@@ -692,10 +783,20 @@ pub async fn handle_bulk_delete(
         })?;
 
         if endpoint.soft_delete {
-            let row = rq.soft_delete_by_id(&id).await?;
+            let row = if let Some(ref store) = store_opt {
+                store.soft_delete_by_id(&id).await?
+            } else {
+                let rq = ResourceQuery::new(&resource, &state.pool);
+                rq.soft_delete_by_id(&id).await?
+            };
             results.push(row.0);
         } else {
-            let row = rq.hard_delete_by_id(&id).await?;
+            let row = if let Some(ref store) = store_opt {
+                store.hard_delete_by_id(&id).await?
+            } else {
+                let rq = ResourceQuery::new(&resource, &state.pool);
+                rq.hard_delete_by_id(&id).await?
+            };
             results.push(row.0);
         }
     }

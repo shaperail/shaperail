@@ -17,6 +17,7 @@ categories = ["web-programming::http-server", "development-tools"]
 [workspace.dependencies]
 # Async
 tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
 
 # HTTP — PRD spec: Actix-web 4
 actix-web = "4"
