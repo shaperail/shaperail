@@ -19,8 +19,8 @@ mod schema;
 pub use channel::{ChannelDefinition, ChannelHooks, WsClientMessage, WsServerMessage};
 pub use config::{
     AuthConfig, CacheConfig, DatabaseConfig, EventSubscriber, EventTarget, EventsConfig,
-    InboundWebhookConfig, LoggingConfig, NamedDatabaseConfig, ProjectConfig, StorageConfig,
-    WebhookConfig, WorkerCount,
+    GraphQLConfig, InboundWebhookConfig, LoggingConfig, NamedDatabaseConfig, ProjectConfig,
+    StorageConfig, WebhookConfig, WorkerCount,
 };
 pub use database::DatabaseEngine;
 pub use endpoint::{

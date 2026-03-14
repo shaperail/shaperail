@@ -74,6 +74,37 @@ pub struct ProjectConfig {
     /// Enabled API protocols (M15). Default when omitted: `["rest"]`. Allowed: `rest`, `graphql`.
     #[serde(default = "default_protocols")]
     pub protocols: Vec<String>,
+
+    /// GraphQL configuration (M15). Depth and complexity limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql: Option<GraphQLConfig>,
+}
+
+/// GraphQL-specific configuration (M15).
+///
+/// ```yaml
+/// graphql:
+///   depth_limit: 10
+///   complexity_limit: 200
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphQLConfig {
+    /// Maximum query nesting depth. Default: 16.
+    #[serde(default = "default_depth_limit")]
+    pub depth_limit: usize,
+
+    /// Maximum query complexity score. Default: 256.
+    #[serde(default = "default_complexity_limit")]
+    pub complexity_limit: usize,
+}
+
+fn default_depth_limit() -> usize {
+    16
+}
+
+fn default_complexity_limit() -> usize {
+    256
 }
 
 fn default_port() -> u16 {
@@ -478,6 +509,7 @@ mod tests {
             logging: None,
             events: None,
             protocols: vec!["rest".to_string()],
+            graphql: None,
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: ProjectConfig = serde_json::from_str(&json).unwrap();

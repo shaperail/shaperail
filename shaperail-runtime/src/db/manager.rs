@@ -17,6 +17,39 @@ pub struct SqlConnection {
     pub engine: DatabaseEngine,
 }
 
+impl SqlConnection {
+    /// Returns the SeaORM `DatabaseBackend` for this connection's engine.
+    pub fn backend(&self) -> sea_orm::DatabaseBackend {
+        match self.engine {
+            DatabaseEngine::Postgres => sea_orm::DatabaseBackend::Postgres,
+            DatabaseEngine::MySQL => sea_orm::DatabaseBackend::MySql,
+            DatabaseEngine::SQLite => sea_orm::DatabaseBackend::Sqlite,
+            DatabaseEngine::MongoDB => {
+                // MongoDB is not a SQL backend; callers should check is_sql() first.
+                // Fallback to Postgres for safety (never reached in correct code).
+                sea_orm::DatabaseBackend::Postgres
+            }
+        }
+    }
+
+    /// Quote an identifier for this engine's SQL dialect.
+    pub fn quote_ident(&self, name: &str) -> String {
+        match self.engine {
+            DatabaseEngine::MySQL => format!("`{name}`"),
+            _ => format!("\"{name}\""),
+        }
+    }
+
+    /// Format a parameter placeholder for this engine's dialect.
+    /// Postgres uses `$1`, `$2`...; MySQL and SQLite use `?`.
+    pub fn param(&self, index: usize) -> String {
+        match self.engine {
+            DatabaseEngine::Postgres => format!("${index}"),
+            _ => "?".to_string(),
+        }
+    }
+}
+
 /// Multi-database connection manager. Maps connection names to SQL connections.
 ///
 /// Built from `ProjectConfig::databases` or from a single URL (default connection).
@@ -64,6 +97,21 @@ impl DatabaseManager {
             let conn = sea_orm::Database::connect(opt).await.map_err(|e| {
                 ShaperailError::Internal(format!("Failed to connect to database '{name}': {e}"))
             })?;
+            // Enable WAL mode for SQLite — better concurrency for reads/writes.
+            if cfg.engine == DatabaseEngine::SQLite {
+                use sea_orm::ConnectionTrait;
+                conn.execute(sea_orm::Statement::from_string(
+                    sea_orm::DatabaseBackend::Sqlite,
+                    "PRAGMA journal_mode=WAL".to_string(),
+                ))
+                .await
+                .map_err(|e| {
+                    ShaperailError::Internal(format!(
+                        "Failed to enable WAL mode for SQLite '{name}': {e}"
+                    ))
+                })?;
+                tracing::info!("SQLite '{name}' WAL mode enabled");
+            }
             connections.insert(
                 name.clone(),
                 SqlConnection {
@@ -113,5 +161,12 @@ impl DatabaseManager {
     /// True if no connections.
     pub fn is_empty(&self) -> bool {
         self.connections.is_empty()
+    }
+
+    /// Iterate over all named SQL connections (name, connection).
+    pub fn all_connections(&self) -> impl Iterator<Item = (&str, &SqlConnection)> {
+        self.connections
+            .iter()
+            .map(|(name, conn)| (name.as_str(), conn))
     }
 }

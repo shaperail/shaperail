@@ -290,7 +290,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M14 — Multi-Database
-**Crates:** `shaperail-core`, `shaperail-codegen`, `shaperail-runtime` | **Status:** [~]
+**Crates:** `shaperail-core`, `shaperail-codegen`, `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
 - [x] `DatabaseEngine` enum: Postgres, MySQL, SQLite, MongoDB in shaperail-core
@@ -298,28 +298,28 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 - [x] Multi-DB config in shaperail.config.yaml: `databases:` map with named connections
 - [x] SeaORM + SeaQuery in runtime; `DatabaseManager` for named SQL connections (Postgres wired)
 - [x] Engine-specific migration SQL: `build_create_table_sql_for_engine` (Postgres, MySQL, SQLite)
-- [ ] MySQL backend: enable sqlx-mysql in SeaORM, migration support, 95% feature coverage
-- [ ] SQLite backend: enable sqlx-sqlite in SeaORM, WAL mode, 85% feature coverage
-- [ ] MongoDB backend: mongodb crate, schema validation, 75% feature coverage
-- [ ] ORM-backed CRUD path: use SeaQuery for dialect-agnostic queries (optional; current sqlx path retained)
-- [ ] `shaperail migrate` runs all engines in dependency order
-- [ ] Tests: full CRUD on each engine, same API behaviour, cross-DB project works
+- [x] MySQL backend: enable sqlx-mysql in SeaORM, migration support, 95% feature coverage
+- [x] SQLite backend: enable sqlx-sqlite in SeaORM, WAL mode, 85% feature coverage
+- [x] MongoDB backend: mongodb crate, schema validation, 75% feature coverage
+- [x] ORM-backed CRUD path: use SeaQuery for dialect-agnostic queries (optional; current sqlx path retained)
+- [x] `shaperail migrate` runs all engines in dependency order
+- [x] Tests: full CRUD on each engine, same API behaviour, cross-DB project works
 
 ---
 
 ### M15 — GraphQL
-**Crates:** `shaperail-codegen`, `shaperail-runtime` | **Status:** [ ]
+**Crates:** `shaperail-codegen`, `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
-- [ ] `protocols: [rest, graphql]` in shaperail.config.yaml
-- [ ] GraphQL type generation from resource schema via async-graphql crate
-- [ ] Query resolvers: list (filter/sort/pagination), get, nested relations
-- [ ] DataLoader generated for all relations — N+1 impossible
-- [ ] Mutation resolvers: create, update, delete — same auth as REST
-- [ ] Subscription resolvers from declared WebSocket events
-- [ ] `/graphql` endpoint + `/graphql/playground` in dev mode
-- [ ] Depth limit + complexity limit configurable
-- [ ] Tests: queries, mutations, auth, N+1 verified absent
+- [x] `protocols: [rest, graphql]` in shaperail.config.yaml
+- [x] GraphQL type generation from resource schema via async-graphql crate
+- [x] Query resolvers: list (filter/sort/pagination), get, nested relations
+- [x] DataLoader generated for all relations — N+1 impossible
+- [x] Mutation resolvers: create, update, delete — same auth as REST
+- [x] Subscription resolvers from declared WebSocket events
+- [x] `/graphql` endpoint + `/graphql/playground` in dev mode
+- [x] Depth limit + complexity limit configurable
+- [x] Tests: queries, mutations, auth, N+1 verified absent
 
 ---
 

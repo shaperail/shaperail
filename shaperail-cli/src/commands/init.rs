@@ -1027,6 +1027,7 @@ async fn main() -> std::io::Result<()> {
         event_emitter,
         job_queue,
         metrics: Some(metrics_state.get_ref().clone()),
+        event_bus: tokio::sync::broadcast::channel(256).0,
     });
     let health_state = web::Data::new(HealthState::new(Some(pool), redis_pool));
 

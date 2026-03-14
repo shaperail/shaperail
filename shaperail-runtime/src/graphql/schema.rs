@@ -3,16 +3,17 @@
 use std::sync::Arc;
 
 use async_graphql::dynamic::{
-    Field, FieldFuture, InputObject, InputValue, Object, Schema, SchemaBuilder, TypeRef,
+    Field, FieldFuture, InputObject, InputValue, Object, Schema, SchemaBuilder, Subscription,
+    SubscriptionField, SubscriptionFieldFuture, TypeRef,
 };
 use async_graphql::Value;
 use shaperail_core::{
-    EndpointSpec, FieldType, HttpMethod, PaginationStyle, RelationType, ResourceDefinition,
-    ShaperailError,
+    EndpointSpec, FieldType, GraphQLConfig, HttpMethod, PaginationStyle, RelationType,
+    ResourceDefinition, ShaperailError,
 };
 
 use crate::auth::rbac;
-use crate::db::{FilterParam, FilterSet, PageRequest, ResourceQuery, SortParam};
+use crate::db::{FilterSet, PageRequest, ResourceQuery, SortParam};
 use crate::handlers::crud::{
     extract_input_from_value, run_write_side_effects, schedule_file_cleanup, store_for_or_error,
     AppState,
@@ -26,6 +27,8 @@ pub struct GqlContext {
     pub resources: Vec<ResourceDefinition>,
     /// Authenticated user from JWT/API key (same as REST).
     pub user: Option<crate::auth::extractor::AuthenticatedUser>,
+    /// DataLoader for batching/caching relation lookups (N+1 prevention).
+    pub loader: super::dataloader::RelationLoader,
 }
 
 /// Type alias for the dynamic schema (for clarity at call sites).
@@ -598,14 +601,7 @@ fn build_resource_objects(resources: &[ResourceDefinition]) -> Vec<Object> {
                     FieldFuture::new(async move {
                         let gql = ctx.data::<GqlContext>().map_err(|e| e.message)?;
                         let parent = ctx.parent_value.try_to_value().map_err(|e| e.message)?;
-                        let related = gql
-                            .resources
-                            .iter()
-                            .find(|r| r.resource == rel.resource)
-                            .ok_or("related resource not found")?;
-                        let store_opt =
-                            store_for_or_error(&gql.state, related).map_err(|e| e.to_string())?;
-                        let rq = ResourceQuery::new(related, &gql.state.pool);
+                        let loader = &gql.loader;
                         match rel.relation_type {
                             RelationType::BelongsTo => {
                                 let key = rel
@@ -627,17 +623,14 @@ fn build_resource_objects(resources: &[ResourceDefinition]) -> Vec<Object> {
                                 };
                                 let fk =
                                     uuid::Uuid::parse_str(fk_str).map_err(|e| e.to_string())?;
-                                let row = if let Some(store) = store_opt {
-                                    store
-                                        .find_by_id(&fk)
-                                        .await
-                                        .map_err(|e: ShaperailError| e.to_string())?
-                                } else {
-                                    rq.find_by_id(&fk)
-                                        .await
-                                        .map_err(|e: ShaperailError| e.to_string())?
-                                };
-                                Ok(Some(json_to_gql_value(&row.0)))
+                                let row = loader
+                                    .load_by_id(&rel.resource, &fk)
+                                    .await
+                                    .map_err(|e: ShaperailError| e.to_string())?;
+                                match row {
+                                    Some(r) => Ok(Some(json_to_gql_value(&r.0))),
+                                    None => Ok(Some(Value::Null)),
+                                }
                             }
                             RelationType::HasMany | RelationType::HasOne => {
                                 let pk = res
@@ -659,51 +652,11 @@ fn build_resource_objects(resources: &[ResourceDefinition]) -> Vec<Object> {
                                 let Some(id_str) = parent_id else {
                                     return Ok(Some(Value::Null));
                                 };
-                                let id =
-                                    uuid::Uuid::parse_str(id_str).map_err(|e| e.to_string())?;
                                 let fk = rel.foreign_key.as_deref().unwrap_or("id");
-                                let endpoint = related
-                                    .endpoints
-                                    .as_ref()
-                                    .and_then(|e| e.get("list"))
-                                    .cloned()
-                                    .unwrap_or_else(|| EndpointSpec {
-                                        method: HttpMethod::Get,
-                                        path: format!("/{}", related.resource),
-                                        auth: None,
-                                        input: None,
-                                        filters: None,
-                                        search: None,
-                                        pagination: Some(PaginationStyle::Offset),
-                                        sort: None,
-                                        cache: None,
-                                        controller: None,
-                                        events: None,
-                                        jobs: None,
-                                        upload: None,
-                                        soft_delete: false,
-                                    });
-                                let filters = FilterSet {
-                                    filters: vec![FilterParam {
-                                        field: fk.to_string(),
-                                        value: id.to_string(),
-                                    }],
-                                };
-                                let sort = SortParam::default();
-                                let page = PageRequest::Offset {
-                                    offset: 0,
-                                    limit: 100,
-                                };
-                                let (rows, _) = if let Some(store) = store_opt {
-                                    store
-                                        .find_all(&endpoint, &filters, None, &sort, &page)
-                                        .await
-                                        .map_err(|e: ShaperailError| e.to_string())?
-                                } else {
-                                    rq.find_all(&filters, None, &sort, &page)
-                                        .await
-                                        .map_err(|e: ShaperailError| e.to_string())?
-                                };
+                                let rows = loader
+                                    .load_by_filter(&rel.resource, fk, id_str)
+                                    .await
+                                    .map_err(|e: ShaperailError| e.to_string())?;
                                 let list: Vec<Value> =
                                     rows.into_iter().map(|r| json_to_gql_value(&r.0)).collect();
                                 if rel.relation_type == RelationType::HasOne {
@@ -725,21 +678,92 @@ fn build_resource_objects(resources: &[ResourceDefinition]) -> Vec<Object> {
     objects
 }
 
+/// Builds the Subscription object from declared WebSocket events on resources.
+///
+/// For each resource, if endpoints declare `events`, a subscription field is created
+/// for each event (e.g., `user_created`, `order_updated`). The subscription streams
+/// events via a broadcast channel.
+fn build_subscription_object(resources: &[ResourceDefinition]) -> Subscription {
+    let mut subscription = Subscription::new("Subscription");
+
+    for resource in resources {
+        let type_name = object_type_name(&resource.resource);
+        let endpoints = match &resource.endpoints {
+            Some(eps) => eps,
+            None => continue,
+        };
+
+        for (_ep_name, endpoint) in endpoints {
+            let events = match &endpoint.events {
+                Some(events) => events,
+                None => continue,
+            };
+
+            for event_name in events {
+                let event = event_name.clone();
+                let sub_name = event.replace('.', "_");
+                let field = SubscriptionField::new(
+                    sub_name,
+                    TypeRef::named(type_name.clone()),
+                    move |ctx| {
+                        let event = event.clone();
+                        SubscriptionFieldFuture::new(async move {
+                            let gql = ctx.data::<GqlContext>().map_err(|e| e.message)?;
+                            // Create a broadcast receiver from the event emitter.
+                            let rx = gql.state.event_bus_subscribe(&event);
+                            let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+                                match rx.recv().await {
+                                    Ok(payload) => {
+                                        let val = json_to_gql_value(&payload);
+                                        Some((Ok(val), rx))
+                                    }
+                                    Err(_) => None,
+                                }
+                            });
+                            Ok(stream)
+                        })
+                    },
+                );
+                subscription = subscription.field(field);
+            }
+        }
+    }
+
+    subscription
+}
+
 /// Builds the full GraphQL schema from resources and app state.
+///
+/// If `gql_config` is provided, depth and complexity limits are taken from it.
+/// Otherwise, defaults are used (depth: 16, complexity: 256).
 pub fn build_schema(
     resources: &[ResourceDefinition],
     _state: Arc<AppState>,
 ) -> Result<GraphQLSchema, ShaperailError> {
+    build_schema_with_config(resources, _state, None)
+}
+
+/// Builds the full GraphQL schema with configurable depth and complexity limits.
+pub fn build_schema_with_config(
+    resources: &[ResourceDefinition],
+    _state: Arc<AppState>,
+    gql_config: Option<&GraphQLConfig>,
+) -> Result<GraphQLSchema, ShaperailError> {
+    let depth_limit = gql_config.map(|c| c.depth_limit).unwrap_or(16);
+    let complexity_limit = gql_config.map(|c| c.complexity_limit).unwrap_or(256);
+
     let query = build_query_object(resources);
     let mutation = build_mutation_object(resources);
+    let subscription = build_subscription_object(resources);
     let resource_objects = build_resource_objects(resources);
     let input_objects = build_input_objects(resources);
 
-    let mut builder: SchemaBuilder = Schema::build("Query", Some("Mutation"), None)
+    let mut builder: SchemaBuilder = Schema::build("Query", Some("Mutation"), Some("Subscription"))
         .register(query)
         .register(mutation)
-        .limit_depth(16)
-        .limit_complexity(256);
+        .register(subscription)
+        .limit_depth(depth_limit)
+        .limit_complexity(complexity_limit);
 
     for obj in input_objects {
         builder = builder.register(obj);

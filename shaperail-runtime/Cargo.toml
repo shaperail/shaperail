@@ -46,6 +46,7 @@ opentelemetry_sdk = { workspace = true }
 prometheus = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-actix-web = { workspace = true }
+mongodb = { workspace = true }
 
 [dev-dependencies]
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
@@ -54,6 +55,7 @@ actix-web = { workspace = true }
 actix-rt = "2"
 criterion = { version = "0.8", features = ["async_tokio"] }
 tempfile = "3"
+serde_yaml = { workspace = true }
 
 [[bench]]
 name = "health_response"
