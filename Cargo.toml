@@ -85,6 +85,14 @@ indexmap = "2"
 async-graphql = { version = "7", default-features = false, features = ["chrono", "uuid", "dynamic-schema"] }
 async-graphql-actix-web = { version = "7", default-features = false }
 
+# gRPC (M16)
+tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
+prost = "0.13"
+prost-types = "0.13"
+tonic-reflection = "0.12"
+tonic-health = "0.12"
+tokio-stream = { version = "0.1", features = ["net"] }
+
 # Testing
 insta = { version = "1", features = ["yaml", "json"] }
 assert_cmd = "2"

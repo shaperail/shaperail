@@ -324,17 +324,17 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M16 — gRPC
-**Crates:** `shaperail-codegen`, `shaperail-runtime` | **Status:** [ ]
+**Crates:** `shaperail-codegen`, `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
-- [ ] `protocols: [rest, grpc]` in shaperail.config.yaml
-- [ ] `.proto` generation from resource schema (auto-generated, never hand-edited)
-- [ ] Tonic gRPC server implementation
-- [ ] Streaming RPCs for list endpoints
-- [ ] JWT via gRPC metadata interceptors
-- [ ] Server reflection (grpcurl compatible)
-- [ ] grpc.health.v1 health check service
-- [ ] Tests: gRPC calls match REST responses, auth enforced
+- [x] `protocols: [rest, grpc]` in shaperail.config.yaml
+- [x] `.proto` generation from resource schema (auto-generated, never hand-edited)
+- [x] Tonic gRPC server implementation
+- [x] Streaming RPCs for list endpoints
+- [x] JWT via gRPC metadata interceptors
+- [x] Server reflection (grpcurl compatible)
+- [x] grpc.health.v1 health check service
+- [x] Tests: gRPC calls match REST responses, auth enforced
 
 ---
 

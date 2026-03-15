@@ -47,6 +47,15 @@ prometheus = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-actix-web = { workspace = true }
 mongodb = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+tonic-reflection = { workspace = true }
+tonic-health = { workspace = true }
+tokio-stream = { workspace = true }
+http-body = "1"
+http-body-util = "0.1"
+tower = { version = "0.4", default-features = false }
 
 [dev-dependencies]
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }

@@ -1052,6 +1052,21 @@ async fn main() -> std::io::Result<()> {
     };
     let graphql_schema_clone = graphql_schema.clone();
 
+    // gRPC server (M16) — runs on separate port if enabled
+    if config.protocols.iter().any(|p| p == "grpc") {
+        let grpc_config = config.grpc.as_ref();
+        let grpc_port = grpc_config.map(|c| c.port).unwrap_or(50051);
+        let _grpc_handle = shaperail_runtime::grpc::build_grpc_server(
+            state.clone(),
+            resources.clone(),
+            jwt_config.as_ref().map(|j| j.get_ref().clone()),
+            grpc_config,
+        )
+        .await
+        .map_err(|e| io_error(e.to_string()))?;
+        tracing::info!("gRPC server listening on port {grpc_port}");
+    }
+
     HttpServer::new(move || {
         let st = state_clone.clone();
         let res = resources_clone.clone();

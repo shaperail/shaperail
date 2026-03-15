@@ -117,4 +117,12 @@ Resource YAML drives both REST and GraphQL. You do not define types twice. Chang
 | Auth: JWT, API key, RBAC, owner checks | Yes (same as REST) |
 | Playground | Yes (`/graphql/playground`) |
 
-Depth and complexity limits are not yet configurable; they may be added in a future release.
+Depth and complexity limits are configurable via the `graphql:` section in `shaperail.config.yaml`:
+
+```yaml
+graphql:
+  depth_limit: 10        # default: 16
+  complexity_limit: 200   # default: 256
+```
+
+See [Configuration > graphql]({{ '/configuration/' | relative_url }}) for details.
