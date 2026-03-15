@@ -3,7 +3,7 @@ description: Deterministic Rust backend generation from explicit YAML resources.
 url: https://shaperail.io
 baseurl: ""
 repository: shaperail/shaperail
-release_version: 0.4.0
+release_version: 0.5.0
 markdown: kramdown
 permalink: pretty
 remote_theme: just-the-docs/just-the-docs@v0.12.0

@@ -5,6 +5,34 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-15
+
+### Added
+
+- **GraphQL (M15)** — Full GraphQL API from the same resource schema. Enable with `protocols: [rest, graphql]` in `shaperail.config.yaml`. Dynamic schema built at startup via async-graphql v7 — no hand-written GraphQL files.
+  - **Query resolvers** — `list_<resource>` with filters, cursor pagination, and sorting; `<resource>(id)` for single records; nested relation resolvers for `belongs_to`, `has_many`, and `has_one`.
+  - **Mutation resolvers** — `create_<resource>`, `update_<resource>`, `delete_<resource>` with the same auth rules, input validation, controller execution, and side effects (events, jobs, webhooks) as REST.
+  - **Subscription resolvers** — generated from declared `events:` on endpoints, backed by broadcast channels.
+  - **DataLoader** — automatic N+1 prevention for all relation queries, with per-request caching.
+  - **Endpoints** — `POST /graphql` and `GET /graphql/playground` (self-contained, no external dependencies).
+  - **Limits** — configurable `depth_limit` (default 16) and `complexity_limit` (default 256) to prevent DoS.
+- **gRPC (M16)** — Full gRPC API from the same resource schema. Enable with `protocols: [rest, grpc]` in `shaperail.config.yaml`. Runs on a separate port (default `50051`).
+  - **Proto generation** — `.proto` files auto-generated from resource schema with correct type mappings (uuid→string, timestamp→google.protobuf.Timestamp, json→Struct, etc.).
+  - **Tonic server** — dynamic service dispatch routing `/<package>.<Service>/<Method>` to the correct resource handler.
+  - **Streaming RPCs** — every `list` endpoint generates both a unary `List<Resource>` RPC and a server-streaming `Stream<Resource>` RPC.
+  - **JWT auth** — extracted from `authorization` gRPC metadata, validated with the same `JwtConfig` as REST and GraphQL.
+  - **Server reflection** — enabled by default (`grpc: { reflection: true }`), compatible with grpcurl and other tools.
+  - **Health check** — `grpc.health.v1.Health` service with per-resource service status.
+- **`GraphQLConfig`** — new config type: `graphql: { depth_limit: 10, complexity_limit: 200 }`.
+- **`GrpcConfig`** — new config type: `grpc: { port: 50051, reflection: true }`.
+- **`protocols` field** — new top-level config field: `protocols: [rest, graphql, grpc]`. Defaults to `["rest"]` when omitted.
+- **Proto codegen** — `shaperail-codegen` now generates `.proto` files via `generate_proto()`.
+
+### Changed
+
+- `ProjectConfig` now has `protocols`, `graphql`, and `grpc` fields. All are optional with backward-compatible defaults — existing configs work unchanged.
+- Documentation updated with GraphQL guide, gRPC guide, and configuration reference for both protocols.
+
 ## [0.4.0] - 2026-03-13
 
 ### Added
@@ -79,6 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Observability** — Structured JSON logging with request IDs, PII redaction, OpenTelemetry tracing, Prometheus metrics at `/metrics`, health checks at `/health` and `/health/ready`
 - **OpenAPI Generation** — Deterministic OpenAPI 3.1 spec generation from resource definitions, TypeScript SDK generation
 
+[0.5.0]: https://github.com/shaperail/shaperail/releases/tag/v0.5.0
 [0.4.0]: https://github.com/shaperail/shaperail/releases/tag/v0.4.0
 [0.3.0]: https://github.com/shaperail/shaperail/releases/tag/v0.3.0
 [0.2.2]: https://github.com/shaperail/shaperail/releases/tag/v0.2.2
