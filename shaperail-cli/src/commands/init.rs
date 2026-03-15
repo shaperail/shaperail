@@ -1059,7 +1059,7 @@ async fn main() -> std::io::Result<()> {
         let _grpc_handle = shaperail_runtime::grpc::build_grpc_server(
             state.clone(),
             resources.clone(),
-            jwt_config.as_ref().map(|j| j.get_ref().clone()),
+            jwt_config.clone(),
             grpc_config,
         )
         .await
