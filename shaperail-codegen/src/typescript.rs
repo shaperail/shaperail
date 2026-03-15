@@ -180,6 +180,8 @@ mod tests {
             logging: None,
             events: None,
             protocols: vec!["rest".to_string()],
+            graphql: None,
+            grpc: None,
         }
     }
 

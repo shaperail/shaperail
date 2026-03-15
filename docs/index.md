@@ -83,6 +83,7 @@ Generated Rust, OpenAPI, and routes live in `generated/` and are not hand-edited
 
 - **REST API** — List, get, create, update, delete, bulk create/delete; cursor or offset pagination; filters, sort, full-text search; field selection and relation loading (`?include=…`).
 - **GraphQL** — Same resource schema drives both REST and GraphQL. Enable with `protocols: [rest, graphql]` in `shaperail.config.yaml`. Queries: list (filters, pagination), get by id, nested relations (belongs_to, has_many, has_one). Mutations: create, update, delete with the same auth as REST. Playground at `/graphql/playground`.
+- **gRPC** — Same resource schema drives gRPC alongside REST and GraphQL. Enable with `protocols: [rest, grpc]`. Auto-generated `.proto` files, unary and server-streaming RPCs, JWT auth via metadata, `grpc.health.v1` health checks, server reflection for `grpcurl`.
 - **Multi-database** — Optional `databases:` in config with named connections (e.g. `default`, `analytics`). Per-resource `db:` routes that resource to a connection; migrations run against `default`.
 - **API versioning** — Per-resource `version` field prefixes all routes (`/v1/users`, `/v2/orders`). OpenAPI spec and CLI output reflect versioned paths.
 - **Controllers** — Synchronous before/after business logic on write endpoints. Validate input, normalize data, enrich responses — all within the request lifecycle.

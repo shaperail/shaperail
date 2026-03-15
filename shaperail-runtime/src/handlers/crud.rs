@@ -31,6 +31,29 @@ pub struct AppState {
     pub event_emitter: Option<EventEmitter>,
     pub job_queue: Option<JobQueue>,
     pub metrics: Option<MetricsState>,
+    /// Broadcast channel for GraphQL subscriptions (M15). Sends event payloads to subscribers.
+    pub event_bus: tokio::sync::broadcast::Sender<(String, serde_json::Value)>,
+}
+
+impl AppState {
+    /// Subscribe to events on the broadcast bus (for GraphQL subscriptions).
+    /// Returns a receiver that gets all events matching the given event name.
+    pub fn event_bus_subscribe(
+        &self,
+        event_name: &str,
+    ) -> tokio::sync::broadcast::Receiver<serde_json::Value> {
+        let (tx, rx) = tokio::sync::broadcast::channel(64);
+        let mut bus_rx = self.event_bus.subscribe();
+        let name = event_name.to_string();
+        tokio::spawn(async move {
+            while let Ok((evt, payload)) = bus_rx.recv().await {
+                if evt == name {
+                    let _ = tx.send(payload);
+                }
+            }
+        });
+        rx
+    }
 }
 
 /// Enforces auth rules for an endpoint, returning the authenticated user if present.

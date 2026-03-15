@@ -25,5 +25,6 @@ Task-focused guides for building and running a Shaperail application.
 | [**Events and webhooks**]({{ '/events-and-webhooks/' | relative_url }}) | Auto-emitted events, custom events, subscribers (job, webhook, channel, hook), outbound webhooks with HMAC, inbound webhooks. |
 | [**Observability**]({{ '/observability/' | relative_url }}) | Structured logging, request_id, PII redaction, slow query log; `/health` and `/health/ready`; Prometheus metrics; OpenTelemetry. |
 | [**GraphQL**]({{ '/graphql/' | relative_url }}) | Enable with `protocols: [rest, graphql]`. Queries (list, get, relations), mutations (create, update, delete), same auth as REST, Playground at `/graphql/playground`. |
+| [**gRPC**]({{ '/grpc/' | relative_url }}) | Enable with `protocols: [rest, grpc]`. Auto-generated `.proto` files, unary and streaming RPCs, JWT auth via metadata, server reflection, health checks. |
 
-Pick a guide by task: auth, migrations, Docker, caching, jobs, WebSockets, files, events, observability, or GraphQL.
+Pick a guide by task: auth, migrations, Docker, caching, jobs, WebSockets, files, events, observability, GraphQL, or gRPC.

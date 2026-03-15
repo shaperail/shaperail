@@ -1027,6 +1027,7 @@ async fn main() -> std::io::Result<()> {
         event_emitter,
         job_queue,
         metrics: Some(metrics_state.get_ref().clone()),
+        event_bus: tokio::sync::broadcast::channel(256).0,
     });
     let health_state = web::Data::new(HealthState::new(Some(pool), redis_pool));
 
@@ -1050,6 +1051,21 @@ async fn main() -> std::io::Result<()> {
         None
     };
     let graphql_schema_clone = graphql_schema.clone();
+
+    // gRPC server (M16) — runs on separate port if enabled
+    if config.protocols.iter().any(|p| p == "grpc") {
+        let grpc_config = config.grpc.as_ref();
+        let grpc_port = grpc_config.map(|c| c.port).unwrap_or(50051);
+        let _grpc_handle = shaperail_runtime::grpc::build_grpc_server(
+            state.clone(),
+            resources.clone(),
+            jwt_config.as_ref().map(|j| j.get_ref().clone()),
+            grpc_config,
+        )
+        .await
+        .map_err(|e| io_error(e.to_string()))?;
+        tracing::info!("gRPC server listening on port {grpc_port}");
+    }
 
     HttpServer::new(move || {
         let st = state_clone.clone();

@@ -71,9 +71,71 @@ pub struct ProjectConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub events: Option<EventsConfig>,
 
-    /// Enabled API protocols (M15). Default when omitted: `["rest"]`. Allowed: `rest`, `graphql`.
+    /// Enabled API protocols (M15/M16). Default when omitted: `["rest"]`. Allowed: `rest`, `graphql`, `grpc`.
     #[serde(default = "default_protocols")]
     pub protocols: Vec<String>,
+
+    /// GraphQL configuration (M15). Depth and complexity limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql: Option<GraphQLConfig>,
+
+    /// gRPC configuration (M16). Port and reflection settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grpc: Option<GrpcConfig>,
+}
+
+/// GraphQL-specific configuration (M15).
+///
+/// ```yaml
+/// graphql:
+///   depth_limit: 10
+///   complexity_limit: 200
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphQLConfig {
+    /// Maximum query nesting depth. Default: 16.
+    #[serde(default = "default_depth_limit")]
+    pub depth_limit: usize,
+
+    /// Maximum query complexity score. Default: 256.
+    #[serde(default = "default_complexity_limit")]
+    pub complexity_limit: usize,
+}
+
+/// gRPC-specific configuration (M16).
+///
+/// ```yaml
+/// grpc:
+///   port: 50051
+///   reflection: true
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GrpcConfig {
+    /// gRPC server port. Default: 50051.
+    #[serde(default = "default_grpc_port")]
+    pub port: u16,
+
+    /// Enable gRPC server reflection (for grpcurl). Default: true.
+    #[serde(default = "default_grpc_reflection")]
+    pub reflection: bool,
+}
+
+fn default_grpc_port() -> u16 {
+    50051
+}
+
+fn default_grpc_reflection() -> bool {
+    true
+}
+
+fn default_depth_limit() -> usize {
+    16
+}
+
+fn default_complexity_limit() -> usize {
+    256
 }
 
 fn default_port() -> u16 {
@@ -478,6 +540,8 @@ mod tests {
             logging: None,
             events: None,
             protocols: vec!["rest".to_string()],
+            graphql: None,
+            grpc: None,
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: ProjectConfig = serde_json::from_str(&json).unwrap();
@@ -590,5 +654,43 @@ mod tests {
         let json = r#"{"project": "gql-api", "protocols": ["rest", "graphql"]}"#;
         let cfg: ProjectConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.protocols, vec!["rest", "graphql"]);
+    }
+
+    #[test]
+    fn project_config_grpc_protocol() {
+        let json = r#"{"project": "grpc-api", "protocols": ["rest", "grpc"]}"#;
+        let cfg: ProjectConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.protocols, vec!["rest", "grpc"]);
+        assert!(cfg.grpc.is_none());
+    }
+
+    #[test]
+    fn grpc_config_defaults() {
+        let json = r#"{}"#;
+        let cfg: GrpcConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.port, 50051);
+        assert!(cfg.reflection);
+    }
+
+    #[test]
+    fn grpc_config_custom() {
+        let json = r#"{"port": 9090, "reflection": false}"#;
+        let cfg: GrpcConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.port, 9090);
+        assert!(!cfg.reflection);
+    }
+
+    #[test]
+    fn project_config_with_grpc() {
+        let json = r#"{
+            "project": "grpc-app",
+            "protocols": ["rest", "grpc"],
+            "grpc": {"port": 50052, "reflection": true}
+        }"#;
+        let cfg: ProjectConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.protocols, vec!["rest", "grpc"]);
+        let grpc = cfg.grpc.unwrap();
+        assert_eq!(grpc.port, 50052);
+        assert!(grpc.reflection);
     }
 }

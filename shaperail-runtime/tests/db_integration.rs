@@ -368,6 +368,7 @@ async fn test_handle_delete_soft_delete_returns_no_content(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
     let response = handle_delete(

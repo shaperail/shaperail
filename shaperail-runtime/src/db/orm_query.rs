@@ -1,7 +1,7 @@
-//! ORM-backed resource query (M14). Builds SQL and executes via SeaORM (Postgres).
+//! ORM-backed resource query (M14). Builds dialect-aware SQL and executes via SeaORM.
 //!
-//! Uses the same SQL shape as ResourceQuery but runs through SeaORM's connection
-//! for pooling and async. Full dialect support (MySQL/SQLite) can use SeaQuery later.
+//! Supports Postgres, MySQL, and SQLite. Uses each connection's engine to determine
+//! identifier quoting (`"` vs `` ` ``), parameter syntax (`$N` vs `?`), and backend.
 
 use shaperail_core::{FieldSchema, FieldType, ResourceDefinition, ShaperailError};
 
@@ -35,8 +35,9 @@ fn get_column_value(
         |e: sea_orm::DbErr| ShaperailError::Internal(format!("Column '{name}' error: {e}"));
     match field.field_type {
         FieldType::Uuid => {
-            let v: Option<uuid::Uuid> = row.try_get("", name).map_err(map_err)?;
-            Ok(v.map(|u| serde_json::Value::String(u.to_string()))
+            // MySQL/SQLite store UUIDs as strings; Postgres as native UUID.
+            let v: Option<String> = row.try_get("", name).map_err(map_err)?;
+            Ok(v.map(serde_json::Value::String)
                 .unwrap_or(serde_json::Value::Null))
         }
         FieldType::String | FieldType::Enum | FieldType::File => {
@@ -67,14 +68,13 @@ fn get_column_value(
                 .unwrap_or(serde_json::Value::Null))
         }
         FieldType::Timestamp => {
-            let v: Option<chrono::DateTime<chrono::Utc>> =
-                row.try_get("", name).map_err(map_err)?;
-            Ok(v.map(|dt| serde_json::Value::String(dt.to_rfc3339()))
+            let v: Option<String> = row.try_get("", name).map_err(map_err)?;
+            Ok(v.map(serde_json::Value::String)
                 .unwrap_or(serde_json::Value::Null))
         }
         FieldType::Date => {
-            let v: Option<chrono::NaiveDate> = row.try_get("", name).map_err(map_err)?;
-            Ok(v.map(|d| serde_json::Value::String(d.to_string()))
+            let v: Option<String> = row.try_get("", name).map_err(map_err)?;
+            Ok(v.map(serde_json::Value::String)
                 .unwrap_or(serde_json::Value::Null))
         }
         FieldType::Json | FieldType::Array => {
@@ -89,11 +89,12 @@ fn json_to_sea_value(value: &serde_json::Value, field: &FieldSchema) -> sea_quer
         return sea_query::Value::String(None);
     }
     match field.field_type {
-        FieldType::Uuid => value
-            .as_str()
-            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-            .map(|u| sea_query::Value::Uuid(Some(Box::new(u))))
-            .unwrap_or(sea_query::Value::String(Some(Box::new(value.to_string())))),
+        FieldType::Uuid => {
+            // Store as string for cross-engine compat (MySQL/SQLite use CHAR/TEXT).
+            sea_query::Value::String(Some(Box::new(
+                value.as_str().unwrap_or(&value.to_string()).to_string(),
+            )))
+        }
         FieldType::String | FieldType::Enum | FieldType::File => sea_query::Value::String(Some(
             Box::new(value.as_str().unwrap_or(&value.to_string()).to_string()),
         )),
@@ -101,18 +102,11 @@ fn json_to_sea_value(value: &serde_json::Value, field: &FieldSchema) -> sea_quer
         FieldType::Bigint => sea_query::Value::BigInt(Some(value.as_i64().unwrap_or(0))),
         FieldType::Number => sea_query::Value::Double(Some(value.as_f64().unwrap_or(0.0))),
         FieldType::Boolean => sea_query::Value::Bool(Some(value.as_bool().unwrap_or(false))),
-        FieldType::Timestamp => sea_query::Value::ChronoDateTime(Some(Box::new(
-            value
-                .as_str()
-                .and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok())
-                .map(|dt| dt.naive_utc())
-                .unwrap_or_else(|| chrono::Utc::now().naive_utc()),
+        FieldType::Timestamp => sea_query::Value::String(Some(Box::new(
+            value.as_str().unwrap_or(&value.to_string()).to_string(),
         ))),
-        FieldType::Date => sea_query::Value::ChronoDate(Some(Box::new(
-            value
-                .as_str()
-                .and_then(|s| s.parse::<chrono::NaiveDate>().ok())
-                .unwrap_or_else(|| chrono::Utc::now().date_naive()),
+        FieldType::Date => sea_query::Value::String(Some(Box::new(
+            value.as_str().unwrap_or(&value.to_string()).to_string(),
         ))),
         FieldType::Json | FieldType::Array => sea_query::Value::Json(Some(Box::new(value.clone()))),
     }
@@ -120,9 +114,10 @@ fn json_to_sea_value(value: &serde_json::Value, field: &FieldSchema) -> sea_quer
 
 fn coerce_filter_to_sea_value(value: &str, field: &FieldSchema) -> sea_query::Value {
     match field.field_type {
-        FieldType::Uuid => uuid::Uuid::parse_str(value)
-            .map(|u| sea_query::Value::Uuid(Some(Box::new(u))))
-            .unwrap_or_else(|_| sea_query::Value::String(Some(Box::new(value.to_string())))),
+        FieldType::Uuid => {
+            // Store as string for cross-engine compat.
+            sea_query::Value::String(Some(Box::new(value.to_string())))
+        }
         FieldType::Integer => value
             .parse::<i32>()
             .ok()
@@ -147,7 +142,8 @@ fn coerce_filter_to_sea_value(value: &str, field: &FieldSchema) -> sea_query::Va
     }
 }
 
-/// ORM-backed resource query. Executes SQL via SeaORM (Postgres).
+/// ORM-backed resource query. Executes dialect-aware SQL via SeaORM.
+/// Supports Postgres, MySQL, and SQLite backends.
 pub struct OrmResourceQuery<'a> {
     pub resource: &'a ResourceDefinition,
     pub connection: &'a SqlConnection,
@@ -161,15 +157,15 @@ impl<'a> OrmResourceQuery<'a> {
         }
     }
 
-    fn table(&self) -> &str {
-        &self.resource.resource
+    fn table(&self) -> String {
+        self.connection.quote_ident(&self.resource.resource)
     }
 
     fn select_columns(&self) -> String {
         self.resource
             .schema
             .keys()
-            .map(|c| format!("\"{c}\""))
+            .map(|c| self.connection.quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -191,27 +187,46 @@ impl<'a> OrmResourceQuery<'a> {
             .unwrap_or(false)
     }
 
+    fn backend(&self) -> sea_orm::DatabaseBackend {
+        self.connection.backend()
+    }
+
+    fn param(&self, index: usize) -> String {
+        self.connection.param(index)
+    }
+
+    fn qi(&self, name: &str) -> String {
+        self.connection.quote_ident(name)
+    }
+
+    /// Whether this engine supports RETURNING clause (Postgres, SQLite 3.35+).
+    fn supports_returning(&self) -> bool {
+        matches!(
+            self.connection.engine,
+            shaperail_core::DatabaseEngine::Postgres | shaperail_core::DatabaseEngine::SQLite
+        )
+    }
+
     /// Find a single record by primary key.
     pub async fn find_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, ShaperailError> {
         let pk = self.primary_key();
         let soft = if self.has_soft_delete() {
-            " AND \"deleted_at\" IS NULL"
+            format!(" AND {} IS NULL", self.qi("deleted_at"))
         } else {
-            ""
+            String::new()
         };
+        let p1 = self.param(1);
         let sql = format!(
-            "SELECT {} FROM \"{}\" WHERE \"{}\" = $1{soft}",
+            "SELECT {} FROM {} WHERE {} = {p1}{soft}",
             self.select_columns(),
             self.table(),
-            pk,
+            self.qi(pk),
         );
-        let values = sea_query::Values(vec![sea_query::Value::Uuid(Some(Box::new(*id)))]);
-        let stmt = sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Postgres,
-            sql,
-            values,
-        );
-        let span = telemetry::db_span("orm_find_by_id", self.table(), "SELECT");
+        let values = sea_query::Values(vec![sea_query::Value::String(Some(Box::new(
+            id.to_string(),
+        )))]);
+        let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+        let span = telemetry::db_span("orm_find_by_id", &self.resource.resource, "SELECT");
         let _enter = span.enter();
         let rows = self
             .connection
@@ -224,7 +239,7 @@ impl<'a> OrmResourceQuery<'a> {
         Ok(ResourceRow(json))
     }
 
-    /// Find all with filters, sort, and pagination (no full-text search in ORM path).
+    /// Find all with filters, sort, and pagination.
     pub async fn find_all(
         &self,
         filters: &FilterSet,
@@ -232,12 +247,12 @@ impl<'a> OrmResourceQuery<'a> {
         sort: &SortParam,
         page: &PageRequest,
     ) -> Result<(Vec<ResourceRow>, serde_json::Value), ShaperailError> {
-        let mut sql = format!("SELECT {} FROM \"{}\"", self.select_columns(), self.table());
+        let mut sql = format!("SELECT {} FROM {}", self.select_columns(), self.table());
         let mut values_vec = Vec::new();
         let mut param = 1usize;
 
         if self.has_soft_delete() {
-            sql.push_str(" WHERE \"deleted_at\" IS NULL");
+            sql.push_str(&format!(" WHERE {} IS NULL", self.qi("deleted_at")));
         }
         for f in &filters.filters {
             if let Some(field) = self.resource.schema.get(&f.field) {
@@ -246,7 +261,8 @@ impl<'a> OrmResourceQuery<'a> {
                 } else {
                     sql.push_str(" AND ");
                 }
-                sql.push_str(&format!("\"{}\" = ${param}", f.field));
+                let p = self.param(param);
+                sql.push_str(&format!("{} = {p}", self.qi(&f.field)));
                 values_vec.push(coerce_filter_to_sea_value(&f.value, field));
                 param += 1;
             }
@@ -262,7 +278,7 @@ impl<'a> OrmResourceQuery<'a> {
                     super::sort::SortDirection::Asc => "ASC",
                     super::sort::SortDirection::Desc => "DESC",
                 };
-                sql.push_str(&format!("\"{}\" {dir}", s.field));
+                sql.push_str(&format!("{} {dir}", self.qi(&s.field)));
             }
         }
 
@@ -270,32 +286,22 @@ impl<'a> OrmResourceQuery<'a> {
             PageRequest::Cursor { after, limit } => {
                 if let Some(cursor) = after {
                     let id_str = decode_cursor(cursor)?;
-                    let id = uuid::Uuid::parse_str(&id_str).map_err(|_| {
-                        ShaperailError::Validation(vec![shaperail_core::FieldError {
-                            field: "cursor".to_string(),
-                            message: "Invalid cursor value".to_string(),
-                            code: "invalid_cursor".to_string(),
-                        }])
-                    })?;
                     if param == 1 && !self.has_soft_delete() && filters.is_empty() {
                         sql.push_str(" WHERE ");
                     } else {
                         sql.push_str(" AND ");
                     }
-                    sql.push_str(&format!("\"id\" > ${param}"));
-                    values_vec.push(sea_query::Value::Uuid(Some(Box::new(id))));
+                    let p = self.param(param);
+                    sql.push_str(&format!("{} > {p}", self.qi("id")));
+                    values_vec.push(sea_query::Value::String(Some(Box::new(id_str))));
                 }
                 if sort.fields.is_empty() {
-                    sql.push_str(" ORDER BY \"id\" ASC");
+                    sql.push_str(&format!(" ORDER BY {} ASC", self.qi("id")));
                 }
                 sql.push_str(&format!(" LIMIT {}", limit + 1));
                 let values = sea_query::Values(values_vec);
-                let stmt = sea_orm::Statement::from_sql_and_values(
-                    sea_orm::DatabaseBackend::Postgres,
-                    sql,
-                    values,
-                );
-                let span = telemetry::db_span("orm_find_all", self.table(), "SELECT");
+                let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+                let span = telemetry::db_span("orm_find_all", &self.resource.resource, "SELECT");
                 let _enter = span.enter();
                 let rows =
                     self.connection.inner.query_all(stmt).await.map_err(|e| {
@@ -319,12 +325,8 @@ impl<'a> OrmResourceQuery<'a> {
             PageRequest::Offset { offset, limit } => {
                 sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
                 let values = sea_query::Values(values_vec);
-                let stmt = sea_orm::Statement::from_sql_and_values(
-                    sea_orm::DatabaseBackend::Postgres,
-                    sql,
-                    values,
-                );
-                let span = telemetry::db_span("orm_find_all", self.table(), "SELECT");
+                let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+                let span = telemetry::db_span("orm_find_all", &self.resource.resource, "SELECT");
                 let _enter = span.enter();
                 let rows =
                     self.connection.inner.query_all(stmt).await.map_err(|e| {
@@ -345,7 +347,7 @@ impl<'a> OrmResourceQuery<'a> {
         }
     }
 
-    /// Insert a record. Returns the inserted row (RETURNING).
+    /// Insert a record. Uses RETURNING for Postgres/SQLite; for MySQL does INSERT + SELECT.
     pub async fn insert(
         &self,
         data: &serde_json::Map<String, serde_json::Value>,
@@ -354,23 +356,26 @@ impl<'a> OrmResourceQuery<'a> {
         let mut placeholders = Vec::new();
         let mut values_vec = Vec::new();
         let mut param = 1usize;
+        let mut generated_id: Option<String> = None;
 
         for (name, field) in &self.resource.schema {
             if field.generated {
                 match field.field_type {
                     FieldType::Uuid => {
-                        columns.push(format!("\"{name}\""));
-                        placeholders.push(format!("${param}"));
-                        values_vec
-                            .push(sea_query::Value::Uuid(Some(Box::new(uuid::Uuid::new_v4()))));
+                        let id = uuid::Uuid::new_v4();
+                        columns.push(self.qi(name));
+                        placeholders.push(self.param(param));
+                        values_vec.push(sea_query::Value::String(Some(Box::new(id.to_string()))));
+                        if field.primary {
+                            generated_id = Some(id.to_string());
+                        }
                         param += 1;
                     }
                     FieldType::Timestamp => {
-                        columns.push(format!("\"{name}\""));
-                        placeholders.push(format!("${param}"));
-                        values_vec.push(sea_query::Value::ChronoDateTime(Some(Box::new(
-                            chrono::Utc::now().naive_utc(),
-                        ))));
+                        let now = chrono::Utc::now().to_rfc3339();
+                        columns.push(self.qi(name));
+                        placeholders.push(self.param(param));
+                        values_vec.push(sea_query::Value::String(Some(Box::new(now))));
                         param += 1;
                     }
                     _ => {}
@@ -378,45 +383,72 @@ impl<'a> OrmResourceQuery<'a> {
                 continue;
             }
             if let Some(value) = data.get(name) {
-                columns.push(format!("\"{name}\""));
-                placeholders.push(format!("${param}"));
+                columns.push(self.qi(name));
+                placeholders.push(self.param(param));
                 values_vec.push(json_to_sea_value(value, field));
                 param += 1;
             } else if let Some(default) = &field.default {
-                columns.push(format!("\"{name}\""));
-                placeholders.push(format!("${param}"));
+                columns.push(self.qi(name));
+                placeholders.push(self.param(param));
                 values_vec.push(json_to_sea_value(default, field));
                 param += 1;
             }
         }
 
-        let sql = format!(
-            "INSERT INTO \"{}\" ({}) VALUES ({}) RETURNING {}",
-            self.table(),
-            columns.join(", "),
-            placeholders.join(", "),
-            self.select_columns(),
-        );
-        let values = sea_query::Values(values_vec);
-        let stmt = sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Postgres,
-            sql,
-            values,
-        );
-        let span = telemetry::db_span("orm_insert", self.table(), "INSERT");
-        let _enter = span.enter();
-        let rows = self
-            .connection
-            .inner
-            .query_all(stmt)
-            .await
-            .map_err(|e| ShaperailError::Internal(format!("ORM insert failed: {e}")))?;
-        let row = rows
-            .into_iter()
-            .next()
-            .ok_or_else(|| ShaperailError::Internal("Insert returned no rows".to_string()))?;
-        let json = query_result_to_json(&row, self.resource)?;
-        Ok(ResourceRow(json))
+        if self.supports_returning() {
+            let sql = format!(
+                "INSERT INTO {} ({}) VALUES ({}) RETURNING {}",
+                self.table(),
+                columns.join(", "),
+                placeholders.join(", "),
+                self.select_columns(),
+            );
+            let values = sea_query::Values(values_vec);
+            let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+            let span = telemetry::db_span("orm_insert", &self.resource.resource, "INSERT");
+            let _enter = span.enter();
+            let rows = self
+                .connection
+                .inner
+                .query_all(stmt)
+                .await
+                .map_err(|e| ShaperailError::Internal(format!("ORM insert failed: {e}")))?;
+            let row = rows
+                .into_iter()
+                .next()
+                .ok_or_else(|| ShaperailError::Internal("Insert returned no rows".to_string()))?;
+            let json = query_result_to_json(&row, self.resource)?;
+            Ok(ResourceRow(json))
+        } else {
+            // MySQL: INSERT then SELECT back.
+            let sql = format!(
+                "INSERT INTO {} ({}) VALUES ({})",
+                self.table(),
+                columns.join(", "),
+                placeholders.join(", "),
+            );
+            let values = sea_query::Values(values_vec);
+            let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+            let span = telemetry::db_span("orm_insert", &self.resource.resource, "INSERT");
+            let _enter = span.enter();
+            self.connection
+                .inner
+                .execute(stmt)
+                .await
+                .map_err(|e| ShaperailError::Internal(format!("ORM insert failed: {e}")))?;
+            // Fetch back via generated ID.
+            if let Some(id_str) = generated_id {
+                let id = uuid::Uuid::parse_str(&id_str).map_err(|e| {
+                    ShaperailError::Internal(format!("Generated UUID parse error: {e}"))
+                })?;
+                self.find_by_id(&id).await
+            } else {
+                // Fallback: use LAST_INSERT_ID for MySQL auto-increment (rare in Shaperail).
+                Err(ShaperailError::Internal(
+                    "MySQL insert without generated UUID not supported".to_string(),
+                ))
+            }
+        }
     }
 
     /// Update by primary key.
@@ -434,16 +466,17 @@ impl<'a> OrmResourceQuery<'a> {
                 if field.primary || field.generated {
                     continue;
                 }
-                set_parts.push(format!("\"{name}\" = ${param}"));
+                let p = self.param(param);
+                set_parts.push(format!("{} = {p}", self.qi(name)));
                 values_vec.push(json_to_sea_value(value, field));
                 param += 1;
             }
         }
         if self.resource.schema.contains_key("updated_at") {
-            set_parts.push(format!("\"updated_at\" = ${param}"));
-            values_vec.push(sea_query::Value::ChronoDateTime(Some(Box::new(
-                chrono::Utc::now().naive_utc(),
-            ))));
+            let p = self.param(param);
+            let now = chrono::Utc::now().to_rfc3339();
+            set_parts.push(format!("{} = {p}", self.qi("updated_at")));
+            values_vec.push(sea_query::Value::String(Some(Box::new(now))));
             param += 1;
         }
         if set_parts.is_empty() {
@@ -457,93 +490,157 @@ impl<'a> OrmResourceQuery<'a> {
         }
         let pk = self.primary_key();
         let soft = if self.has_soft_delete() {
-            " AND \"deleted_at\" IS NULL"
+            format!(" AND {} IS NULL", self.qi("deleted_at"))
         } else {
-            ""
+            String::new()
         };
-        values_vec.push(sea_query::Value::Uuid(Some(Box::new(*id))));
-        let sql = format!(
-            "UPDATE \"{}\" SET {} WHERE \"{}\" = ${param}{soft} RETURNING {}",
-            self.table(),
-            set_parts.join(", "),
-            pk,
-            self.select_columns(),
-        );
-        let values = sea_query::Values(values_vec);
-        let stmt = sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Postgres,
-            sql,
-            values,
-        );
-        let span = telemetry::db_span("orm_update", self.table(), "UPDATE");
-        let _enter = span.enter();
-        let rows = self
-            .connection
-            .inner
-            .query_all(stmt)
-            .await
-            .map_err(|e| ShaperailError::Internal(format!("ORM update failed: {e}")))?;
-        rows.into_iter()
-            .next()
-            .ok_or(ShaperailError::NotFound)
-            .and_then(|row| query_result_to_json(&row, self.resource).map(ResourceRow))
+        let p = self.param(param);
+        values_vec.push(sea_query::Value::String(Some(Box::new(id.to_string()))));
+
+        if self.supports_returning() {
+            let sql = format!(
+                "UPDATE {} SET {} WHERE {} = {p}{soft} RETURNING {}",
+                self.table(),
+                set_parts.join(", "),
+                self.qi(pk),
+                self.select_columns(),
+            );
+            let values = sea_query::Values(values_vec);
+            let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+            let span = telemetry::db_span("orm_update", &self.resource.resource, "UPDATE");
+            let _enter = span.enter();
+            let rows = self
+                .connection
+                .inner
+                .query_all(stmt)
+                .await
+                .map_err(|e| ShaperailError::Internal(format!("ORM update failed: {e}")))?;
+            rows.into_iter()
+                .next()
+                .ok_or(ShaperailError::NotFound)
+                .and_then(|row| query_result_to_json(&row, self.resource).map(ResourceRow))
+        } else {
+            // MySQL: UPDATE then SELECT back.
+            let sql = format!(
+                "UPDATE {} SET {} WHERE {} = {p}{soft}",
+                self.table(),
+                set_parts.join(", "),
+                self.qi(pk),
+            );
+            let values = sea_query::Values(values_vec);
+            let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+            let span = telemetry::db_span("orm_update", &self.resource.resource, "UPDATE");
+            let _enter = span.enter();
+            let result = self
+                .connection
+                .inner
+                .execute(stmt)
+                .await
+                .map_err(|e| ShaperailError::Internal(format!("ORM update failed: {e}")))?;
+            if result.rows_affected() == 0 {
+                return Err(ShaperailError::NotFound);
+            }
+            self.find_by_id(id).await
+        }
     }
 
     /// Soft-delete by setting deleted_at.
     pub async fn soft_delete_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, ShaperailError> {
         let pk = self.primary_key();
-        let sql = format!(
-            "UPDATE \"{}\" SET \"deleted_at\" = $1 WHERE \"{}\" = $2 AND \"deleted_at\" IS NULL RETURNING {}",
-            self.table(),
-            pk,
-            self.select_columns(),
-        );
-        let values = sea_query::Values(vec![
-            sea_query::Value::ChronoDateTime(Some(Box::new(chrono::Utc::now().naive_utc()))),
-            sea_query::Value::Uuid(Some(Box::new(*id))),
-        ]);
-        let stmt = sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Postgres,
-            sql,
-            values,
-        );
-        let span = telemetry::db_span("orm_soft_delete", self.table(), "UPDATE");
-        let _enter = span.enter();
-        let rows = self
-            .connection
-            .inner
-            .query_all(stmt)
-            .await
-            .map_err(|e| ShaperailError::Internal(format!("ORM soft_delete failed: {e}")))?;
-        rows.into_iter()
-            .next()
-            .ok_or(ShaperailError::NotFound)
-            .and_then(|row| query_result_to_json(&row, self.resource).map(ResourceRow))
+        let p1 = self.param(1);
+        let p2 = self.param(2);
+        let now = chrono::Utc::now().to_rfc3339();
+
+        if self.supports_returning() {
+            let sql = format!(
+                "UPDATE {} SET {} = {p1} WHERE {} = {p2} AND {} IS NULL RETURNING {}",
+                self.table(),
+                self.qi("deleted_at"),
+                self.qi(pk),
+                self.qi("deleted_at"),
+                self.select_columns(),
+            );
+            let values = sea_query::Values(vec![
+                sea_query::Value::String(Some(Box::new(now))),
+                sea_query::Value::String(Some(Box::new(id.to_string()))),
+            ]);
+            let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+            let span = telemetry::db_span("orm_soft_delete", &self.resource.resource, "UPDATE");
+            let _enter = span.enter();
+            let rows =
+                self.connection.inner.query_all(stmt).await.map_err(|e| {
+                    ShaperailError::Internal(format!("ORM soft_delete failed: {e}"))
+                })?;
+            rows.into_iter()
+                .next()
+                .ok_or(ShaperailError::NotFound)
+                .and_then(|row| query_result_to_json(&row, self.resource).map(ResourceRow))
+        } else {
+            // MySQL: UPDATE then SELECT.
+            let sql = format!(
+                "UPDATE {} SET {} = {p1} WHERE {} = {p2} AND {} IS NULL",
+                self.table(),
+                self.qi("deleted_at"),
+                self.qi(pk),
+                self.qi("deleted_at"),
+            );
+            let values = sea_query::Values(vec![
+                sea_query::Value::String(Some(Box::new(now))),
+                sea_query::Value::String(Some(Box::new(id.to_string()))),
+            ]);
+            let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+            let span = telemetry::db_span("orm_soft_delete", &self.resource.resource, "UPDATE");
+            let _enter = span.enter();
+            let result =
+                self.connection.inner.execute(stmt).await.map_err(|e| {
+                    ShaperailError::Internal(format!("ORM soft_delete failed: {e}"))
+                })?;
+            if result.rows_affected() == 0 {
+                return Err(ShaperailError::NotFound);
+            }
+            self.find_by_id(id).await
+        }
     }
 
     /// Hard-delete by primary key.
     pub async fn hard_delete_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, ShaperailError> {
         let row = self.find_by_id(id).await?;
         let pk = self.primary_key();
-        let sql = format!(
-            "DELETE FROM \"{}\" WHERE \"{}\" = $1 RETURNING {}",
-            self.table(),
-            pk,
-            self.select_columns(),
-        );
-        let values = sea_query::Values(vec![sea_query::Value::Uuid(Some(Box::new(*id)))]);
-        let stmt = sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Postgres,
-            sql,
-            values,
-        );
-        let span = telemetry::db_span("orm_hard_delete", self.table(), "DELETE");
-        let _enter = span.enter();
-        self.connection
-            .inner
-            .execute(stmt)
-            .await
-            .map_err(|e| ShaperailError::Internal(format!("ORM hard_delete failed: {e}")))?;
+        let p1 = self.param(1);
+
+        if self.supports_returning() {
+            let sql = format!(
+                "DELETE FROM {} WHERE {} = {p1} RETURNING {}",
+                self.table(),
+                self.qi(pk),
+                self.select_columns(),
+            );
+            let values = sea_query::Values(vec![sea_query::Value::String(Some(Box::new(
+                id.to_string(),
+            )))]);
+            let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+            let span = telemetry::db_span("orm_hard_delete", &self.resource.resource, "DELETE");
+            let _enter = span.enter();
+            self.connection
+                .inner
+                .execute(stmt)
+                .await
+                .map_err(|e| ShaperailError::Internal(format!("ORM hard_delete failed: {e}")))?;
+        } else {
+            // MySQL: just DELETE.
+            let sql = format!("DELETE FROM {} WHERE {} = {p1}", self.table(), self.qi(pk),);
+            let values = sea_query::Values(vec![sea_query::Value::String(Some(Box::new(
+                id.to_string(),
+            )))]);
+            let stmt = sea_orm::Statement::from_sql_and_values(self.backend(), sql, values);
+            let span = telemetry::db_span("orm_hard_delete", &self.resource.resource, "DELETE");
+            let _enter = span.enter();
+            self.connection
+                .inner
+                .execute(stmt)
+                .await
+                .map_err(|e| ShaperailError::Internal(format!("ORM hard_delete failed: {e}")))?;
+        }
         Ok(row)
     }
 }

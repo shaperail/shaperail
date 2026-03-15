@@ -2,6 +2,7 @@ mod filter;
 mod generated;
 mod manager;
 mod migration;
+mod mongo;
 mod orm_query;
 mod pagination;
 mod pool;
@@ -16,7 +17,8 @@ pub use generated::{
     row_from_model, sort_direction_at, sort_field_at,
 };
 pub use manager::{DatabaseManager, SqlConnection};
-pub use migration::run_migrations;
+pub use migration::{run_migrations, run_migrations_multi};
+pub use mongo::{MongoBackedStore, MongoConnection};
 pub use orm_query::OrmResourceQuery;
 pub use pagination::{decode_cursor, encode_cursor, CursorPage, OffsetPage, PageRequest};
 pub use pool::{create_pool, health_check};
@@ -25,6 +27,9 @@ pub use query::{
 };
 pub use search::SearchParam;
 pub use sort::{SortDirection, SortField, SortParam};
-pub use store::{build_orm_store_registry, OrmBackedStore, ResourceStore, StoreRegistry};
+pub use store::{
+    build_multi_store_registry, build_orm_store_registry, OrmBackedStore, ResourceStore,
+    StoreRegistry,
+};
 
 pub use async_trait::async_trait;

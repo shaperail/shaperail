@@ -1,12 +1,12 @@
 # Current Milestone
 
-**Completed:** M13 — OpenAPI Generation
-**Crate:** shaperail-codegen
-**Version:** v2
+**Completed:** M16 — gRPC
+**Crates:** shaperail-codegen, shaperail-runtime
+**Version:** v3
 **Status:** [x] Complete
 
-**Current:** M14 — Multi-Database (in progress)
-**Crates:** shaperail-core, shaperail-codegen, shaperail-runtime
+**Next:** M17 — Multi-Service
+**Crates:** shaperail-core, shaperail-cli
 
-To work on next milestone: `/milestone 14`
+To work on next milestone: `/milestone 17`
 To jump to any milestone: `/milestone <number>`

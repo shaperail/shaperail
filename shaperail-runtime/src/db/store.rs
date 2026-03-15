@@ -4,9 +4,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{Map, Value};
 
+use super::mongo::{MongoBackedStore, MongoConnection};
 use super::{DatabaseManager, ResourceRow};
 use super::{FilterSet, OrmResourceQuery, PageRequest, SearchParam, SortParam, SqlConnection};
-use shaperail_core::{EndpointSpec, ResourceDefinition, ShaperailError};
+use shaperail_core::{
+    DatabaseEngine, EndpointSpec, NamedDatabaseConfig, ResourceDefinition, ShaperailError,
+};
 
 /// Typed resource store implemented by generated per-resource query modules or OrmBackedStore (M14).
 #[async_trait]
@@ -118,6 +121,52 @@ pub fn build_orm_store_registry(
             })?;
         let store = OrmBackedStore::new(Arc::new(resource.clone()), conn);
         stores.insert(resource.resource.clone(), Arc::new(store));
+    }
+    Ok(Arc::new(stores))
+}
+
+/// Builds a store registry supporting both SQL and MongoDB backends (M14 full multi-DB).
+///
+/// Resources are routed to the appropriate backend based on their `db` field and the
+/// engine type of the corresponding named database config.
+pub async fn build_multi_store_registry(
+    manager: &DatabaseManager,
+    mongo_connections: &HashMap<String, MongoConnection>,
+    databases: &indexmap::IndexMap<String, NamedDatabaseConfig>,
+    resources: &[ResourceDefinition],
+) -> Result<StoreRegistry, ShaperailError> {
+    let mut stores: HashMap<String, Arc<dyn ResourceStore>> = HashMap::new();
+
+    for resource in resources {
+        let db_name = resource.db.as_deref().unwrap_or("default");
+        let engine = databases
+            .get(db_name)
+            .map(|cfg| cfg.engine)
+            .unwrap_or(DatabaseEngine::Postgres);
+
+        if engine == DatabaseEngine::MongoDB {
+            let mongo = mongo_connections.get(db_name).ok_or_else(|| {
+                ShaperailError::Internal(format!(
+                    "No MongoDB connection for resource '{}' (db: '{db_name}')",
+                    resource.resource
+                ))
+            })?;
+            // Ensure collection with schema validation.
+            mongo.ensure_collection(resource).await?;
+            let store = MongoBackedStore::new(Arc::new(resource.clone()), mongo.clone());
+            stores.insert(resource.resource.clone(), Arc::new(store));
+        } else {
+            let conn = manager
+                .sql_for_resource(resource.db.as_ref())
+                .ok_or_else(|| {
+                    ShaperailError::Internal(format!(
+                        "No SQL connection for resource '{}' (db: '{db_name}')",
+                        resource.resource
+                    ))
+                })?;
+            let store = OrmBackedStore::new(Arc::new(resource.clone()), conn);
+            stores.insert(resource.resource.clone(), Arc::new(store));
+        }
     }
     Ok(Arc::new(stores))
 }

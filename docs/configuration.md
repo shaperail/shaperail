@@ -97,7 +97,7 @@ events:
 | --- | --- | --- | --- | --- |
 | `workers` | `"auto"` or integer | no | `auto` | Number of Actix-web worker threads. `auto` uses the number of CPU cores. |
 
-### `protocols` (M15)
+### `protocols` (M15/M16)
 
 Optional. List of API protocols to enable. When omitted, defaults to `["rest"]`.
 
@@ -105,14 +105,46 @@ Optional. List of API protocols to enable. When omitted, defaults to `["rest"]`.
 protocols:
   - rest
   - graphql
+  - grpc
 ```
 
 | Value | Description |
 | --- | --- |
 | `rest` | REST API (list, get, create, update, delete) — always available when a database is configured. |
 | `graphql` | GraphQL endpoint at `/graphql` and Playground at `/graphql/playground`. Queries (list, get, relations) and mutations (create, update, delete) with the same auth as REST. |
+| `grpc` | gRPC server on a separate port (default 50051). Unary and streaming RPCs, JWT auth via metadata, server reflection, health checks. See the [gRPC guide]({{ '/grpc/' | relative_url }}). |
 
-Only `rest` and `graphql` are allowed. Unknown values cause a parse error.
+Only `rest`, `graphql`, and `grpc` are allowed. Unknown values cause a parse error.
+
+### `graphql` (M15)
+
+Optional. Configures GraphQL depth and complexity limits. Only relevant when `graphql` is in `protocols`.
+
+```yaml
+graphql:
+  depth_limit: 10
+  complexity_limit: 200
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `depth_limit` | integer | `16` | Maximum query nesting depth. Queries exceeding this depth are rejected. |
+| `complexity_limit` | integer | `256` | Maximum query complexity score. Queries exceeding this are rejected. |
+
+### `grpc` (M16)
+
+Optional. Configures the gRPC server. Only relevant when `grpc` is in `protocols`.
+
+```yaml
+grpc:
+  port: 50051
+  reflection: true
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `port` | integer | `50051` | Port for the gRPC server. Separate from the HTTP `port`. |
+| `reflection` | boolean | `true` | Enable gRPC server reflection for tools like `grpcurl`. |
 
 ### `database`
 

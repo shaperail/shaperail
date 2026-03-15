@@ -16,6 +16,7 @@ use deadpool_redis::Pool;
 use indexmap::IndexMap;
 use redis::AsyncCommands;
 use serde_json::json;
+use shaperail_core::GraphQLConfig;
 use shaperail_core::{
     AuthRule, CacheSpec, EndpointSpec, FieldSchema, FieldType, HttpMethod, PaginationStyle,
     RelationSpec, RelationType, ResourceDefinition,
@@ -25,7 +26,7 @@ use shaperail_runtime::cache::{create_redis_pool, RedisCache};
 use shaperail_runtime::db::{
     FilterSet, PageRequest, ResourceQuery, ResourceRow, ResourceStore, SortParam, StoreRegistry,
 };
-use shaperail_runtime::graphql::{build_schema, graphql_handler};
+use shaperail_runtime::graphql::{build_schema, build_schema_with_config, graphql_handler};
 use shaperail_runtime::handlers::crud::AppState;
 use shaperail_runtime::handlers::routes::register_resource;
 use shaperail_runtime::observability::{metrics_handler, MetricsState, RequestLogger};
@@ -53,6 +54,7 @@ fn make_state(pool: sqlx::PgPool, jwt: Option<JwtConfig>) -> Arc<AppState> {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     })
 }
 
@@ -656,6 +658,7 @@ async fn test_graphql_list_query(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     });
     let schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
     let app = actix_test::init_service(
@@ -697,6 +700,7 @@ async fn test_graphql_create_mutation(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     });
     let schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
     let app = actix_test::init_service(
@@ -748,6 +752,7 @@ async fn test_graphql_auth_rejects_unauthorized_mutation(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     });
     let schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
     let app = actix_test::init_service(
@@ -781,6 +786,231 @@ async fn test_graphql_auth_rejects_unauthorized_mutation(pool: sqlx::PgPool) {
         .get("data")
         .and_then(|d| d.get("create_test_users"))
         .is_none());
+}
+
+// ---------------------------------------------------------------------------
+// GraphQL — DataLoader / N+1 prevention (M15)
+// ---------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn test_graphql_dataloader_caches_relation_lookups(pool: sqlx::PgPool) {
+    use shaperail_runtime::graphql::RelationLoader;
+
+    let resource = test_resource();
+    let state = Arc::new(AppState {
+        pool: pool.clone(),
+        resources: vec![resource.clone()],
+        stores: None,
+        controllers: None,
+        jwt_config: None,
+        cache: None,
+        event_emitter: None,
+        job_queue: None,
+        metrics: Some(MetricsState::new().expect("metrics")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
+    });
+
+    // Insert two real rows so that load_by_id can cache them.
+    let id1 = uuid::Uuid::new_v4();
+    let id2 = uuid::Uuid::new_v4();
+    let org_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO test_users (id, email, name, role, org_id) VALUES ($1, $2, $3, $4, $5), ($6, $7, $8, $9, $10)",
+    )
+    .bind(id1)
+    .bind("dl1@example.com")
+    .bind("DL User 1")
+    .bind("member")
+    .bind(org_id)
+    .bind(id2)
+    .bind("dl2@example.com")
+    .bind("DL User 2")
+    .bind("member")
+    .bind(org_id)
+    .execute(&pool)
+    .await
+    .expect("insert test rows");
+
+    let loader = RelationLoader::new(state.clone(), state.resources.clone());
+
+    // Cache starts empty.
+    assert_eq!(loader.cache_size().await, 0);
+
+    // load_by_id populates the cache.
+    let row = loader
+        .load_by_id("test_users", &id1)
+        .await
+        .expect("load_by_id");
+    assert!(row.is_some(), "should find the inserted row");
+    assert_eq!(
+        loader.cache_size().await,
+        1,
+        "cache should have 1 entry after first lookup"
+    );
+
+    // Repeating the same lookup does not grow the cache (uses cached result).
+    let _ = loader.load_by_id("test_users", &id1).await;
+    assert_eq!(
+        loader.cache_size().await,
+        1,
+        "cache should still be 1 (served from cache)"
+    );
+
+    // Different ID = new cache entry.
+    let _ = loader.load_by_id("test_users", &id2).await;
+    assert_eq!(
+        loader.cache_size().await,
+        2,
+        "cache should be 2 after second distinct lookup"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// GraphQL — Subscription type presence (M15)
+// ---------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn test_graphql_schema_includes_subscription_type(pool: sqlx::PgPool) {
+    let mut resource = test_resource();
+    resource.endpoints = Some(full_crud_endpoints());
+    let state = Arc::new(AppState {
+        pool: pool.clone(),
+        resources: vec![resource.clone()],
+        stores: None,
+        controllers: None,
+        jwt_config: None,
+        cache: None,
+        event_emitter: None,
+        job_queue: None,
+        metrics: Some(MetricsState::new().expect("metrics")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
+    });
+    let schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .app_data(web::Data::new(schema))
+            .route("/graphql", web::post().to(graphql_handler))
+            .configure(|cfg| register_resource(cfg, &resource, state)),
+    )
+    .await;
+
+    // Introspection query to verify Subscription type exists.
+    let req = actix_test::TestRequest::post()
+        .uri("/graphql")
+        .set_json(json!({
+            "query": "{ __schema { subscriptionType { name } } }"
+        }))
+        .to_request();
+    let resp = tokio::task::LocalSet::new()
+        .run_until(actix_test::call_service(&app, req))
+        .await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    let sub_type = &body["data"]["__schema"]["subscriptionType"];
+    assert!(
+        sub_type.is_object(),
+        "schema should have a subscriptionType: {body}"
+    );
+    assert_eq!(sub_type["name"], "Subscription");
+}
+
+// ---------------------------------------------------------------------------
+// GraphQL — Configurable depth/complexity limits (M15)
+// ---------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn test_graphql_depth_limit_rejects_deep_queries(pool: sqlx::PgPool) {
+    let mut resource = test_resource();
+    resource.endpoints = Some(full_crud_endpoints());
+    let state = Arc::new(AppState {
+        pool: pool.clone(),
+        resources: vec![resource.clone()],
+        stores: None,
+        controllers: None,
+        jwt_config: None,
+        cache: None,
+        event_emitter: None,
+        job_queue: None,
+        metrics: Some(MetricsState::new().expect("metrics")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
+    });
+
+    // Set a very restrictive depth limit.
+    let gql_config = GraphQLConfig {
+        depth_limit: 2,
+        complexity_limit: 256,
+    };
+    let schema = build_schema_with_config(&[resource.clone()], state.clone(), Some(&gql_config))
+        .expect("build_schema_with_config");
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .app_data(web::Data::new(schema))
+            .route("/graphql", web::post().to(graphql_handler))
+            .configure(|cfg| register_resource(cfg, &resource, state)),
+    )
+    .await;
+
+    // This deeply nested introspection query should exceed depth_limit=2.
+    let deep_query = r#"{ __schema { types { fields { type { ofType { name } } } } } }"#;
+    let req = actix_test::TestRequest::post()
+        .uri("/graphql")
+        .set_json(json!({ "query": deep_query }))
+        .to_request();
+    let resp = tokio::task::LocalSet::new()
+        .run_until(actix_test::call_service(&app, req))
+        .await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    assert!(
+        body.get("errors").is_some(),
+        "deep query should be rejected with depth_limit=2: {body}"
+    );
+}
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn test_graphql_default_limits_accept_normal_queries(pool: sqlx::PgPool) {
+    let mut resource = test_resource();
+    resource.endpoints = Some(full_crud_endpoints());
+    let state = Arc::new(AppState {
+        pool: pool.clone(),
+        resources: vec![resource.clone()],
+        stores: None,
+        controllers: None,
+        jwt_config: None,
+        cache: None,
+        event_emitter: None,
+        job_queue: None,
+        metrics: Some(MetricsState::new().expect("metrics")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
+    });
+
+    // Default limits (depth=16, complexity=256) should allow normal queries.
+    let schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .app_data(web::Data::new(schema))
+            .route("/graphql", web::post().to(graphql_handler))
+            .configure(|cfg| register_resource(cfg, &resource, state)),
+    )
+    .await;
+
+    let req = actix_test::TestRequest::post()
+        .uri("/graphql")
+        .set_json(json!({ "query": "{ list_test_users(limit: 5) { id email } }" }))
+        .to_request();
+    let resp = tokio::task::LocalSet::new()
+        .run_until(actix_test::call_service(&app, req))
+        .await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    assert!(
+        body.get("errors").is_none(),
+        "normal query with default limits should succeed: {body}"
+    );
+    assert!(body.get("data").is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -1363,6 +1593,7 @@ async fn test_metrics_capture_requests_errors_and_cache(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
     let app = actix_test::init_service(
@@ -1453,6 +1684,7 @@ async fn test_list_cache_hit_serves_stale_data_after_db_delete(pool: sqlx::PgPoo
         event_emitter: None,
         job_queue: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
     let app = actix_test::init_service(
@@ -1528,6 +1760,7 @@ async fn test_write_invalidates_cached_list(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
     let app = actix_test::init_service(
@@ -1604,6 +1837,7 @@ async fn test_nocache_bypasses_cached_response(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
     let app = actix_test::init_service(
@@ -2029,6 +2263,7 @@ async fn test_list_with_include_uses_store(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
     let app = actix_test::init_service(
