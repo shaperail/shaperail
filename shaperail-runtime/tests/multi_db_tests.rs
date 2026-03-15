@@ -3,12 +3,8 @@
 //! Tests dialect-specific SQL generation, ORM query dialect awareness,
 //! MongoDB store operations, and cross-database project configuration.
 
-use shaperail_core::{
-    DatabaseEngine, FieldSchema, FieldType, NamedDatabaseConfig, ResourceDefinition,
-};
-use shaperail_runtime::db::{
-    build_create_table_sql_for_engine, DatabaseManager, MongoConnection, SqlConnection,
-};
+use shaperail_core::{DatabaseEngine, FieldSchema, FieldType, ResourceDefinition};
+use shaperail_runtime::db::{build_create_table_sql_for_engine, SqlConnection};
 
 use indexmap::IndexMap;
 
