@@ -1,0 +1,18 @@
+project: users-api
+port: 3001
+
+database:
+  type: postgresql
+  host: localhost
+  port: 5432
+  name: users_db
+  pool_size: 10
+
+cache:
+  type: redis
+  url: redis://localhost:6379
+
+auth:
+  provider: jwt
+  secret_env: JWT_SECRET
+  expiry: 24h

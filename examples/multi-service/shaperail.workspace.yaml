@@ -1,0 +1,20 @@
+workspace: ecommerce
+
+services:
+  users-api:
+    path: services/users-api
+    port: 3001
+
+  orders-api:
+    path: services/orders-api
+    port: 3002
+    depends_on: [users-api]
+
+shared:
+  cache:
+    type: redis
+    url: redis://localhost:6379
+  auth:
+    provider: jwt
+    secret_env: JWT_SECRET
+    expiry: 24h

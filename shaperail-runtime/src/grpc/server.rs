@@ -198,6 +198,7 @@ fn extract_user_from_headers(
     Some(AuthenticatedUser {
         id: claims.sub,
         role: claims.role,
+        tenant_id: None,
     })
 }
 

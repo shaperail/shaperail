@@ -1,0 +1,39 @@
+resource: orders
+version: 1
+
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  user_id:    { type: uuid, required: true }
+  total:      { type: number, required: true }
+  status:     { type: enum, values: [pending, paid, shipped, delivered, cancelled], default: pending }
+  created_at: { type: timestamp, generated: true }
+  updated_at: { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    method: GET
+    path: /orders
+    auth: [member, admin]
+    filters: [user_id, status]
+    pagination: cursor
+    sort: [created_at]
+
+  get:
+    method: GET
+    path: /orders/:id
+    auth: [member, admin]
+
+  create:
+    method: POST
+    path: /orders
+    auth: [member, admin]
+    input: [user_id, total, status]
+
+  update:
+    method: PATCH
+    path: /orders/:id
+    auth: [admin]
+    input: [status]
+
+relations:
+  user: { resource: users, type: belongs_to, key: user_id }

@@ -48,6 +48,7 @@ pub fn extract_grpc_auth(
     Ok(Some(AuthenticatedUser {
         id: claims.sub,
         role: claims.role,
+        tenant_id: None,
     }))
 }
 

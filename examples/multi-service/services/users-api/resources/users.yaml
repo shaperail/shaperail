@@ -1,0 +1,36 @@
+resource: users
+version: 1
+
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  email:      { type: string, format: email, unique: true, required: true }
+  name:       { type: string, min: 1, max: 200, required: true }
+  role:       { type: enum, values: [admin, member, viewer], default: member }
+  created_at: { type: timestamp, generated: true }
+  updated_at: { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    method: GET
+    path: /users
+    auth: [member, admin]
+    filters: [role]
+    search: [name, email]
+    pagination: cursor
+
+  get:
+    method: GET
+    path: /users/:id
+    auth: [member, admin]
+
+  create:
+    method: POST
+    path: /users
+    auth: [admin]
+    input: [email, name, role]
+
+  update:
+    method: PATCH
+    path: /users/:id
+    auth: [admin, owner]
+    input: [name, role]

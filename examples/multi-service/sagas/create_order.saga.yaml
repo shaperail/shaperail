@@ -1,0 +1,15 @@
+saga: create_order
+version: 1
+
+steps:
+  - name: validate_user
+    service: users-api
+    action: GET /v1/users/:id
+    compensate: GET /v1/users/:id
+    timeout_secs: 5
+
+  - name: create_order_record
+    service: orders-api
+    action: POST /v1/orders
+    compensate: DELETE /v1/orders/:id
+    timeout_secs: 10

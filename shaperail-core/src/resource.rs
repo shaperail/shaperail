@@ -27,6 +27,12 @@ pub struct ResourceDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub db: Option<String>,
 
+    /// Tenant isolation key (M18). References a schema field (must be type uuid)
+    /// that identifies the tenant. When set, all queries are automatically scoped
+    /// to the authenticated user's `tenant_id` claim. `super_admin` bypasses the filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_key: Option<String>,
+
     /// Field definitions, keyed by field name. Uses IndexMap to preserve declaration order.
     pub schema: IndexMap<String, FieldSchema>,
 
@@ -135,6 +141,7 @@ mod tests {
             resource: "users".to_string(),
             version: 1,
             db: None,
+            tenant_key: None,
             schema,
             endpoints: Some(endpoints),
             relations: Some(relations),
@@ -177,6 +184,7 @@ mod tests {
             resource: "tags".to_string(),
             version: 1,
             db: None,
+            tenant_key: None,
             schema: IndexMap::new(),
             endpoints: None,
             relations: None,

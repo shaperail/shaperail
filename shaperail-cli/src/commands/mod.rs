@@ -10,6 +10,7 @@ pub mod seed;
 pub mod serve;
 pub mod test;
 pub mod validate;
+pub mod workspace;
 
 use std::path::{Path, PathBuf};
 

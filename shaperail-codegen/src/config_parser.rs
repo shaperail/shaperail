@@ -15,6 +15,12 @@ pub fn parse_config_file(path: &std::path::Path) -> Result<ProjectConfig, ParseE
     parse_config(&content)
 }
 
+/// Interpolate `${VAR}` and `${VAR:default}` placeholders in YAML text.
+/// Public so workspace_parser can reuse it.
+pub fn interpolate_env(yaml: &str) -> Result<String, ParseError> {
+    interpolate_env_placeholders(yaml)
+}
+
 fn interpolate_env_placeholders(yaml: &str) -> Result<String, ParseError> {
     let mut result = String::with_capacity(yaml.len());
     let mut index = 0usize;
