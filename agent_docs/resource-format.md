@@ -16,6 +16,7 @@ resource:   # required — snake_case plural name
 version:    # required — integer, starts at 1
 schema:     # required — field definitions
 db:         # optional (M14) — named database connection; default "default"
+tenant_key: # optional (M18) — schema field (must be uuid) for tenant isolation
 endpoints:  # optional — if omitted, no HTTP routes are generated
 relations:  # optional
 indexes:    # optional — additional DB indexes beyond schema defaults
@@ -117,6 +118,47 @@ pub async fn fn_name(ctx: &mut ControllerContext) -> Result<(), ShaperailError> 
 
 See `agent_docs/hooks-system.md` (now the controller-system doc) for
 `ControllerContext` fields and usage patterns.
+
+## WASM Plugins (M19)
+WASM plugins use the same `controller` field with a `wasm:` prefix on the path:
+
+### YAML syntax
+```yaml
+controller: { before: "wasm:./plugins/my_validator.wasm" }
+controller: { after: "wasm:./plugins/my_enricher.wasm" }
+controller: { before: "wasm:./plugins/validate.wasm", after: "wasm:./plugins/enrich.wasm" }
+```
+
+### Plugin interface
+WASM modules must export: `memory`, `alloc(i32)->i32`, `dealloc(i32,i32)`,
+and `before_hook(i32,i32)->i64` or `after_hook(i32,i32)->i64`.
+
+Plugins receive JSON context and return JSON result. See `examples/wasm-plugins/README.md`.
+
+### Sandboxing
+Plugins run with NO filesystem, network, env, or clock access (no WASI).
+Execution is fuel-limited to prevent infinite loops.
+
+## Multi-Tenancy (M18)
+When `tenant_key` is set, Shaperail automatically:
+- Filters all list queries by `tenant_key = auth_user.tenant_id`
+- Verifies single-record fetches, updates, and deletes belong to the user's tenant
+- Auto-injects `tenant_key` into create input data
+- Scopes cache keys and rate limits per tenant
+- Users with role `super_admin` bypass all tenant filtering
+
+```yaml
+resource: projects
+version: 1
+tenant_key: org_id    # must reference a uuid field in schema
+
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  org_id: { type: uuid, ref: organizations.id, required: true }
+  name: { type: string, required: true }
+```
+
+The `tenant_id` is extracted from the JWT `tenant_id` claim.
 
 ## Auth Values
 ```

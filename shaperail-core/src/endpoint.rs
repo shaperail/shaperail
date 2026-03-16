@@ -154,6 +154,48 @@ pub struct ControllerSpec {
     pub after: Option<String>,
 }
 
+/// WASM plugin prefix used in controller `before`/`after` fields.
+///
+/// When a controller name starts with `wasm:`, the remainder is interpreted
+/// as a path to a `.wasm` plugin file. Example:
+/// ```yaml
+/// controller:
+///   before: "wasm:./plugins/my_validator.wasm"
+/// ```
+pub const WASM_HOOK_PREFIX: &str = "wasm:";
+
+impl ControllerSpec {
+    /// Returns `true` if the `before` controller references a WASM plugin.
+    pub fn has_wasm_before(&self) -> bool {
+        self.before
+            .as_ref()
+            .is_some_and(|s| s.starts_with(WASM_HOOK_PREFIX))
+    }
+
+    /// Returns `true` if the `after` controller references a WASM plugin.
+    pub fn has_wasm_after(&self) -> bool {
+        self.after
+            .as_ref()
+            .is_some_and(|s| s.starts_with(WASM_HOOK_PREFIX))
+    }
+
+    /// Extracts the WASM plugin path from a `before` controller, if present.
+    pub fn wasm_before_path(&self) -> Option<&str> {
+        self.before
+            .as_ref()
+            .filter(|s| s.starts_with(WASM_HOOK_PREFIX))
+            .map(|s| &s[WASM_HOOK_PREFIX.len()..])
+    }
+
+    /// Extracts the WASM plugin path from an `after` controller, if present.
+    pub fn wasm_after_path(&self) -> Option<&str> {
+        self.after
+            .as_ref()
+            .filter(|s| s.starts_with(WASM_HOOK_PREFIX))
+            .map(|s| &s[WASM_HOOK_PREFIX.len()..])
+    }
+}
+
 /// Specification for a single endpoint in a resource.
 ///
 /// Matches the YAML format:
@@ -345,6 +387,33 @@ mod tests {
         let cs: ControllerSpec = serde_json::from_str(json).unwrap();
         assert!(cs.before.is_none());
         assert_eq!(cs.after.as_deref(), Some("enrich"));
+    }
+
+    #[test]
+    fn controller_wasm_before_detection() {
+        let json = r#"{"before": "wasm:./plugins/my_validator.wasm"}"#;
+        let cs: ControllerSpec = serde_json::from_str(json).unwrap();
+        assert!(cs.has_wasm_before());
+        assert!(!cs.has_wasm_after());
+        assert_eq!(cs.wasm_before_path(), Some("./plugins/my_validator.wasm"));
+        assert_eq!(cs.wasm_after_path(), None);
+    }
+
+    #[test]
+    fn controller_wasm_after_detection() {
+        let json = r#"{"after": "wasm:./plugins/my_enricher.wasm"}"#;
+        let cs: ControllerSpec = serde_json::from_str(json).unwrap();
+        assert!(!cs.has_wasm_before());
+        assert!(cs.has_wasm_after());
+        assert_eq!(cs.wasm_after_path(), Some("./plugins/my_enricher.wasm"));
+    }
+
+    #[test]
+    fn controller_rust_not_detected_as_wasm() {
+        let json = r#"{"before": "validate_org"}"#;
+        let cs: ControllerSpec = serde_json::from_str(json).unwrap();
+        assert!(!cs.has_wasm_before());
+        assert_eq!(cs.wasm_before_path(), None);
     }
 
     #[test]

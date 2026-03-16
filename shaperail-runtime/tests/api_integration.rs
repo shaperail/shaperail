@@ -54,6 +54,7 @@ fn make_state(pool: sqlx::PgPool, jwt: Option<JwtConfig>) -> Arc<AppState> {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     })
 }
@@ -297,6 +298,7 @@ fn test_asset_resource() -> ResourceDefinition {
         resource: "test_assets".to_string(),
         version: 1,
         db: None,
+        tenant_key: None,
         schema,
         endpoints: Some(endpoints),
         relations: None,
@@ -507,6 +509,7 @@ fn test_resource() -> ResourceDefinition {
         resource: "test_users".to_string(),
         version: 1,
         db: None,
+        tenant_key: None,
         schema,
         endpoints: None,
         relations: None,
@@ -658,6 +661,7 @@ async fn test_graphql_list_query(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
     let schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
@@ -700,6 +704,7 @@ async fn test_graphql_create_mutation(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
     let schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
@@ -752,6 +757,7 @@ async fn test_graphql_auth_rejects_unauthorized_mutation(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
     let schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
@@ -807,6 +813,7 @@ async fn test_graphql_dataloader_caches_relation_lookups(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
@@ -883,6 +890,7 @@ async fn test_graphql_schema_includes_subscription_type(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
     let schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
@@ -933,6 +941,7 @@ async fn test_graphql_depth_limit_rejects_deep_queries(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
@@ -983,6 +992,7 @@ async fn test_graphql_default_limits_accept_normal_queries(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
@@ -1593,6 +1603,7 @@ async fn test_metrics_capture_requests_errors_and_cache(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
@@ -1684,6 +1695,7 @@ async fn test_list_cache_hit_serves_stale_data_after_db_delete(pool: sqlx::PgPoo
         event_emitter: None,
         job_queue: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
@@ -1760,6 +1772,7 @@ async fn test_write_invalidates_cached_list(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
@@ -1837,6 +1850,7 @@ async fn test_nocache_bypasses_cached_response(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
@@ -2207,6 +2221,7 @@ fn org_resource() -> ResourceDefinition {
         resource: "test_orgs".to_string(),
         version: 1,
         db: None,
+        tenant_key: None,
         schema,
         endpoints: Some(endpoints),
         relations: None,
@@ -2263,6 +2278,7 @@ async fn test_list_with_include_uses_store(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 

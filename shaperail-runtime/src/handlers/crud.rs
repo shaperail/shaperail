@@ -31,6 +31,8 @@ pub struct AppState {
     pub event_emitter: Option<EventEmitter>,
     pub job_queue: Option<JobQueue>,
     pub metrics: Option<MetricsState>,
+    /// WASM plugin runtime (M19).
+    pub wasm_runtime: Option<crate::plugins::WasmRuntime>,
     /// Broadcast channel for GraphQL subscriptions (M15). Sends event payloads to subscribers.
     pub event_bus: tokio::sync::broadcast::Sender<(String, serde_json::Value)>,
 }
@@ -88,6 +90,95 @@ fn user_role_for_cache(user: Option<&AuthenticatedUser>) -> &str {
     }
 }
 
+/// Returns the tenant_id for the current request, if the resource has `tenant_key` set
+/// and the user has a `tenant_id` claim.
+fn resolve_tenant_id(
+    resource: &ResourceDefinition,
+    user: Option<&AuthenticatedUser>,
+) -> Option<String> {
+    resource.tenant_key.as_ref()?;
+    user.and_then(|u| u.tenant_id.clone())
+}
+
+/// Returns true if the user is a `super_admin` and should bypass tenant filtering.
+fn is_super_admin(user: Option<&AuthenticatedUser>) -> bool {
+    user.map(|u| u.role == "super_admin").unwrap_or(false)
+}
+
+/// Checks that a fetched record belongs to the authenticated user's tenant.
+/// Returns `Err(NotFound)` if the tenant_key value doesn't match.
+/// Skips the check if: no tenant_key on resource, user is super_admin, or user has no tenant_id.
+fn verify_tenant(
+    resource: &ResourceDefinition,
+    user: Option<&AuthenticatedUser>,
+    data: &serde_json::Value,
+) -> Result<(), ShaperailError> {
+    let tenant_key = match &resource.tenant_key {
+        Some(k) => k,
+        None => return Ok(()),
+    };
+    if is_super_admin(user) {
+        return Ok(());
+    }
+    let user_tenant = match user.and_then(|u| u.tenant_id.as_deref()) {
+        Some(t) => t,
+        None => return Ok(()), // No tenant_id in token — no filtering
+    };
+    let record_tenant = data.get(tenant_key).and_then(|v| v.as_str()).unwrap_or("");
+    if record_tenant != user_tenant {
+        return Err(ShaperailError::NotFound);
+    }
+    Ok(())
+}
+
+/// Injects tenant_key filter into a FilterSet for list queries.
+/// Adds `tenant_key = tenant_id` as an additional filter unless super_admin.
+fn inject_tenant_filter(
+    resource: &ResourceDefinition,
+    user: Option<&AuthenticatedUser>,
+    filters: &mut crate::db::FilterSet,
+) {
+    let tenant_key = match &resource.tenant_key {
+        Some(k) => k,
+        None => return,
+    };
+    if is_super_admin(user) {
+        return;
+    }
+    if let Some(tenant_id) = user.and_then(|u| u.tenant_id.as_deref()) {
+        filters.add(tenant_key.clone(), tenant_id.to_string());
+    }
+}
+
+/// Auto-injects tenant_key into create input data.
+fn inject_tenant_into_input(
+    resource: &ResourceDefinition,
+    user: Option<&AuthenticatedUser>,
+    input: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    let tenant_key = match &resource.tenant_key {
+        Some(k) => k,
+        None => return,
+    };
+    if let Some(tenant_id) = user.and_then(|u| u.tenant_id.as_deref()) {
+        // Only inject if not already provided
+        if !input.contains_key(tenant_key) {
+            input.insert(
+                tenant_key.clone(),
+                serde_json::Value::String(tenant_id.to_string()),
+            );
+        }
+    }
+}
+
+/// Returns the tenant_id string for cache/rate-limit key scoping.
+fn tenant_id_for_key(user: Option<&AuthenticatedUser>) -> &str {
+    match user.and_then(|u| u.tenant_id.as_deref()) {
+        Some(t) => t,
+        None => "_",
+    }
+}
+
 fn store_for(state: &AppState, resource: &ResourceDefinition) -> Option<Arc<dyn ResourceStore>> {
     state
         .stores
@@ -128,7 +219,14 @@ pub async fn handle_list(
         if !should_bypass_cache(&req, user.as_ref()) {
             let query_params = query_map_public(&req);
             let role = user_role_for_cache(user.as_ref());
-            let cache_key = RedisCache::build_key(&resource.resource, "list", &query_params, role);
+            let tenant = tenant_id_for_key(user.as_ref());
+            let cache_key = RedisCache::build_key_with_tenant(
+                &resource.resource,
+                "list",
+                &query_params,
+                role,
+                tenant,
+            );
 
             if let Some(cached) = cache.get(&cache_key).await {
                 if let Some(metrics) = &state.metrics {
@@ -164,9 +262,13 @@ async fn execute_list(
     state: &web::Data<Arc<AppState>>,
     resource: &ResourceDefinition,
     endpoint: &EndpointSpec,
-    _user: Option<AuthenticatedUser>,
+    user: Option<AuthenticatedUser>,
 ) -> Result<serde_json::Value, ShaperailError> {
-    let params = parse_list_params(req, endpoint);
+    let mut params = parse_list_params(req, endpoint);
+
+    // M18: Inject tenant filter — scopes all list queries to user's tenant
+    inject_tenant_filter(resource, user.as_ref(), &mut params.filters);
+
     let store_opt = store_for_or_error(state, resource)?;
     let (rows, meta) = if let Some(store) = store_opt {
         store
@@ -225,7 +327,14 @@ pub async fn handle_get(
             let mut query_params = query_map_public(&req);
             query_params.insert("_id".to_string(), id.to_string());
             let role = user_role_for_cache(user.as_ref());
-            let cache_key = RedisCache::build_key(&resource.resource, "get", &query_params, role);
+            let tenant = tenant_id_for_key(user.as_ref());
+            let cache_key = RedisCache::build_key_with_tenant(
+                &resource.resource,
+                "get",
+                &query_params,
+                role,
+                tenant,
+            );
 
             if let Some(cached) = cache.get(&cache_key).await {
                 if let Some(metrics) = &state.metrics {
@@ -274,6 +383,9 @@ async fn execute_get(
     };
     let params = parse_item_params(req);
     let mut data = row.0;
+
+    // M18: Verify tenant isolation before returning the record
+    verify_tenant(resource, user, &data)?;
 
     if rbac::needs_owner_check(endpoint.auth.as_ref(), user) {
         if let Some(u) = user {
@@ -487,16 +599,12 @@ async fn run_before_controller(
         Some(n) => n,
         None => return Ok(input),
     };
-    let controllers = state.controllers.as_ref().ok_or_else(|| {
-        ShaperailError::Internal(format!(
-            "Endpoint declares controller.before '{name}' but no controller registry is configured"
-        ))
-    })?;
     let headers = req
         .headers()
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
+    let tenant_id = resolve_tenant_id(resource, user);
     let mut ctx = super::controller::Context {
         input,
         data: None,
@@ -504,8 +612,16 @@ async fn run_before_controller(
         pool: state.pool.clone(),
         headers,
         response_headers: vec![],
+        tenant_id,
     };
-    controllers.call(&resource.resource, name, &mut ctx).await?;
+    super::controller::dispatch_controller(
+        name,
+        &resource.resource,
+        &mut ctx,
+        state.controllers.as_ref(),
+        state.wasm_runtime.as_ref(),
+    )
+    .await?;
     Ok(ctx.input)
 }
 
@@ -529,16 +645,12 @@ async fn run_after_controller(
         Some(n) => n,
         None => return Ok(data),
     };
-    let controllers = state.controllers.as_ref().ok_or_else(|| {
-        ShaperailError::Internal(format!(
-            "Endpoint declares controller.after '{name}' but no controller registry is configured"
-        ))
-    })?;
     let headers = req
         .headers()
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
+    let tenant_id = resolve_tenant_id(resource, user);
     let mut ctx = super::controller::Context {
         input: serde_json::Map::new(),
         data: Some(data),
@@ -546,8 +658,16 @@ async fn run_after_controller(
         pool: state.pool.clone(),
         headers,
         response_headers: vec![],
+        tenant_id,
     };
-    controllers.call(&resource.resource, name, &mut ctx).await?;
+    super::controller::dispatch_controller(
+        name,
+        &resource.resource,
+        &mut ctx,
+        state.controllers.as_ref(),
+        state.wasm_runtime.as_ref(),
+    )
+    .await?;
     Ok(ctx.data.unwrap_or(serde_json::Value::Null))
 }
 
@@ -560,7 +680,9 @@ pub async fn handle_create(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
-    let input_data = extract_input(&body, &resource, &endpoint)?;
+    let mut input_data = extract_input(&body, &resource, &endpoint)?;
+    // M18: Auto-inject tenant_id into create input
+    inject_tenant_into_input(&resource, user.as_ref(), &mut input_data);
     validate_input(&input_data, &resource)?;
 
     // Before-controller: can modify input
@@ -641,16 +763,21 @@ pub async fn handle_update(
     let input_data = extract_input(&body, &resource, &endpoint)?;
     let store_opt = store_for_or_error(&state, &resource)?;
 
-    // Owner check: fetch record first to verify ownership
-    if rbac::needs_owner_check(endpoint.auth.as_ref(), user.as_ref()) {
+    // M18 tenant check + owner check: fetch record first to verify
+    let needs_owner = rbac::needs_owner_check(endpoint.auth.as_ref(), user.as_ref());
+    let needs_tenant = resource.tenant_key.is_some() && !is_super_admin(user.as_ref());
+    if needs_owner || needs_tenant {
         let existing = if let Some(ref store) = store_opt {
             store.find_by_id(&id).await?
         } else {
             let rq = ResourceQuery::new(&resource, &state.pool);
             rq.find_by_id(&id).await?
         };
-        if let Some(ref u) = user {
-            rbac::check_owner(u, &existing.0)?;
+        verify_tenant(&resource, user.as_ref(), &existing.0)?;
+        if needs_owner {
+            if let Some(ref u) = user {
+                rbac::check_owner(u, &existing.0)?;
+            }
         }
     }
 
@@ -700,15 +827,21 @@ pub async fn handle_update_upload(
     let input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
     let store_opt = store_for_or_error(&state, &resource)?;
 
-    if rbac::needs_owner_check(endpoint.auth.as_ref(), user.as_ref()) {
+    // M18 tenant check + owner check
+    let needs_owner = rbac::needs_owner_check(endpoint.auth.as_ref(), user.as_ref());
+    let needs_tenant = resource.tenant_key.is_some() && !is_super_admin(user.as_ref());
+    if needs_owner || needs_tenant {
         let existing = if let Some(ref store) = store_opt {
             store.find_by_id(&id).await?
         } else {
             let rq = ResourceQuery::new(&resource, &state.pool);
             rq.find_by_id(&id).await?
         };
-        if let Some(ref u) = user {
-            rbac::check_owner(u, &existing.0)?;
+        verify_tenant(&resource, user.as_ref(), &existing.0)?;
+        if needs_owner {
+            if let Some(ref u) = user {
+                rbac::check_owner(u, &existing.0)?;
+            }
         }
     }
 
@@ -744,16 +877,21 @@ pub async fn handle_delete(
     let id = parse_uuid(&path)?;
     let store_opt = store_for_or_error(&state, &resource)?;
 
-    // Owner check: fetch record first
-    if rbac::needs_owner_check(endpoint.auth.as_ref(), user.as_ref()) {
+    // M18 tenant check + owner check: fetch record first
+    let needs_owner = rbac::needs_owner_check(endpoint.auth.as_ref(), user.as_ref());
+    let needs_tenant = resource.tenant_key.is_some() && !is_super_admin(user.as_ref());
+    if needs_owner || needs_tenant {
         let existing = if let Some(ref store) = store_opt {
             store.find_by_id(&id).await?
         } else {
             let rq = ResourceQuery::new(&resource, &state.pool);
             rq.find_by_id(&id).await?
         };
-        if let Some(ref u) = user {
-            rbac::check_owner(u, &existing.0)?;
+        verify_tenant(&resource, user.as_ref(), &existing.0)?;
+        if needs_owner {
+            if let Some(ref u) = user {
+                rbac::check_owner(u, &existing.0)?;
+            }
         }
     }
 
@@ -1218,6 +1356,7 @@ mod tests {
             resource: "users".to_string(),
             version: 1,
             db: None,
+            tenant_key: None,
             schema,
             endpoints: None,
             relations: None,
@@ -1296,5 +1435,116 @@ mod tests {
     fn parse_uuid_invalid() {
         let result = parse_uuid("not-a-uuid");
         assert!(result.is_err());
+    }
+
+    // -- M18 Multi-Tenancy Tests --
+
+    fn tenant_resource() -> ResourceDefinition {
+        let mut rd = test_resource();
+        rd.tenant_key = Some("org_id".to_string());
+        rd
+    }
+
+    fn user_with_tenant(id: &str, role: &str, tenant_id: &str) -> AuthenticatedUser {
+        AuthenticatedUser {
+            id: id.to_string(),
+            role: role.to_string(),
+            tenant_id: Some(tenant_id.to_string()),
+        }
+    }
+
+    #[test]
+    fn verify_tenant_passes_when_matching() {
+        let resource = tenant_resource();
+        let user = user_with_tenant("u1", "member", "org-a");
+        let data = serde_json::json!({"id": "r1", "org_id": "org-a", "name": "Test"});
+        assert!(verify_tenant(&resource, Some(&user), &data).is_ok());
+    }
+
+    #[test]
+    fn verify_tenant_fails_when_mismatched() {
+        let resource = tenant_resource();
+        let user = user_with_tenant("u1", "member", "org-a");
+        let data = serde_json::json!({"id": "r1", "org_id": "org-b", "name": "Test"});
+        assert!(verify_tenant(&resource, Some(&user), &data).is_err());
+    }
+
+    #[test]
+    fn verify_tenant_super_admin_bypasses() {
+        let resource = tenant_resource();
+        let user = user_with_tenant("u1", "super_admin", "org-a");
+        let data = serde_json::json!({"id": "r1", "org_id": "org-b", "name": "Test"});
+        assert!(verify_tenant(&resource, Some(&user), &data).is_ok());
+    }
+
+    #[test]
+    fn verify_tenant_no_tenant_key_always_passes() {
+        let resource = test_resource(); // no tenant_key
+        let user = user_with_tenant("u1", "member", "org-a");
+        let data = serde_json::json!({"id": "r1", "org_id": "org-b", "name": "Test"});
+        assert!(verify_tenant(&resource, Some(&user), &data).is_ok());
+    }
+
+    #[test]
+    fn verify_tenant_no_user_tenant_id_passes() {
+        let resource = tenant_resource();
+        let user = AuthenticatedUser {
+            id: "u1".to_string(),
+            role: "member".to_string(),
+            tenant_id: None,
+        };
+        let data = serde_json::json!({"id": "r1", "org_id": "org-b", "name": "Test"});
+        // No tenant_id in token — no filtering applied
+        assert!(verify_tenant(&resource, Some(&user), &data).is_ok());
+    }
+
+    #[test]
+    fn inject_tenant_filter_adds_filter() {
+        let resource = tenant_resource();
+        let user = user_with_tenant("u1", "member", "org-a");
+        let mut filters = crate::db::FilterSet::default();
+        inject_tenant_filter(&resource, Some(&user), &mut filters);
+        assert_eq!(filters.filters.len(), 1);
+        assert_eq!(filters.filters[0].field, "org_id");
+        assert_eq!(filters.filters[0].value, "org-a");
+    }
+
+    #[test]
+    fn inject_tenant_filter_super_admin_skips() {
+        let resource = tenant_resource();
+        let user = user_with_tenant("u1", "super_admin", "org-a");
+        let mut filters = crate::db::FilterSet::default();
+        inject_tenant_filter(&resource, Some(&user), &mut filters);
+        assert!(filters.is_empty());
+    }
+
+    #[test]
+    fn inject_tenant_into_input_adds_key() {
+        let resource = tenant_resource();
+        let user = user_with_tenant("u1", "member", "org-a");
+        let mut input = serde_json::Map::new();
+        input.insert("name".to_string(), serde_json::json!("Test"));
+        inject_tenant_into_input(&resource, Some(&user), &mut input);
+        assert_eq!(input.get("org_id").and_then(|v| v.as_str()), Some("org-a"));
+    }
+
+    #[test]
+    fn inject_tenant_into_input_does_not_overwrite() {
+        let resource = tenant_resource();
+        let user = user_with_tenant("u1", "member", "org-a");
+        let mut input = serde_json::Map::new();
+        input.insert("org_id".to_string(), serde_json::json!("org-x"));
+        inject_tenant_into_input(&resource, Some(&user), &mut input);
+        // Should NOT overwrite existing value
+        assert_eq!(input.get("org_id").and_then(|v| v.as_str()), Some("org-x"));
+    }
+
+    #[test]
+    fn is_super_admin_detects_role() {
+        let user = user_with_tenant("u1", "super_admin", "org-a");
+        assert!(is_super_admin(Some(&user)));
+        let user = user_with_tenant("u1", "admin", "org-a");
+        assert!(!is_super_admin(Some(&user)));
+        assert!(!is_super_admin(None));
     }
 }

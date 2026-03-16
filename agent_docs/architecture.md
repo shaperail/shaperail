@@ -38,6 +38,11 @@ Key types:
 - `FieldSchema` — a single field with type, validation, metadata
 - `EndpointSpec` — one endpoint (method, path, auth, hooks, pagination)
 - `ShaperailError` — unified error enum used across all crates
+- `WorkspaceConfig` — multi-service workspace definition (M17)
+- `ServiceDefinition` — a single service within a workspace (M17)
+- `ServiceRegistryEntry` — Redis-stored service discovery record (M17)
+- `SagaDefinition` — distributed saga with compensating steps (M17)
+- `ResourceDefinition.tenant_key` — multi-tenancy isolation key (M18)
 
 ## shaperail-codegen — The Generator
 **Owns:** YAML parsing, schema validation, Rust code emission
@@ -47,6 +52,8 @@ Key modules:
 - `validator` — semantic validation of parsed resource
 - `emitter` — ResourceDefinition → Rust source code strings
 - `migrator` — ResourceDefinition diff → SQL migration
+- `workspace_parser` — YAML → WorkspaceConfig + SagaDefinition (M17)
+- `service_client` — typed inter-service client code generation (M17)
 
 Code generation rule: one resource file → one generated Rust module.
 Generated code goes to `shaperail-runtime/src/generated/`.
@@ -61,6 +68,8 @@ Key modules:
 - `db` — sqlx pool, query helpers, transaction support
 - `cache` — Redis client, TTL management, invalidation
 - `jobs` — Redis job queue, worker, retry logic
+- `plugins` — WASM plugin runtime with sandboxing (M19)
+- `registry` — Redis-backed service registry with heartbeat (M17)
 
 ## shaperail-cli — Developer Interface
 Commands (v2 — all implemented):
@@ -72,6 +81,7 @@ Commands (v2 — all implemented):
 - `shaperail seed [path]`        — load YAML fixtures into DB via transaction
 - `shaperail serve`              — start development server with hot reload
 - `shaperail serve --check`      — validate project without starting server
+- `shaperail serve --workspace`  — start all services in a workspace (M17)
 - `shaperail build`              — production build (single static binary)
 - `shaperail build --docker`     — scratch-based Docker image ≤ 25 MB
 - `shaperail test`               — run all tests

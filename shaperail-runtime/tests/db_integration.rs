@@ -188,6 +188,7 @@ fn test_resource() -> ResourceDefinition {
         resource: "test_users".to_string(),
         version: 1,
         db: None,
+        tenant_key: None,
         schema,
         endpoints: None,
         relations: None,
@@ -368,6 +369,7 @@ async fn test_handle_delete_soft_delete_returns_no_content(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 

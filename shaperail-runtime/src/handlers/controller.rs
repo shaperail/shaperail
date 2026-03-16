@@ -3,9 +3,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use shaperail_core::ShaperailError;
+use shaperail_core::{ShaperailError, WASM_HOOK_PREFIX};
 
 use crate::auth::extractor::AuthenticatedUser;
+use crate::plugins::{PluginContext, PluginUser, WasmRuntime};
 
 /// Context passed to controller functions for synchronous in-request business logic.
 ///
@@ -36,6 +37,9 @@ pub struct Context {
     pub headers: HashMap<String, String>,
     /// Extra response headers the controller wants to add.
     pub response_headers: Vec<(String, String)>,
+    /// The tenant ID extracted from the authenticated user (M18).
+    /// Present when the resource has `tenant_key` and the user has a `tenant_id` claim.
+    pub tenant_id: Option<String>,
 }
 
 /// Type alias for controller function results.
@@ -141,6 +145,79 @@ impl Default for ControllerMap {
     }
 }
 
+/// Dispatches a controller call, handling both Rust and WASM controllers.
+///
+/// If `name` starts with `wasm:`, delegates to the WASM runtime.
+/// Otherwise, looks up and calls a registered Rust controller function.
+pub async fn dispatch_controller(
+    name: &str,
+    resource: &str,
+    ctx: &mut Context,
+    controllers: Option<&ControllerMap>,
+    wasm_runtime: Option<&WasmRuntime>,
+) -> ControllerResult {
+    if let Some(wasm_path) = name.strip_prefix(WASM_HOOK_PREFIX) {
+        // WASM plugin path
+        let runtime = wasm_runtime.ok_or_else(|| {
+            ShaperailError::Internal(
+                "WASM plugin declared but no WasmRuntime configured".to_string(),
+            )
+        })?;
+
+        // Determine hook name based on whether we're in before or after phase.
+        // The caller should set ctx.data = None for before, Some(...) for after.
+        let hook_name = if ctx.data.is_none() {
+            "before_hook"
+        } else {
+            "after_hook"
+        };
+
+        let plugin_ctx = PluginContext {
+            input: ctx.input.clone(),
+            data: ctx.data.clone(),
+            user: ctx.user.as_ref().map(|u| PluginUser {
+                id: u.id.to_string(),
+                role: u.role.clone(),
+            }),
+            headers: ctx.headers.clone(),
+            tenant_id: ctx.tenant_id.clone(),
+        };
+
+        let result = runtime.call_hook(wasm_path, hook_name, &plugin_ctx).await?;
+
+        if !result.ok {
+            let msg = result
+                .error
+                .unwrap_or_else(|| "WASM plugin returned error".to_string());
+            return Err(ShaperailError::Validation(vec![
+                shaperail_core::FieldError {
+                    field: "wasm_plugin".to_string(),
+                    message: msg,
+                    code: "wasm_error".to_string(),
+                },
+            ]));
+        }
+
+        // Apply modifications from plugin back to context
+        if let Some(modified_ctx) = result.ctx {
+            ctx.input = modified_ctx.input;
+            if modified_ctx.data.is_some() {
+                ctx.data = modified_ctx.data;
+            }
+        }
+
+        Ok(())
+    } else {
+        // Rust controller function
+        let map = controllers.ok_or_else(|| {
+            ShaperailError::Internal(format!(
+                "Controller '{name}' declared for '{resource}' but no ControllerMap configured"
+            ))
+        })?;
+        map.call(resource, name, ctx).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +253,7 @@ mod tests {
             pool: test_pool(),
             headers: HashMap::new(),
             response_headers: vec![],
+            tenant_id: None,
         };
 
         map.call("users", "normalize_email", &mut ctx)
@@ -194,6 +272,7 @@ mod tests {
             pool: test_pool(),
             headers: HashMap::new(),
             response_headers: vec![],
+            tenant_id: None,
         };
 
         let result = map.call("users", "nonexistent", &mut ctx).await;

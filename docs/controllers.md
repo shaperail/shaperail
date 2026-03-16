@@ -146,10 +146,11 @@ The `Context` struct is the single type passed to all controller functions:
 | --- | --- | --- | --- |
 | `input` | `serde_json::Map<String, Value>` | before + after | Mutable request input. Before-controllers can modify what gets written to the database. |
 | `data` | `Option<serde_json::Value>` | after only | The database result. `None` in before-controllers, `Some(...)` in after-controllers. After-controllers can modify the response. |
-| `user` | `Option<AuthenticatedUser>` | before + after | The authenticated user from the JWT or API key, if present. Contains `user_id` and `role`. |
+| `user` | `Option<AuthenticatedUser>` | before + after | The authenticated user from the JWT or API key, if present. Contains `id`, `role`, and `tenant_id`. |
 | `pool` | `sqlx::PgPool` | before + after | Database connection pool for running custom queries. |
 | `headers` | `HashMap<String, String>` | before + after | Read-only copy of the request headers. |
 | `response_headers` | `Vec<(String, String)>` | before + after | Push `(name, value)` pairs to add extra response headers. |
+| `tenant_id` | `Option<String>` | before + after | The tenant ID from the JWT claim, when the resource has `tenant_key` set. Use for tenant-specific business logic. |
 
 ---
 
@@ -296,3 +297,133 @@ endpoints:
 
 Using the old `hooks:` field now produces a clear "unknown field" error thanks to
 `deny_unknown_fields` on all Shaperail types.
+
+---
+
+## WASM plugins
+
+WASM plugins let you write controller hooks in any language that compiles to
+WebAssembly — TypeScript, Python, Rust, Go, or C. Plugins run in a fully
+sandboxed environment with no filesystem, network, env, or clock access.
+
+### Declaring WASM hooks
+
+Use the `wasm:` prefix in the `before` or `after` field to point to a `.wasm`
+file:
+
+```yaml
+endpoints:
+  create:
+    method: POST
+    path: /users
+    auth: [admin]
+    input: [email, name, role, org_id]
+    controller:
+      before: "wasm:./plugins/validate_email.wasm"
+      after: "wasm:./plugins/enrich_response.wasm"
+```
+
+You can mix Rust and WASM controllers across endpoints, but each `before` or
+`after` slot is either a Rust function name or a `wasm:` path — not both.
+
+### Plugin interface
+
+WASM modules must export these functions:
+
+| Export | Signature | Description |
+| --- | --- | --- |
+| `memory` | `(memory 2)` | Linear memory (at least 2 pages / 128 KB) |
+| `alloc` | `(i32) -> i32` | Allocate bytes in guest memory, return pointer |
+| `dealloc` | `(i32, i32)` | Free memory (ptr, size) |
+| `before_hook` | `(i32, i32) -> i64` | Before DB op: receives `(ptr, len)` of JSON context, returns packed `(result_ptr << 32) \| result_len` |
+| `after_hook` | `(i32, i32) -> i64` | After DB op (optional, same signature) |
+
+### Context JSON (input)
+
+The host serializes the controller context as JSON and writes it into guest
+memory:
+
+```json
+{
+  "input": { "name": "Alice", "email": "alice@example.com" },
+  "data": null,
+  "user": { "id": "user-123", "role": "admin" },
+  "headers": { "content-type": "application/json" },
+  "tenant_id": null
+}
+```
+
+`data` is `null` in before-hooks and contains the DB result in after-hooks.
+
+### Result JSON (output)
+
+Return `{"ok": true}` for a no-op passthrough:
+
+```json
+{"ok": true}
+```
+
+Return modified context to change input or data:
+
+```json
+{
+  "ok": true,
+  "ctx": {
+    "input": { "name": "alice", "email": "alice@example.com" },
+    "data": null,
+    "user": null,
+    "headers": {},
+    "tenant_id": null
+  }
+}
+```
+
+Return an error to halt the request:
+
+```json
+{
+  "ok": false,
+  "error": "validation failed: email is required"
+}
+```
+
+### Sandboxing
+
+Plugins run with zero host capabilities by default:
+
+- **No filesystem** — cannot read or write files
+- **No network** — cannot make HTTP calls or open sockets
+- **No environment** — cannot access env vars or system clock
+- **Fuel-limited** — execution is capped to prevent infinite loops
+- **Memory-limited** — default 16 MB per instance
+
+Each request creates a fresh WASM instance, so plugins cannot retain state
+between calls.
+
+### Crash isolation
+
+If a plugin traps (e.g., out-of-bounds memory access, unreachable instruction,
+fuel exhaustion), the server does **not** crash. The request returns a
+validation error and the server continues serving other requests.
+
+### Compiling plugins
+
+From **TypeScript** (AssemblyScript):
+```bash
+npm install -g assemblyscript
+asc validate_email.ts --outFile validate_email.wasm --exportRuntime
+```
+
+From **Python** (componentize-py):
+```bash
+pip install componentize-py
+componentize-py -d normalize_input.py -o normalize_input.wasm
+```
+
+From **Rust**:
+```bash
+cargo build --target wasm32-unknown-unknown --release
+```
+
+See `examples/wasm-plugins/` for complete TypeScript and Python plugin
+examples.

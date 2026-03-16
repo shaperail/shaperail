@@ -1,4 +1,4 @@
-use shaperail_core::{FieldType, HttpMethod, ResourceDefinition};
+use shaperail_core::{FieldType, HttpMethod, ResourceDefinition, WASM_HOOK_PREFIX};
 
 /// A semantic validation error for a resource definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +103,25 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
         }
     }
 
+    // Tenant key validation (M18)
+    if let Some(ref tenant_key) = rd.tenant_key {
+        match rd.schema.get(tenant_key) {
+            Some(field) => {
+                if field.field_type != FieldType::Uuid {
+                    errors.push(err(&format!(
+                        "resource '{res}': tenant_key '{tenant_key}' must reference a uuid field, found {}",
+                        field.field_type
+                    )));
+                }
+            }
+            None => {
+                errors.push(err(&format!(
+                    "resource '{res}': tenant_key '{tenant_key}' not found in schema"
+                )));
+            }
+        }
+    }
+
     // Endpoint validation
     if let Some(endpoints) = &rd.endpoints {
         for (action, ep) in endpoints {
@@ -113,6 +132,7 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
                             "resource '{res}': endpoint '{action}' has an empty controller.before name"
                         )));
                     }
+                    validate_controller_name(res, action, "before", before, &mut errors);
                 }
                 if let Some(after) = &controller.after {
                     if after.is_empty() {
@@ -120,6 +140,7 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
                             "resource '{res}': endpoint '{action}' has an empty controller.after name"
                         )));
                     }
+                    validate_controller_name(res, action, "after", after, &mut errors);
                 }
             }
 
@@ -316,6 +337,27 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
     errors
 }
 
+/// Validates a controller name — either a Rust function name or a `wasm:` prefixed path.
+fn validate_controller_name(
+    res: &str,
+    action: &str,
+    phase: &str,
+    name: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    if let Some(wasm_path) = name.strip_prefix(WASM_HOOK_PREFIX) {
+        if wasm_path.is_empty() {
+            errors.push(err(&format!(
+                "resource '{res}': endpoint '{action}' controller.{phase} has 'wasm:' prefix but no path"
+            )));
+        } else if !wasm_path.ends_with(".wasm") {
+            errors.push(err(&format!(
+                "resource '{res}': endpoint '{action}' controller.{phase} WASM path must end with '.wasm', got '{wasm_path}'"
+            )));
+        }
+    }
+}
+
 fn err(message: &str) -> ValidationError {
     ValidationError {
         message: message.to_string(),
@@ -495,6 +537,73 @@ schema:
     }
 
     #[test]
+    fn wasm_controller_valid_path() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    method: POST
+    path: /items
+    input: [name]
+    controller: { before: "wasm:./plugins/my_validator.wasm" }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors.is_empty(),
+            "Expected no errors for valid WASM controller, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn wasm_controller_missing_extension() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    method: POST
+    path: /items
+    input: [name]
+    controller: { before: "wasm:./plugins/my_validator" }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("WASM path must end with '.wasm'")));
+    }
+
+    #[test]
+    fn wasm_controller_empty_path() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    method: POST
+    path: /items
+    input: [name]
+    controller: { before: "wasm:" }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("'wasm:' prefix but no path")));
+    }
+
+    #[test]
     fn upload_endpoint_valid_when_file_field_declared() {
         let yaml = r#"
 resource: assets
@@ -547,5 +656,55 @@ endpoints:
         assert!(errors.iter().any(|e| e
             .message
             .contains("upload field 'file_path' must be type file")));
+    }
+
+    #[test]
+    fn tenant_key_valid_uuid_field() {
+        let yaml = r#"
+resource: projects
+version: 1
+tenant_key: org_id
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  org_id: { type: uuid, ref: organizations.id, required: true }
+  name: { type: string, required: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors.is_empty(), "Expected no errors, got: {errors:?}");
+    }
+
+    #[test]
+    fn tenant_key_missing_field() {
+        let yaml = r#"
+resource: projects
+version: 1
+tenant_key: org_id
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors.iter().any(|e| e
+            .message
+            .contains("tenant_key 'org_id' not found in schema")));
+    }
+
+    #[test]
+    fn tenant_key_wrong_type() {
+        let yaml = r#"
+resource: projects
+version: 1
+tenant_key: org_name
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  org_name: { type: string, required: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors.iter().any(|e| e
+            .message
+            .contains("tenant_key 'org_name' must reference a uuid field")));
     }
 }

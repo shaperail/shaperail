@@ -339,41 +339,41 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 ---
 
 ### M17 — Multi-Service
-**Crates:** `shaperail-core`, `shaperail-cli` | **Status:** [ ]
+**Crates:** `shaperail-core`, `shaperail-cli` | **Status:** [x]
 
 **Deliverables:**
-- [ ] `shaperail.workspace.yaml` format: declares multiple services
-- [ ] Service registry via Redis: services register on startup, discover peers
-- [ ] Typed inter-service clients: auto-generated from peer's resource definitions
-- [ ] `shaperail serve --workspace` starts all services
-- [ ] Distributed saga support via saga YAML files
-- [ ] Tests: Service A calls Service B with typed client, type mismatch = compile error
+- [x] `shaperail.workspace.yaml` format: declares multiple services
+- [x] Service registry via Redis: services register on startup, discover peers
+- [x] Typed inter-service clients: auto-generated from peer's resource definitions
+- [x] `shaperail serve --workspace` starts all services
+- [x] Distributed saga support via saga YAML files
+- [x] Tests: Service A calls Service B with typed client, type mismatch = compile error
 
 ---
 
 ### M18 — Multi-Tenancy
-**Crate:** `shaperail-runtime` | **Status:** [ ]
+**Crate:** `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
-- [ ] `tenant_key:` field in resource YAML
-- [ ] Automatic tenant filter on every query (scoped to auth_user.tenant_id)
-- [ ] `ctx.tenant_id` in HookContext
-- [ ] Tenant-scoped rate limiting and caching
-- [ ] `super_admin` role bypasses tenant filter
-- [ ] Tests: tenant A cannot read B's data, admin reads all, cache does not leak
+- [x] `tenant_key:` field in resource YAML
+- [x] Automatic tenant filter on every query (scoped to auth_user.tenant_id)
+- [x] `ctx.tenant_id` in HookContext
+- [x] Tenant-scoped rate limiting and caching
+- [x] `super_admin` role bypasses tenant filter
+- [x] Tests: tenant A cannot read B's data, admin reads all, cache does not leak
 
 ---
 
 ### M19 — WASM Plugins
-**Crates:** `shaperail-core`, `shaperail-runtime` | **Status:** [ ]
+**Crates:** `shaperail-core`, `shaperail-runtime` | **Status:** [x]
 
 **Deliverables:**
-- [ ] WasmHook runtime via wasmtime
-- [ ] Plugin interface: `before_hook(ctx_json) → result_json`
-- [ ] `hooks: [wasm:./plugins/my_validator.wasm]` in resource YAML
-- [ ] Plugin sandboxing: no filesystem/network by default
-- [ ] Example plugins: TypeScript + Python compiled to WASM
-- [ ] Tests: WASM hook runs and modifies ctx, crash does not crash server
+- [x] WasmHook runtime via wasmtime
+- [x] Plugin interface: `before_hook(ctx_json) → result_json`
+- [x] `controller: { before: "wasm:./plugins/my_validator.wasm" }` in resource YAML
+- [x] Plugin sandboxing: no filesystem/network by default
+- [x] Example plugins: TypeScript + Python compiled to WASM
+- [x] Tests: WASM hook runs and modifies ctx, crash does not crash server
 
 ---
 

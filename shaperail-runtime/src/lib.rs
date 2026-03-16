@@ -7,5 +7,7 @@ pub mod grpc;
 pub mod handlers;
 pub mod jobs;
 pub mod observability;
+pub mod plugins;
+pub mod registry;
 pub mod storage;
 pub mod ws;

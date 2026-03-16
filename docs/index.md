@@ -86,7 +86,7 @@ Generated Rust, OpenAPI, and routes live in `generated/` and are not hand-edited
 - **gRPC** — Same resource schema drives gRPC alongside REST and GraphQL. Enable with `protocols: [rest, grpc]`. Auto-generated `.proto` files, unary and server-streaming RPCs, JWT auth via metadata, `grpc.health.v1` health checks, server reflection for `grpcurl`.
 - **Multi-database** — Optional `databases:` in config with named connections (e.g. `default`, `analytics`). Per-resource `db:` routes that resource to a connection; migrations run against `default`.
 - **API versioning** — Per-resource `version` field prefixes all routes (`/v1/users`, `/v2/orders`). OpenAPI spec and CLI output reflect versioned paths.
-- **Controllers** — Synchronous before/after business logic on write endpoints. Validate input, normalize data, enrich responses — all within the request lifecycle.
+- **Controllers** — Synchronous before/after business logic on write endpoints. Validate input, normalize data, enrich responses — in Rust or sandboxed WASM (TypeScript, Python, Rust, etc.).
 - **Auth** — JWT (Bearer) and API keys (`X-API-Key`); role-based and owner-based rules; rate limiting via Redis.
 - **Caching** — Redis-backed cache per GET endpoint with TTL and configurable invalidation.
 - **Background jobs** — Priority queues, retries, dead letter queue, job status; enqueue from endpoint declarations.
@@ -94,6 +94,9 @@ Generated Rust, OpenAPI, and routes live in `generated/` and are not hand-edited
 - **File storage** — Local, S3, GCS, Azure; upload validation, signed URLs, image processing.
 - **Events & webhooks** — Auto-emitted resource events; subscribers (job, webhook, channel); outbound HMAC-signed webhooks; inbound webhook endpoints.
 - **Observability** — Structured JSON logs, request_id, PII redaction; Prometheus metrics; OpenTelemetry; `/health` and `/health/ready`.
+- **Multi-service workspaces** — `shaperail.workspace.yaml` declares multiple services. Redis-backed service registry with heartbeat, auto-generated typed inter-service clients, `shaperail serve --workspace`, distributed sagas with compensating actions.
+- **Multi-tenancy** — Add `tenant_key: org_id` to any resource for automatic row-level isolation. Queries are scoped to the JWT `tenant_id` claim; cache and rate limits are per-tenant; `super_admin` bypasses the filter.
+- **WASM plugins** — Write controller hooks in TypeScript, Python, Rust, or any language that compiles to WASM. Sandboxed execution with no filesystem or network access; fuel-limited; crash-isolated from the server.
 - **OpenAPI & SDK** — Deterministic OpenAPI 3.1; TypeScript SDK generation.
 
 ---

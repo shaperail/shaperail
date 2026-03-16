@@ -15,7 +15,7 @@ Task-focused guides for building and running a Shaperail application.
 | --- | --- |
 | [**Getting started**]({{ '/getting-started/' | relative_url }}) | Install the CLI, scaffold a project, start Postgres and Redis, run the app, make your first schema change, and troubleshoot. |
 | [**Auth and ownership**]({{ '/auth-and-ownership/' | relative_url }}) | Public, role-based, and owner-based auth; JWT and API keys; rate limiting; recommended patterns for `created_by` and owner checks. |
-| [**Controllers**]({{ '/controllers/' | relative_url }}) | Synchronous business logic before/after DB operations: validation, normalization, response enrichment. ControllerContext API, file conventions, common patterns. |
+| [**Controllers**]({{ '/controllers/' | relative_url }}) | Synchronous business logic before/after DB operations: validation, normalization, response enrichment. ControllerContext API, file conventions, common patterns. Includes WASM plugin support for TypeScript, Python, and other languages. |
 | [**Migrations and schema changes**]({{ '/migrations-and-schema-changes/' | relative_url }}) | Workflow when resources change: validate, migrate, review SQL, rollback. How `shaperail migrate` and `shaperail serve` interact. |
 | [**Docker deployment**]({{ '/docker-deployment/' | relative_url }}) | Local development with Docker Compose, standard URLs, release image with `shaperail build --docker`, production checklist. |
 | [**Caching**]({{ '/caching/' | relative_url }}) | Declaring cache on GET endpoints, cache key format, auto-invalidation, `invalidate_on`, cache bypass, Redis configuration. |
@@ -26,5 +26,7 @@ Task-focused guides for building and running a Shaperail application.
 | [**Observability**]({{ '/observability/' | relative_url }}) | Structured logging, request_id, PII redaction, slow query log; `/health` and `/health/ready`; Prometheus metrics; OpenTelemetry. |
 | [**GraphQL**]({{ '/graphql/' | relative_url }}) | Enable with `protocols: [rest, graphql]`. Queries (list, get, relations), mutations (create, update, delete), same auth as REST, Playground at `/graphql/playground`. |
 | [**gRPC**]({{ '/grpc/' | relative_url }}) | Enable with `protocols: [rest, grpc]`. Auto-generated `.proto` files, unary and streaming RPCs, JWT auth via metadata, server reflection, health checks. |
+| [**Multi-service workspaces**]({{ '/multi-service/' | relative_url }}) | Define a `shaperail.workspace.yaml` with multiple services. Service registry via Redis, typed inter-service clients, `shaperail serve --workspace`, distributed sagas. |
+| [**Multi-tenancy**]({{ '/multi-tenancy/' | relative_url }}) | Add `tenant_key` to resources for automatic row-level isolation. JWT `tenant_id` claim, per-tenant cache and rate limits, `super_admin` bypass. |
 
-Pick a guide by task: auth, migrations, Docker, caching, jobs, WebSockets, files, events, observability, GraphQL, or gRPC.
+Pick a guide by task: auth, migrations, Docker, caching, jobs, WebSockets, files, events, observability, GraphQL, gRPC, multi-service, or multi-tenancy.

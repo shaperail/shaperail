@@ -56,6 +56,7 @@ tokio-stream = { workspace = true }
 http-body = "1"
 http-body-util = "0.1"
 tower = { version = "0.4", default-features = false }
+wasmtime = { workspace = true }
 
 [dev-dependencies]
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
@@ -65,6 +66,7 @@ actix-rt = "2"
 criterion = { version = "0.8", features = ["async_tokio"] }
 tempfile = "3"
 serde_yaml = { workspace = true }
+wat = "1"
 
 [[bench]]
 name = "health_response"

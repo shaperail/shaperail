@@ -25,6 +25,7 @@ resource:
 version:
 schema:
 db:          # optional — named database connection
+tenant_key:  # optional — schema field for multi-tenancy isolation
 endpoints:
 relations:
 indexes:
@@ -37,6 +38,8 @@ Rules:
   `shaperail.config.yaml`), set `db` to a connection name (e.g. `analytics`) to
   route this resource’s data to that connection. Omit `db` or set it to a name
   that is not in `databases` to use the **default** connection.
+- `tenant_key` is optional. When set, enables automatic multi-tenancy isolation.
+  See [Multi-tenancy](#multi-tenancy) below.
 - `endpoints` is optional. If you omit it, Shaperail parses the resource but
   generates no HTTP routes.
 - `relations` and `indexes` are optional.
@@ -214,7 +217,7 @@ endpoints:
 | `pagination` | `cursor` (default) or `offset` |
 | `sort` | Fields available for sorting: `?sort=-created_at,name` |
 | `cache` | Cache config: `{ ttl: 60 }` or `{ ttl: 60, invalidate_on: [users.updated] }` |
-| `controller` | Synchronous business logic: `{ before: fn, after: fn }`. See [Controllers]({{ '/controllers/' | relative_url }}). |
+| `controller` | Synchronous business logic: `{ before: fn, after: fn }`. Use a function name for Rust or `"wasm:./path.wasm"` for WASM plugins. See [Controllers]({{ '/controllers/' | relative_url }}). |
 | `events` | Events to emit on success (e.g., `[user.created]`) |
 | `jobs` | Background jobs to enqueue on success (e.g., `[send_welcome_email]`) |
 | `upload` | Multipart file upload config: `{ field: avatar, storage: s3, max_size: 5mb }` |
@@ -232,6 +235,89 @@ Important behavior:
   regardless of the `events` list.
 - Upload endpoints read `multipart/form-data`. The declared `upload.field` must
   also appear in `input`.
+
+## Multi-tenancy
+
+Add `tenant_key` at the top level of a resource to enable automatic tenant
+isolation. The value must be the name of a `uuid` field in the schema:
+
+```yaml
+resource: projects
+version: 1
+tenant_key: org_id
+
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  org_id:     { type: uuid, ref: organizations.id, required: true }
+  name:       { type: string, min: 1, max: 200, required: true }
+  created_at: { type: timestamp, generated: true }
+```
+
+When `tenant_key` is set, Shaperail enforces these rules automatically:
+
+| Operation | Behavior |
+| --- | --- |
+| **List** | Adds `WHERE org_id = <tenant_id>` to every query |
+| **Get** | Fetches the record, then verifies it belongs to the user's tenant |
+| **Create** | Auto-injects the tenant_key value from the user's JWT claim |
+| **Update** | Pre-fetches the record to verify tenant ownership before writing |
+| **Delete** | Pre-fetches the record to verify tenant ownership before deleting |
+
+### How the tenant ID is resolved
+
+The `tenant_id` is read from the JWT `tenant_id` claim. Include it when
+issuing tokens:
+
+```json
+{
+  "sub": "user-123",
+  "role": "member",
+  "tenant_id": "org-abc-456"
+}
+```
+
+### super_admin bypass
+
+Users with the role `super_admin` bypass all tenant filtering. They can read,
+update, and delete records across all tenants. This is useful for platform-level
+admin dashboards and support tools.
+
+### Cache and rate limit isolation
+
+Cache keys and rate limit keys automatically include the tenant ID so that:
+
+- Cached responses are never shared across tenants
+- Rate limits are enforced independently per tenant
+
+### Validation rules
+
+The validator checks that:
+
+- `tenant_key` references a field that exists in the schema
+- That field has `type: uuid`
+
+If either check fails, `shaperail validate` reports an error.
+
+## WASM plugins
+
+Controllers support WASM plugins alongside Rust functions. Use the `wasm:`
+prefix to point to a compiled `.wasm` file:
+
+```yaml
+endpoints:
+  create:
+    method: POST
+    path: /items
+    auth: [admin]
+    input: [name, email]
+    controller:
+      before: "wasm:./plugins/validate_input.wasm"
+```
+
+WASM plugins run in a sandboxed environment with no filesystem, network, or
+system access. They receive the controller context as JSON and return a modified
+context or an error. See the [Controllers guide]({{ '/controllers/' | relative_url }}#wasm-plugins) for the full
+plugin interface, compilation instructions, and example code.
 
 ## Relations
 

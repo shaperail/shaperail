@@ -1,12 +1,12 @@
 # Current Milestone
 
-**Completed:** M16 — gRPC
-**Crates:** shaperail-codegen, shaperail-runtime
+**Completed:** M19 — WASM Plugins
+**Crates:** shaperail-core, shaperail-runtime
 **Version:** v3
 **Status:** [x] Complete
 
-**Next:** M17 — Multi-Service
-**Crates:** shaperail-core, shaperail-cli
+**Next:** M20 — Embedded AI + Admin Panel
+**Crates:** shaperail-runtime, shaperail-cli
 
-To work on next milestone: `/milestone 17`
+To work on next milestone: `/milestone 20`
 To jump to any milestone: `/milestone <number>`
