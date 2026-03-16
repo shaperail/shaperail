@@ -94,7 +94,7 @@ tonic-health = "0.12"
 tokio-stream = { version = "0.1", features = ["net"] }
 
 # WASM Plugins (M19)
-wasmtime = "29"
+wasmtime = "41"
 
 # Testing
 insta = { version = "1", features = ["yaml", "json"] }
