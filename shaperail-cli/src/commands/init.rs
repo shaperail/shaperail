@@ -105,14 +105,18 @@ edition = "2021"
 rust-version = "{RUST_TOOLCHAIN_VERSION}"
 build = "build.rs"
 
+[features]
+default = []
+graphql = ["shaperail-runtime/graphql"]
+grpc = ["shaperail-runtime/grpc"]
+wasm-plugins = ["shaperail-runtime/wasm-plugins"]
+
 [dependencies]
 # Core framework — default-features = false gives you REST + Postgres (Tier 1).
-# Enable optional features as needed:
-#   features = ["graphql"]       — GraphQL via async-graphql
-#   features = ["grpc"]          — gRPC via tonic
-#   features = ["wasm-plugins"]  — WASM controller hooks via wasmtime
-#   features = ["multi-db"]      — MongoDB support
-#   features = ["observability-otlp"] — OpenTelemetry OTLP export
+# Enable optional features as needed (in [features] above):
+#   cargo build --features graphql       — GraphQL via async-graphql
+#   cargo build --features grpc          — gRPC via tonic
+#   cargo build --features wasm-plugins  — WASM controller hooks via wasmtime
 shaperail-runtime = {shaperail_runtime_dep}
 shaperail-core = {shaperail_core_dep}
 shaperail-codegen = {shaperail_codegen_dep}
