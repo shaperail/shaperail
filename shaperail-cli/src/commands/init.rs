@@ -1053,6 +1053,8 @@ async fn main() -> std::io::Result<()> {
     let jwt_config_clone = jwt_config.clone();
     let openapi_json_clone = openapi_json.clone();
 
+    // GraphQL (M15) — only available when the "graphql" feature is enabled
+    #[cfg(feature = "graphql")]
     let graphql_schema = if config.protocols.iter().any(|p| p == "graphql") {
         Some(
             shaperail_runtime::graphql::build_schema(&resources, state.clone())
@@ -1061,9 +1063,11 @@ async fn main() -> std::io::Result<()> {
     } else {
         None
     };
+    #[cfg(feature = "graphql")]
     let graphql_schema_clone = graphql_schema.clone();
 
-    // gRPC server (M16) — runs on separate port if enabled
+    // gRPC server (M16) — only available when the "grpc" feature is enabled
+    #[cfg(feature = "grpc")]
     if config.protocols.iter().any(|p| p == "grpc") {
         let grpc_config = config.grpc.as_ref();
         let grpc_port = grpc_config.map(|c| c.port).unwrap_or(50051);
@@ -1097,6 +1101,7 @@ async fn main() -> std::io::Result<()> {
         if let Some(ref jwt) = jwt_config_clone {
             app = app.app_data(web::Data::new(jwt.clone()));
         }
+        #[cfg(feature = "graphql")]
         if let Some(ref schema) = graphql_schema_clone {
             app = app
                 .app_data(web::Data::new(schema.clone()))
