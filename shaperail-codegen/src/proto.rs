@@ -378,8 +378,8 @@ mod tests {
 
     fn endpoint(method: HttpMethod, path: &str) -> EndpointSpec {
         EndpointSpec {
-            method,
-            path: path.to_string(),
+            method: Some(method),
+            path: Some(path.to_string()),
             auth: None,
             input: None,
             filters: None,

@@ -15,6 +15,14 @@ pub fn run() -> i32 {
         }
     };
 
+    // Feature flag guardrails: warn early if resources use features that may not be enabled
+    let required_features = shaperail_codegen::feature_check::check_required_features(&resources);
+    if !required_features.is_empty() {
+        let warnings =
+            shaperail_codegen::feature_check::format_feature_warnings(&required_features);
+        eprintln!("{warnings}");
+    }
+
     match write_generated_modules(&resources, Path::new("generated")) {
         Ok(paths) => {
             for path in &paths {

@@ -1377,8 +1377,8 @@ mod tests {
     fn extract_input_with_explicit_fields() {
         let resource = test_resource();
         let endpoint = EndpointSpec {
-            method: HttpMethod::Post,
-            path: "/users".to_string(),
+            method: Some(HttpMethod::Post),
+            path: Some("/users".to_string()),
             auth: None,
             input: Some(vec!["name".to_string()]),
             filters: None,
@@ -1407,8 +1407,8 @@ mod tests {
     fn extract_input_without_explicit_fields() {
         let resource = test_resource();
         let endpoint = EndpointSpec {
-            method: HttpMethod::Post,
-            path: "/users".to_string(),
+            method: Some(HttpMethod::Post),
+            path: Some("/users".to_string()),
             auth: None,
             input: None,
             filters: None,

@@ -13,33 +13,23 @@ schema:
 
 endpoints:
   list:
-    method: GET
-    path: /comments
     auth: public
     filters: [post_id, created_by]
     pagination: offset
     sort: [created_at]
 
   get:
-    method: GET
-    path: /comments/:id
     auth: public
 
   create:
-    method: POST
-    path: /comments
     auth: [admin, member]
     input: [post_id, body, author_name, created_by]
 
   update:
-    method: PATCH
-    path: /comments/:id
     auth: [admin, owner]
     input: [body]
 
   delete:
-    method: DELETE
-    path: /comments/:id
     auth: [admin, owner]
 
 relations:

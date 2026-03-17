@@ -10,22 +10,16 @@ schema:
 
 endpoints:
   list:
-    method: GET
-    path: /items
     auth: public
     pagination: cursor
 
   create:
-    method: POST
-    path: /items
     auth: [admin, member]
     input: [name, email]
     controller:
       before: "wasm:./plugins/validate_email.wasm"
 
   update:
-    method: PATCH
-    path: /items/:id
     auth: [admin, owner]
     input: [name, email]
     controller:

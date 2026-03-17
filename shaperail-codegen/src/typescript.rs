@@ -252,8 +252,8 @@ mod tests {
         endpoints.insert(
             "list".to_string(),
             EndpointSpec {
-                method: HttpMethod::Get,
-                path: "/items".to_string(),
+                method: Some(HttpMethod::Get),
+                path: Some("/items".to_string()),
                 auth: Some(AuthRule::Roles(vec!["member".to_string()])),
                 input: None,
                 filters: None,
@@ -274,8 +274,8 @@ mod tests {
         endpoints.insert(
             "create".to_string(),
             EndpointSpec {
-                method: HttpMethod::Post,
-                path: "/items".to_string(),
+                method: Some(HttpMethod::Post),
+                path: Some("/items".to_string()),
                 auth: Some(AuthRule::Roles(vec!["admin".to_string()])),
                 input: Some(vec!["name".to_string(), "active".to_string()]),
                 filters: None,

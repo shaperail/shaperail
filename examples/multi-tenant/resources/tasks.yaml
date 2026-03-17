@@ -16,8 +16,6 @@ schema:
 
 endpoints:
   list:
-    method: GET
-    path: /tasks
     auth: [member, admin]
     filters: [project_id, status, priority, assigned_to]
     search: [title]
@@ -25,25 +23,17 @@ endpoints:
     sort: [created_at, priority]
 
   get:
-    method: GET
-    path: /tasks/:id
     auth: [member, admin]
 
   create:
-    method: POST
-    path: /tasks
     auth: [member, admin]
     input: [project_id, title, priority, assigned_to, created_by]
 
   update:
-    method: PATCH
-    path: /tasks/:id
     auth: [member, admin]
     input: [title, priority, status, assigned_to]
 
   delete:
-    method: DELETE
-    path: /tasks/:id
     auth: [admin, owner]
     soft_delete: true
 

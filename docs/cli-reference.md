@@ -22,10 +22,14 @@ serve, then package.
 | `shaperail seed [path]` | Load fixture YAML from `seeds/` (or given path) into the database. Default path: `seeds`. |
 | `shaperail export openapi [--output FILE]` | Emit OpenAPI 3.1 spec to stdout or to a file. |
 | `shaperail export sdk --lang <lang> [--output DIR]` | Generate client SDK (e.g. `--lang ts` for TypeScript). |
+| `shaperail export json-schema [--output FILE]` | Emit JSON Schema for resource YAML files (for IDE/LLM validation). |
+| `shaperail explain <file>` | Dry-run: show what a resource YAML file will produce (routes, table, relations). |
+| `shaperail check [path] [--json]` | Validate with structured fix suggestions and error codes. `--json` for LLM-friendly output. |
+| `shaperail diff` | Show what codegen would change without writing files (dry-run diff). |
 | `shaperail doctor` | Check system deps: Rust, PostgreSQL, Redis, sqlx-cli; print fix instructions. |
 | `shaperail routes` | Print all routes with auth requirements. |
 | `shaperail jobs:status [job_id]` | Show job queue depth and recent failures; or inspect a specific job by ID. |
-| `shaperail resource create <name>` | Scaffold a new resource YAML file and initial migration. |
+| `shaperail resource create <name> [--archetype TYPE]` | Scaffold a new resource YAML file and initial migration. Archetypes: basic (default), user, content, tenant, lookup. |
 
 Every command supports `--help`.
 

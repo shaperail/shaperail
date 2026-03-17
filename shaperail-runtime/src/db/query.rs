@@ -1320,8 +1320,8 @@ mod tests {
         resource.endpoints = Some(indexmap::IndexMap::from([(
             "delete".to_string(),
             shaperail_core::EndpointSpec {
-                method: shaperail_core::HttpMethod::Delete,
-                path: "/users/:id".to_string(),
+                method: Some(shaperail_core::HttpMethod::Delete),
+                path: Some("/users/:id".to_string()),
                 auth: None,
                 input: None,
                 filters: None,

@@ -13,8 +13,6 @@ schema:
 
 endpoints:
   list:
-    method: GET
-    path: /projects
     auth: [member, admin]
     filters: [status]
     search: [name]
@@ -22,26 +20,18 @@ endpoints:
     cache: { ttl: 60 }
 
   get:
-    method: GET
-    path: /projects/:id
     auth: [member, admin]
 
   create:
-    method: POST
-    path: /projects
     auth: [member, admin]
     input: [name, status, created_by]
     events: [project.created]
 
   update:
-    method: PATCH
-    path: /projects/:id
     auth: [admin, owner]
     input: [name, status]
 
   delete:
-    method: DELETE
-    path: /projects/:id
     auth: [admin]
     soft_delete: true
 

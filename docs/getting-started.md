@@ -86,6 +86,14 @@ Use the `resource create` command to scaffold a valid YAML file and migration:
 shaperail resource create comments
 ```
 
+The `--archetype` flag scaffolds a resource pre-filled with common fields and
+endpoints for a specific use case:
+
+```
+Available archetypes: basic (default), user, content, tenant, lookup
+Example: shaperail resource create blog_posts --archetype content
+```
+
 Then edit `resources/comments.yaml` to add your fields and run:
 
 ```bash

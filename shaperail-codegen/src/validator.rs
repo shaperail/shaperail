@@ -125,6 +125,18 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
     // Endpoint validation
     if let Some(endpoints) = &rd.endpoints {
         for (action, ep) in endpoints {
+            // method and path must be set (either explicitly or via convention defaults)
+            if ep.method.is_none() {
+                errors.push(err(&format!(
+                    "resource '{res}': endpoint '{action}' has no method. Use a known action name (list, get, create, update, delete) or set method explicitly"
+                )));
+            }
+            if ep.path.is_none() {
+                errors.push(err(&format!(
+                    "resource '{res}': endpoint '{action}' has no path. Use a known action name (list, get, create, update, delete) or set path explicitly"
+                )));
+            }
+
             if let Some(controller) = &ep.controller {
                 if let Some(before) = &controller.before {
                     if before.is_empty() {
@@ -216,11 +228,12 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
             }
 
             if let Some(upload) = &ep.upload {
-                match ep.method {
-                    HttpMethod::Post | HttpMethod::Patch | HttpMethod::Put => {}
-                    _ => errors.push(err(&format!(
+                match ep.method.as_ref() {
+                    Some(HttpMethod::Post | HttpMethod::Patch | HttpMethod::Put) => {}
+                    Some(_) => errors.push(err(&format!(
                         "resource '{res}': endpoint '{action}' uses upload but method must be POST, PATCH, or PUT"
                     ))),
+                    None => {} // already reported above
                 }
 
                 match rd.schema.get(&upload.field) {

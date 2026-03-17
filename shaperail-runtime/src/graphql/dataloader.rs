@@ -117,8 +117,8 @@ impl RelationLoader {
             .and_then(|e| e.get("list"))
             .cloned()
             .unwrap_or_else(|| EndpointSpec {
-                method: HttpMethod::Get,
-                path: format!("/{}", resource.resource),
+                method: Some(HttpMethod::Get),
+                path: Some(format!("/{}", resource.resource)),
                 auth: None,
                 input: None,
                 filters: None,

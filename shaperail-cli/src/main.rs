@@ -71,6 +71,22 @@ enum Commands {
         #[command(subcommand)]
         format: ExportFormat,
     },
+    /// Dry-run: show what a resource file will produce (routes, table, relations)
+    Explain {
+        /// Path to a resource YAML file
+        path: PathBuf,
+    },
+    /// Validate with structured fix suggestions (JSON output for LLM consumption)
+    Check {
+        /// Path to a resource file or directory of resource files
+        #[arg(default_value = "resources")]
+        path: PathBuf,
+        /// Output as JSON (machine-readable fix suggestions)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show what codegen would change (dry-run diff)
+    Diff,
     /// Check system dependencies
     Doctor,
     /// Print all routes with auth requirements
@@ -94,6 +110,9 @@ enum ResourceAction {
     Create {
         /// Resource name (plural, lowercase, e.g., "blog_posts")
         name: String,
+        /// Archetype template: basic (default), user, content, tenant, lookup
+        #[arg(short, long, default_value = "basic")]
+        archetype: String,
     },
 }
 
@@ -111,6 +130,12 @@ enum ExportFormat {
         #[arg(short, long)]
         lang: String,
         /// Output directory
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Output JSON Schema for resource YAML files
+    JsonSchema {
+        /// Write to file instead of stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -143,12 +168,20 @@ fn main() {
             ExportFormat::Sdk { lang, output } => {
                 commands::export::run_sdk(&lang, output.as_deref())
             }
+            ExportFormat::JsonSchema { output } => {
+                commands::export::run_json_schema(output.as_deref())
+            }
         },
+        Commands::Diff => commands::diff::run(),
+        Commands::Explain { path } => commands::explain::run(&path),
+        Commands::Check { path, json } => commands::check::run(&path, json),
         Commands::Doctor => commands::doctor::run(),
         Commands::Routes => commands::routes::run(),
         Commands::JobsStatus { job_id } => commands::jobs_status::run(job_id.as_deref()),
         Commands::Resource { action } => match action {
-            ResourceAction::Create { name } => commands::resource::run_create(&name),
+            ResourceAction::Create { name, archetype } => {
+                commands::resource::run_create(&name, &archetype)
+            }
         },
     };
 

@@ -87,8 +87,8 @@ fn build_query_object(resources: &[ResourceDefinition]) -> Object {
                         .and_then(|e| e.get("list"))
                         .cloned()
                         .unwrap_or_else(|| EndpointSpec {
-                            method: HttpMethod::Get,
-                            path: format!("/{}", res.resource),
+                            method: Some(HttpMethod::Get),
+                            path: Some(format!("/{}", res.resource)),
                             auth: None,
                             input: None,
                             filters: None,
@@ -169,8 +169,8 @@ fn build_query_object(resources: &[ResourceDefinition]) -> Object {
                     .and_then(|e| e.get("get"))
                     .cloned()
                     .unwrap_or_else(|| EndpointSpec {
-                        method: HttpMethod::Get,
-                        path: format!("/{}/:id", res.resource),
+                        method: Some(HttpMethod::Get),
+                        path: Some(format!("/{}/:id", res.resource)),
                         auth: None,
                         input: None,
                         filters: None,
@@ -264,8 +264,8 @@ fn build_input_objects(resources: &[ResourceDefinition]) -> Vec<InputObject> {
             .and_then(|e| e.get("create").or_else(|| e.get("update")))
             .cloned()
             .unwrap_or_else(|| EndpointSpec {
-                method: HttpMethod::Post,
-                path: format!("/{}", resource.resource),
+                method: Some(HttpMethod::Post),
+                path: Some(format!("/{}", resource.resource)),
                 auth: None,
                 input: None,
                 filters: None,
@@ -451,8 +451,8 @@ fn build_mutation_object(resources: &[ResourceDefinition]) -> Object {
                 .and_then(|e| e.get("delete"))
                 .cloned()
                 .unwrap_or_else(|| EndpointSpec {
-                    method: HttpMethod::Delete,
-                    path: format!("/{}/:id", resource.resource),
+                    method: Some(HttpMethod::Delete),
+                    path: Some(format!("/{}/:id", resource.resource)),
                     auth: None,
                     input: None,
                     filters: None,

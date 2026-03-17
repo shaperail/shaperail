@@ -15,8 +15,6 @@ schema:
 
 endpoints:
   list:
-    method: GET
-    path: /posts
     auth: public
     filters: [status, created_by]
     search: [title, body]
@@ -24,27 +22,19 @@ endpoints:
     sort: [created_at, title]
 
   get:
-    method: GET
-    path: /posts/:id
     auth: public
 
   create:
-    method: POST
-    path: /posts
     auth: [admin, member]
     input: [title, slug, body, status, created_by, published_at]
     controller:
       before: set_created_by
 
   update:
-    method: PATCH
-    path: /posts/:id
     auth: [admin, owner]
     input: [title, body, status, published_at]
 
   delete:
-    method: DELETE
-    path: /posts/:id
     auth: [admin]
     soft_delete: true
 

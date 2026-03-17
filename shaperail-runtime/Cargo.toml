@@ -19,7 +19,7 @@ multi-db = ["dep:mongodb"]
 observability-otlp = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 
 [dependencies]
-shaperail-core = { version = "0.6.0", path = "../shaperail-core" }
+shaperail-core = { version = "0.7.0", path = "../shaperail-core" }
 actix-web = { workspace = true }
 actix-ws = { workspace = true }
 actix-multipart = { workspace = true }

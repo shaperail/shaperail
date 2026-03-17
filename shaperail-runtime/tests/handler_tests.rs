@@ -159,8 +159,8 @@ mod handler_unit_tests {
         endpoints.insert(
             "list".to_string(),
             EndpointSpec {
-                method: HttpMethod::Get,
-                path: "/users".to_string(),
+                method: Some(HttpMethod::Get),
+                path: Some("/users".to_string()),
                 auth: Some(AuthRule::Roles(vec![
                     "member".to_string(),
                     "admin".to_string(),
@@ -184,8 +184,8 @@ mod handler_unit_tests {
         endpoints.insert(
             "create".to_string(),
             EndpointSpec {
-                method: HttpMethod::Post,
-                path: "/users".to_string(),
+                method: Some(HttpMethod::Post),
+                path: Some("/users".to_string()),
                 auth: Some(AuthRule::Roles(vec!["admin".to_string()])),
                 input: Some(vec![
                     "email".to_string(),
@@ -208,8 +208,8 @@ mod handler_unit_tests {
         endpoints.insert(
             "update".to_string(),
             EndpointSpec {
-                method: HttpMethod::Patch,
-                path: "/users/:id".to_string(),
+                method: Some(HttpMethod::Patch),
+                path: Some("/users/:id".to_string()),
                 auth: Some(AuthRule::Roles(vec![
                     "admin".to_string(),
                     "owner".to_string(),
@@ -230,8 +230,8 @@ mod handler_unit_tests {
         endpoints.insert(
             "delete".to_string(),
             EndpointSpec {
-                method: HttpMethod::Delete,
-                path: "/users/:id".to_string(),
+                method: Some(HttpMethod::Delete),
+                path: Some("/users/:id".to_string()),
                 auth: Some(AuthRule::Roles(vec!["admin".to_string()])),
                 input: None,
                 filters: None,

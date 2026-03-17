@@ -253,8 +253,8 @@ fn test_asset_resource() -> ResourceDefinition {
     endpoints.insert(
         "create".to_string(),
         EndpointSpec {
-            method: HttpMethod::Post,
-            path: "/test_assets".to_string(),
+            method: Some(HttpMethod::Post),
+            path: Some("/test_assets".to_string()),
             auth: None,
             input: Some(vec!["title".to_string(), "attachment".to_string()]),
             filters: None,
@@ -277,8 +277,8 @@ fn test_asset_resource() -> ResourceDefinition {
     endpoints.insert(
         "delete".to_string(),
         EndpointSpec {
-            method: HttpMethod::Delete,
-            path: "/test_assets/:id".to_string(),
+            method: Some(HttpMethod::Delete),
+            path: Some("/test_assets/:id".to_string()),
             auth: None,
             input: None,
             filters: None,
@@ -524,8 +524,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
     eps.insert(
         "list".to_string(),
         EndpointSpec {
-            method: HttpMethod::Get,
-            path: "/test_users".to_string(),
+            method: Some(HttpMethod::Get),
+            path: Some("/test_users".to_string()),
             auth: None,
             input: None,
             filters: Some(vec!["role".to_string(), "org_id".to_string()]),
@@ -544,8 +544,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
     eps.insert(
         "get".to_string(),
         EndpointSpec {
-            method: HttpMethod::Get,
-            path: "/test_users/:id".to_string(),
+            method: Some(HttpMethod::Get),
+            path: Some("/test_users/:id".to_string()),
             auth: None,
             input: None,
             filters: None,
@@ -564,8 +564,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
     eps.insert(
         "create".to_string(),
         EndpointSpec {
-            method: HttpMethod::Post,
-            path: "/test_users".to_string(),
+            method: Some(HttpMethod::Post),
+            path: Some("/test_users".to_string()),
             auth: None,
             input: Some(vec![
                 "email".to_string(),
@@ -589,8 +589,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
     eps.insert(
         "update".to_string(),
         EndpointSpec {
-            method: HttpMethod::Patch,
-            path: "/test_users/:id".to_string(),
+            method: Some(HttpMethod::Patch),
+            path: Some("/test_users/:id".to_string()),
             auth: None,
             input: Some(vec!["name".to_string(), "role".to_string()]),
             filters: None,
@@ -609,8 +609,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
     eps.insert(
         "delete".to_string(),
         EndpointSpec {
-            method: HttpMethod::Delete,
-            path: "/test_users/:id".to_string(),
+            method: Some(HttpMethod::Delete),
+            path: Some("/test_users/:id".to_string()),
             auth: None,
             input: None,
             filters: None,
@@ -1404,8 +1404,8 @@ async fn test_bulk_create(pool: sqlx::PgPool) {
     eps.insert(
         "bulk_create".to_string(),
         EndpointSpec {
-            method: HttpMethod::Post,
-            path: "/test_users/bulk".to_string(),
+            method: Some(HttpMethod::Post),
+            path: Some("/test_users/bulk".to_string()),
             auth: None,
             input: Some(vec![
                 "email".to_string(),
@@ -2162,8 +2162,8 @@ fn org_resource() -> ResourceDefinition {
     endpoints.insert(
         "list".to_string(),
         EndpointSpec {
-            method: HttpMethod::Get,
-            path: "/test_orgs".to_string(),
+            method: Some(HttpMethod::Get),
+            path: Some("/test_orgs".to_string()),
             auth: None,
             input: None,
             filters: None,
@@ -2181,8 +2181,8 @@ fn org_resource() -> ResourceDefinition {
     endpoints.insert(
         "get".to_string(),
         EndpointSpec {
-            method: HttpMethod::Get,
-            path: "/test_orgs/:id".to_string(),
+            method: Some(HttpMethod::Get),
+            path: Some("/test_orgs/:id".to_string()),
             auth: None,
             input: None,
             filters: None,
@@ -2200,8 +2200,8 @@ fn org_resource() -> ResourceDefinition {
     endpoints.insert(
         "create".to_string(),
         EndpointSpec {
-            method: HttpMethod::Post,
-            path: "/test_orgs".to_string(),
+            method: Some(HttpMethod::Post),
+            path: Some("/test_orgs".to_string()),
             auth: None,
             input: Some(vec!["name".to_string()]),
             filters: None,

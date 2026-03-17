@@ -103,8 +103,8 @@ mod tests {
         endpoints.insert(
             "list".to_string(),
             EndpointSpec {
-                method: HttpMethod::Get,
-                path: "/users".to_string(),
+                method: Some(HttpMethod::Get),
+                path: Some("/users".to_string()),
                 auth: Some(AuthRule::Roles(vec![
                     "member".to_string(),
                     "admin".to_string(),

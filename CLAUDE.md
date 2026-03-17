@@ -74,10 +74,10 @@ schema:
   updated_at: { type: timestamp, generated: true }
 
 # All paths below are auto-prefixed with /v{version} (e.g. /v1/users)
+# Convention-based defaults: for list/get/create/update/delete,
+# method and path are inferred automatically. Override only if needed.
 endpoints:
   list:
-    method: GET
-    path: /users
     auth: [member, admin]
     filters: [role, org_id]
     search: [name, email]
@@ -85,8 +85,6 @@ endpoints:
     cache: { ttl: 60 }
 
   create:
-    method: POST
-    path: /users
     auth: [admin]
     input: [email, name, role, org_id]
     controller: { before: validate_org }   # replaces hooks — see resources/users.controller.rs
@@ -94,14 +92,10 @@ endpoints:
     jobs: [send_welcome_email]
 
   update:
-    method: PATCH
-    path: /users/:id
     auth: [admin, owner]
     input: [name, role]
 
   delete:
-    method: DELETE
-    path: /users/:id
     auth: [admin]
     soft_delete: true
 
@@ -141,12 +135,21 @@ indexes:
 ## Commands
 ```bash
 cargo build --workspace          # build all crates
-cargo test --workspace           # run all tests (385 as of v0.2.2)
+cargo test --workspace           # run all tests (452 as of v0.6.0)
 cargo clippy -- -D warnings      # lint — must pass before every commit
 cargo fmt                        # format — run after every edit
 cargo bench -p shaperail-runtime # run performance benchmarks (no DB needed)
 docker compose up -d             # start dev postgres + redis
 docker compose down              # stop dev services
+```
+
+## AI-Native CLI Commands
+```bash
+shaperail check [path] --json    # structured diagnostics with error codes + fix suggestions
+shaperail explain <file>         # dry-run: shows routes, table, relations from a resource
+shaperail diff                   # shows what codegen would change (dry-run diff)
+shaperail export json-schema     # JSON Schema for resource YAML (IDE/LLM validation)
+shaperail resource create <name> --archetype <type>  # archetypes: basic, user, content, tenant, lookup
 ```
 
 ## All Milestones

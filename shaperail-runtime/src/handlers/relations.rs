@@ -22,7 +22,7 @@ fn store_for(
 fn list_endpoint_for(resource: &ResourceDefinition) -> Option<&EndpointSpec> {
     resource.endpoints.as_ref().and_then(|eps| {
         eps.iter()
-            .find(|(_, ep)| ep.method == HttpMethod::Get && !ep.path.contains(":id"))
+            .find(|(_, ep)| *ep.method() == HttpMethod::Get && !ep.path().contains(":id"))
             .map(|(_, ep)| ep)
     })
 }

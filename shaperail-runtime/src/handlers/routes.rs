@@ -27,7 +27,7 @@ pub fn register_resource(
             let actix_path = format!(
                 "/v{}{}",
                 resource.version,
-                endpoint.path.replace(":id", "{id}")
+                endpoint.path().replace(":id", "{id}")
             );
 
             match action.as_str() {
@@ -167,7 +167,7 @@ pub fn register_resource(
                 }
                 _ => {
                     // Custom endpoint names — map by HTTP method
-                    match endpoint.method {
+                    match *endpoint.method() {
                         HttpMethod::Get if actix_path.contains("{id}") => {
                             let ep = ep_arc.clone();
                             let r = res.clone();
@@ -233,7 +233,7 @@ pub fn register_resource(
                             if endpoint.upload.is_some() {
                                 cfg.route(
                                     &actix_path,
-                                    web::method(match endpoint.method {
+                                    web::method(match *endpoint.method() {
                                         HttpMethod::Patch => actix_web::http::Method::PATCH,
                                         _ => actix_web::http::Method::PUT,
                                     })
@@ -251,7 +251,7 @@ pub fn register_resource(
                             } else {
                                 cfg.route(
                                     &actix_path,
-                                    web::method(match endpoint.method {
+                                    web::method(match *endpoint.method() {
                                         HttpMethod::Patch => actix_web::http::Method::PATCH,
                                         _ => actix_web::http::Method::PUT,
                                     })

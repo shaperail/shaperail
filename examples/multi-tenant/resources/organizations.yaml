@@ -10,18 +10,12 @@ schema:
 
 endpoints:
   list:
-    method: GET
-    path: /organizations
     auth: [super_admin]
     pagination: cursor
 
   get:
-    method: GET
-    path: /organizations/:id
     auth: [super_admin, member, admin]
 
   create:
-    method: POST
-    path: /organizations
     auth: [super_admin]
     input: [name, plan]

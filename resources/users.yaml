@@ -18,8 +18,6 @@ schema:
 
 endpoints:
   list:
-    method: GET
-    path: /users
     auth: [member, admin]
     filters: [role, org_id, created_at]
     search: [name, email]
@@ -28,14 +26,10 @@ endpoints:
     cache: { ttl: 60, invalidate_on: [create, update, delete] }
 
   get:
-    method: GET
-    path: /users/:id
     auth: [member, admin]
     cache: { ttl: 300 }
 
   create:
-    method: POST
-    path: /users
     auth: [admin]
     input: [email, name, role, org_id]
     controller:
@@ -44,15 +38,11 @@ endpoints:
     jobs: [send_welcome_email]
 
   update:
-    method: PATCH
-    path: /users/:id
     auth: [admin, owner]
     input: [name, role, avatar_url, metadata]
     events: [user.updated]
 
   delete:
-    method: DELETE
-    path: /users/:id
     auth: [admin]
     controller:
       before: cleanup_user_data

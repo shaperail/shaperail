@@ -62,8 +62,6 @@ schema:
 
 endpoints:
   list:
-    method: GET
-    path: /users
     auth: [member, admin]
     filters: [role, org_id]
     search: [name, email]
@@ -71,8 +69,6 @@ endpoints:
     sort: [created_at, name]
 
   create:
-    method: POST
-    path: /users
     auth: [admin]
     input: [email, name, role, org_id]
     controller:
@@ -174,6 +170,43 @@ Schema fields use compact inline objects. Every attribute:
 
 Endpoints are explicit. Nothing is generated unless you declare it.
 
+### Convention-based defaults
+
+For the five standard CRUD action names, `method` and `path` are **optional**.
+Shaperail infers them from the resource name:
+
+| Action name | Default method | Default path |
+| --- | --- | --- |
+| `list` | GET | `/<resource>` |
+| `get` | GET | `/<resource>/:id` |
+| `create` | POST | `/<resource>` |
+| `update` | PATCH | `/<resource>/:id` |
+| `delete` | DELETE | `/<resource>/:id` |
+
+For any **custom** endpoint name (e.g. `bulk_create`, `archive`), `method` and
+`path` are **required** — the parser cannot guess them.
+
+You can still specify `method` and `path` explicitly on standard actions if you
+want to override the convention (e.g. using PUT instead of PATCH for `update`).
+
+Minimal example using convention defaults:
+
+```yaml
+endpoints:
+  list:
+    auth: public
+    filters: [status, created_by]
+    search: [title, body]
+    pagination: cursor
+    sort: [created_at, title]
+
+  create:
+    auth: [admin, member]
+    input: [title, slug, body, status, created_by]
+```
+
+Equivalent explicit form (still valid):
+
 ```yaml
 endpoints:
   list:
@@ -208,8 +241,8 @@ endpoints:
 
 | Key | Meaning |
 | --- | --- |
-| `method` | HTTP method: GET, POST, PATCH, PUT, DELETE |
-| `path` | URL path pattern. Use `:id` for path parameters. |
+| `method` | HTTP method: GET, POST, PATCH, PUT, DELETE. Optional for standard CRUD names (list, get, create, update, delete). |
+| `path` | URL path pattern. Use `:id` for path parameters. Optional for standard CRUD names. |
 | `auth` | `public`, `owner`, or a list of role names like `[admin, member]` |
 | `input` | Fields accepted for writes. Only these fields are allowed in the request body. |
 | `filters` | Fields available as query filters: `?filter[role]=admin` |
@@ -306,8 +339,6 @@ prefix to point to a compiled `.wasm` file:
 ```yaml
 endpoints:
   create:
-    method: POST
-    path: /items
     auth: [admin]
     input: [name, email]
     controller:

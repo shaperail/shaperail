@@ -154,6 +154,39 @@ pub struct ControllerSpec {
     pub after: Option<String>,
 }
 
+/// Known endpoint conventions. When the endpoint action name matches one of these,
+/// the method and path are inferred automatically.
+pub fn endpoint_convention(action: &str, resource_name: &str) -> Option<(HttpMethod, String)> {
+    match action {
+        "list" => Some((HttpMethod::Get, format!("/{resource_name}"))),
+        "get" => Some((HttpMethod::Get, format!("/{resource_name}/:id"))),
+        "create" => Some((HttpMethod::Post, format!("/{resource_name}"))),
+        "update" => Some((HttpMethod::Patch, format!("/{resource_name}/:id"))),
+        "delete" => Some((HttpMethod::Delete, format!("/{resource_name}/:id"))),
+        _ => None,
+    }
+}
+
+/// Apply convention-based defaults to all endpoints in a resource.
+/// Fills in missing `method` and `path` based on the endpoint name.
+pub fn apply_endpoint_defaults(resource: &mut super::ResourceDefinition) {
+    let resource_name = resource.resource.clone();
+    if let Some(ref mut endpoints) = resource.endpoints {
+        for (action, ep) in endpoints.iter_mut() {
+            if let Some((default_method, default_path)) =
+                endpoint_convention(action, &resource_name)
+            {
+                if ep.method.is_none() {
+                    ep.method = Some(default_method);
+                }
+                if ep.path.is_none() {
+                    ep.path = Some(default_path);
+                }
+            }
+        }
+    }
+}
+
 /// WASM plugin prefix used in controller `before`/`after` fields.
 ///
 /// When a controller name starts with `wasm:`, the remainder is interpreted
@@ -206,14 +239,22 @@ impl ControllerSpec {
 ///   auth: [member, admin]
 ///   pagination: cursor
 /// ```
+///
+/// When the endpoint name matches a known convention (list, get, create, update, delete),
+/// `method` and `path` can be omitted and will be inferred from the resource name.
+/// Use `apply_endpoint_defaults()` after parsing to fill them in.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EndpointSpec {
     /// HTTP method (GET, POST, PATCH, PUT, DELETE).
-    pub method: HttpMethod,
+    /// Optional when endpoint name is a known convention (list, get, create, update, delete).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<HttpMethod>,
 
     /// URL path pattern (e.g., "/users", "/users/:id").
-    pub path: String,
+    /// Optional when endpoint name is a known convention (list, get, create, update, delete).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 
     /// Authentication/authorization rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -262,6 +303,24 @@ pub struct EndpointSpec {
     /// Whether this endpoint performs a soft delete.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub soft_delete: bool,
+}
+
+impl EndpointSpec {
+    /// Returns the resolved HTTP method. Panics if method is None
+    /// (should never happen after `apply_endpoint_defaults`).
+    pub fn method(&self) -> &HttpMethod {
+        self.method
+            .as_ref()
+            .expect("EndpointSpec.method must be set — call apply_endpoint_defaults() first")
+    }
+
+    /// Returns the resolved path. Panics if path is None
+    /// (should never happen after `apply_endpoint_defaults`).
+    pub fn path(&self) -> &str {
+        self.path
+            .as_deref()
+            .expect("EndpointSpec.path must be set — call apply_endpoint_defaults() first")
+    }
 }
 
 #[cfg(test)]
@@ -347,8 +406,8 @@ mod tests {
             "cache": {"ttl": 60}
         }"#;
         let ep: EndpointSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(ep.method, HttpMethod::Get);
-        assert_eq!(ep.path, "/users");
+        assert_eq!(*ep.method(), HttpMethod::Get);
+        assert_eq!(ep.path(), "/users");
         assert_eq!(ep.filters.as_ref().unwrap().len(), 2);
         assert_eq!(ep.pagination, Some(PaginationStyle::Cursor));
         assert!(!ep.soft_delete);
@@ -366,7 +425,7 @@ mod tests {
             "jobs": ["send_welcome_email"]
         }"#;
         let ep: EndpointSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(ep.method, HttpMethod::Post);
+        assert_eq!(*ep.method(), HttpMethod::Post);
         let ctrl = ep.controller.as_ref().unwrap();
         assert_eq!(ctrl.before.as_deref(), Some("validate_org"));
         assert!(ctrl.after.is_none());

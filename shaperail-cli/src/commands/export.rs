@@ -122,3 +122,21 @@ pub fn run_sdk(lang: &str, output: Option<&Path>) -> i32 {
     );
     0
 }
+
+/// Export JSON Schema for resource YAML files to stdout or a file.
+pub fn run_json_schema(output: Option<&Path>) -> i32 {
+    let schema = shaperail_codegen::json_schema::render_json_schema();
+
+    match output {
+        Some(path) => {
+            if let Err(e) = std::fs::write(path, &schema) {
+                eprintln!("Error writing {}: {e}", path.display());
+                return 1;
+            }
+            println!("JSON Schema written to {}", path.display());
+        }
+        None => println!("{schema}"),
+    }
+
+    0
+}

@@ -70,11 +70,26 @@ You write `path: /users` in the YAML; the framework registers `/v1/users` at
 runtime. Do not include the version prefix in the `path:` value.
 
 ## Endpoint Format
+
+### Convention-based defaults
+For the five standard CRUD action names, `method` and `path` are **optional** —
+they are inferred from the resource name:
+
+| Action name | Default method | Default path         |
+|-------------|---------------|---------------------|
+| `list`      | GET           | `/<resource>`       |
+| `get`       | GET           | `/<resource>/:id`   |
+| `create`    | POST          | `/<resource>`       |
+| `update`    | PATCH         | `/<resource>/:id`   |
+| `delete`    | DELETE        | `/<resource>/:id`   |
+
+You can still override `method` and `path` explicitly if needed. For custom
+endpoint names, both fields are required.
+
 ```yaml
 endpoints:
+  # Convention-based: method/path inferred from action name
   list:
-    method: GET
-    path: /users                # actual route: /v{version}/users
     auth: [role1, role2]        # or: public
     filters: [field1, field2]
     search: [field1, field2]    # full-text search across these fields
@@ -83,14 +98,18 @@ endpoints:
     cache: { ttl: 60, invalidate_on: [create, update, delete] }
 
   create:
-    method: POST
-    path: /users
     auth: [admin]
     input: [field1, field2]     # subset of schema fields accepted
     controller: { before: validate_org }  # Rust fn in resources/<resource>.controller.rs
     events: [user.created]      # emitted after successful write
     jobs: [job_name]            # enqueued after successful write
     upload: { field: avatar_url, storage: s3, max_size: 5mb, types: [jpg, png] }
+
+  # Custom endpoint: method and path are required
+  publish:
+    method: POST
+    path: /users/:id/publish
+    auth: [admin]
 ```
 
 ## Controller

@@ -75,8 +75,8 @@ pub fn generate(config: &ProjectConfig, resources: &[ResourceDefinition]) -> ser
 
             for (action, ep) in sorted_endpoints {
                 let openapi_path =
-                    format!("/v{}{}", resource.version, ep.path.replace(":id", "{id}"));
-                let method = ep.method.to_string().to_lowercase();
+                    format!("/v{}{}", resource.version, ep.path().replace(":id", "{id}"));
+                let method = ep.method().to_string().to_lowercase();
 
                 let operation =
                     build_operation(&struct_name, resource, &resource.resource, action, ep);
@@ -331,7 +331,7 @@ fn build_operation(
     let mut parameters = Vec::new();
 
     // Path parameters
-    if ep.path.contains(":id") {
+    if ep.path().contains(":id") {
         parameters.push(serde_json::json!({
             "name": "id",
             "in": "path",
@@ -416,7 +416,7 @@ fn build_operation(
     }
 
     // Field selection
-    if ep.method == HttpMethod::Get {
+    if *ep.method() == HttpMethod::Get {
         parameters.push(serde_json::json!({
             "name": "fields",
             "in": "query",
@@ -472,13 +472,13 @@ fn build_operation(
     let mut responses = BTreeMap::new();
 
     // Success response
-    let success_status = match ep.method {
+    let success_status = match *ep.method() {
         HttpMethod::Post => "201",
         HttpMethod::Delete => "204",
         _ => "200",
     };
 
-    if ep.method == HttpMethod::Delete {
+    if *ep.method() == HttpMethod::Delete {
         responses.insert(
             success_status.to_string(),
             serde_json::json!({ "description": "Deleted successfully" }),
@@ -555,7 +555,7 @@ fn build_operation(
     add_error("401", "Unauthorized");
     add_error("403", "Forbidden");
 
-    if ep.path.contains(":id") {
+    if ep.path().contains(":id") {
         add_error("404", "Not found");
     }
 
@@ -759,8 +759,8 @@ mod tests {
         endpoints.insert(
             "list".to_string(),
             EndpointSpec {
-                method: HttpMethod::Get,
-                path: "/users".to_string(),
+                method: Some(HttpMethod::Get),
+                path: Some("/users".to_string()),
                 auth: Some(AuthRule::Roles(vec![
                     "member".to_string(),
                     "admin".to_string(),
@@ -784,8 +784,8 @@ mod tests {
         endpoints.insert(
             "create".to_string(),
             EndpointSpec {
-                method: HttpMethod::Post,
-                path: "/users".to_string(),
+                method: Some(HttpMethod::Post),
+                path: Some("/users".to_string()),
                 auth: Some(AuthRule::Roles(vec!["admin".to_string()])),
                 input: Some(vec![
                     "email".to_string(),
@@ -810,8 +810,8 @@ mod tests {
         endpoints.insert(
             "update".to_string(),
             EndpointSpec {
-                method: HttpMethod::Patch,
-                path: "/users/:id".to_string(),
+                method: Some(HttpMethod::Patch),
+                path: Some("/users/:id".to_string()),
                 auth: Some(AuthRule::Roles(vec![
                     "admin".to_string(),
                     "owner".to_string(),
@@ -832,8 +832,8 @@ mod tests {
         endpoints.insert(
             "delete".to_string(),
             EndpointSpec {
-                method: HttpMethod::Delete,
-                path: "/users/:id".to_string(),
+                method: Some(HttpMethod::Delete),
+                path: Some("/users/:id".to_string()),
                 auth: Some(AuthRule::Roles(vec!["admin".to_string()])),
                 input: None,
                 filters: None,
@@ -928,8 +928,8 @@ mod tests {
         endpoints.insert(
             "create".to_string(),
             EndpointSpec {
-                method: HttpMethod::Post,
-                path: "/assets".to_string(),
+                method: Some(HttpMethod::Post),
+                path: Some("/assets".to_string()),
                 auth: None,
                 input: Some(vec!["title".to_string(), "attachment".to_string()]),
                 filters: None,

@@ -21,8 +21,13 @@ pub enum ParseError {
 }
 
 /// Parse a YAML string into a `ResourceDefinition`.
+///
+/// After parsing, convention-based endpoint defaults are applied: for known
+/// endpoint names (list, get, create, update, delete), `method` and `path`
+/// are inferred from the resource name if not explicitly provided.
 pub fn parse_resource(yaml: &str) -> Result<ResourceDefinition, ParseError> {
-    let resource: ResourceDefinition = serde_yaml::from_str(yaml)?;
+    let mut resource: ResourceDefinition = serde_yaml::from_str(yaml)?;
+    shaperail_core::apply_endpoint_defaults(&mut resource);
     Ok(resource)
 }
 

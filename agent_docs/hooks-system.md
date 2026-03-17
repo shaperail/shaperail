@@ -12,8 +12,6 @@ declared on an endpoint via the `controller:` field.
 ```yaml
 endpoints:
   create:
-    method: POST
-    path: /users
     auth: [admin]
     input: [email, name, role, org_id]
     controller: { before: validate_org }          # before only
@@ -32,6 +30,11 @@ endpoints:
     auth: [admin]
     controller: { after: cleanup_related }        # after only
 ```
+
+Note: For the five standard CRUD names (list, get, create, update, delete),
+`method` and `path` are optional — they are inferred from the resource name.
+The `create` endpoint above omits them; the parser fills in `POST /users`
+automatically.
 
 Valid shapes:
 ```yaml

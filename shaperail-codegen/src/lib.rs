@@ -1,4 +1,7 @@
 pub mod config_parser;
+pub mod diagnostics;
+pub mod feature_check;
+pub mod json_schema;
 pub mod openapi;
 pub mod parser;
 pub mod proto;

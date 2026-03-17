@@ -36,7 +36,7 @@ shaperail-cli
 Key types:
 - `ResourceDefinition` — parsed + validated resource file
 - `FieldSchema` — a single field with type, validation, metadata
-- `EndpointSpec` — one endpoint (method, path, auth, hooks, pagination)
+- `EndpointSpec` — one endpoint (method: Option, path: Option, auth, hooks, pagination). Method and path are inferred for standard CRUD names (list, get, create, update, delete).
 - `ShaperailError` — unified error enum used across all crates
 - `WorkspaceConfig` — multi-service workspace definition (M17)
 - `ServiceDefinition` — a single service within a workspace (M17)
@@ -52,6 +52,9 @@ Key modules:
 - `validator` — semantic validation of parsed resource
 - `emitter` — ResourceDefinition → Rust source code strings
 - `migrator` — ResourceDefinition diff → SQL migration
+- `json_schema` — JSON Schema generation from ResourceDefinition
+- `diagnostics` — structured parse/validation error reporting
+- `feature_check` — feature flag gating for progressive disclosure
 - `workspace_parser` — YAML → WorkspaceConfig + SagaDefinition (M17)
 - `service_client` — typed inter-service client code generation (M17)
 
@@ -90,3 +93,7 @@ Commands (v2 — all implemented):
 - `shaperail doctor`             — check system deps
 - `shaperail routes`             — print all routes with auth requirements
 - `shaperail jobs:status`        — show Redis queue depths and dead letter count
+- `shaperail check`              — deep project validation (resources, config, controllers)
+- `shaperail explain <resource>`  — print resolved endpoints with inferred method/path
+- `shaperail diff <resource>`     — show what changed since last codegen
+- `shaperail export json-schema`  — output JSON Schema for the resource format

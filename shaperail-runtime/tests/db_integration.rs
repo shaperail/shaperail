@@ -202,8 +202,8 @@ fn test_resource_with_soft_delete_endpoint() -> ResourceDefinition {
     endpoints.insert(
         "delete".to_string(),
         EndpointSpec {
-            method: HttpMethod::Delete,
-            path: "/test_users/:id".to_string(),
+            method: Some(HttpMethod::Delete),
+            path: Some("/test_users/:id".to_string()),
             auth: None,
             input: None,
             filters: None,

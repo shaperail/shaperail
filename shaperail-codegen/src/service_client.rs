@@ -102,7 +102,7 @@ fn generate_endpoint_method(
     let resource_type = pascal_case(&resource.resource);
     let version = resource.version;
 
-    let has_id_param = endpoint.path.contains(":id");
+    let has_id_param = endpoint.path().contains(":id");
     let has_input = endpoint.input.is_some() && !endpoint.input.as_ref().is_none_or(Vec::is_empty);
 
     let mut out = String::new();
@@ -110,8 +110,8 @@ fn generate_endpoint_method(
     // Method signature
     out.push_str(&format!(
         "    /// {method} {path}\n",
-        method = endpoint.method,
-        path = endpoint.path
+        method = endpoint.method(),
+        path = endpoint.path()
     ));
     out.push_str(&format!("    pub async fn {method_name}(\n"));
     out.push_str("        &self,\n");
@@ -123,7 +123,7 @@ fn generate_endpoint_method(
     }
     out.push_str(&format!(
         "    ) -> Result<{return_type}, ClientError> {{\n",
-        return_type = match endpoint.method {
+        return_type = match *endpoint.method() {
             HttpMethod::Delete => "()".to_string(),
             HttpMethod::Get if ep_name == "list" => format!("Vec<{resource_type}>"),
             _ => resource_type.clone(),
@@ -131,7 +131,7 @@ fn generate_endpoint_method(
     ));
 
     // Build URL — generate a Rust format!() call as source code
-    let versioned_path = format!("/v{version}{}", endpoint.path);
+    let versioned_path = format!("/v{version}{}", endpoint.path());
     if has_id_param {
         // Output: let url = format!("{}/v1/users/{}", self.base_url, id);
         let path_with_placeholder = versioned_path.replace(":id", "{}");
@@ -146,7 +146,7 @@ fn generate_endpoint_method(
     }
 
     // Build request
-    let http_method = match endpoint.method {
+    let http_method = match *endpoint.method() {
         HttpMethod::Get => "get",
         HttpMethod::Post => "post",
         HttpMethod::Patch => "patch",
@@ -172,7 +172,7 @@ fn generate_endpoint_method(
     out.push_str("            return Err(ClientError::Api { status, body });\n");
     out.push_str("        }\n");
 
-    match endpoint.method {
+    match *endpoint.method() {
         HttpMethod::Delete => {
             out.push_str("        Ok(())\n");
         }

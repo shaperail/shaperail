@@ -51,7 +51,7 @@ pub fn generate_resource_module(resource: &ResourceDefinition) -> Result<String,
             .map(|endpoint| {
                 format!(
                     "            {path:?} => self.{helper}(filters, search, sort, page).await,",
-                    path = endpoint.spec.path,
+                    path = endpoint.spec.path(),
                     helper = endpoint.helper_name
                 )
             })
@@ -59,7 +59,7 @@ pub fn generate_resource_module(resource: &ResourceDefinition) -> Result<String,
             .join("\n");
 
         format!(
-            "        match endpoint.path.as_str() {{\n{arms}\n            _ => Err(shaperail_core::ShaperailError::Internal(format!(\"No generated list query for {{}}\", endpoint.path))),\n        }}"
+            "        match endpoint.path() {{\n{arms}\n            _ => Err(shaperail_core::ShaperailError::Internal(format!(\"No generated list query for {{}}\", endpoint.path()))),\n        }}"
         )
     };
 
@@ -204,8 +204,119 @@ pub fn build_store_registry(pool: sqlx::PgPool) -> shaperail_runtime::db::StoreR
 pub fn build_controller_map() -> shaperail_runtime::handlers::controller::ControllerMap {{
     shaperail_runtime::handlers::controller::ControllerMap::new()
 }}
-"#
+
+{controller_traits}
+"#,
+        controller_traits = generate_controller_traits(resources)
     )
+}
+
+/// Generate typed controller trait stubs for all resources that declare controllers.
+///
+/// For each resource with controller declarations, generates:
+/// - An input struct for each endpoint action that has a controller
+/// - A trait with the exact function signatures the controller must implement
+///
+/// This eliminates the #1 source of LLM errors: guessing controller function signatures.
+fn generate_controller_traits(resources: &[ResourceDefinition]) -> String {
+    let mut output = String::new();
+
+    for resource in resources {
+        let endpoints_with_controllers: Vec<_> = resource
+            .endpoints
+            .as_ref()
+            .map(|endpoints| {
+                endpoints
+                    .iter()
+                    .filter(|(_, ep)| ep.controller.is_some())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        if endpoints_with_controllers.is_empty() {
+            continue;
+        }
+
+        let pascal = to_pascal_case(&resource.resource);
+        let mut trait_methods = Vec::new();
+
+        for (action, ep) in &endpoints_with_controllers {
+            let controller = ep.controller.as_ref().unwrap();
+            let action_pascal = to_pascal_case(action);
+
+            // Determine input fields for this endpoint
+            let input_fields: Vec<_> = ep
+                .input
+                .as_ref()
+                .map(|fields| {
+                    fields
+                        .iter()
+                        .filter_map(|name| {
+                            resource.schema.get(name).map(|field| {
+                                format!("    pub {name}: {},", model_field_type(field))
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            if !input_fields.is_empty() {
+                output.push_str(&format!(
+                    r#"
+/// Input fields for the {resource_name} {action} endpoint.
+/// Auto-generated from the resource schema — do not edit.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct {pascal}{action_pascal}Input {{
+{fields}
+}}
+"#,
+                    resource_name = resource.resource,
+                    fields = input_fields.join("\n"),
+                ));
+            }
+
+            // Generate trait method for before hook
+            if let Some(before) = &controller.before {
+                if !before.starts_with(shaperail_core::WASM_HOOK_PREFIX) {
+                    let input_type = if input_fields.is_empty() {
+                        "serde_json::Value".to_string()
+                    } else {
+                        format!("{pascal}{action_pascal}Input")
+                    };
+                    trait_methods.push(format!(
+                        "    /// Before-hook for the {action} endpoint. Called before the DB operation.\n    async fn {before}(ctx: &shaperail_runtime::handlers::controller::ControllerContext, input: &{input_type}) -> Result<(), shaperail_core::ShaperailError>;"
+                    ));
+                }
+            }
+
+            // Generate trait method for after hook
+            if let Some(after) = &controller.after {
+                if !after.starts_with(shaperail_core::WASM_HOOK_PREFIX) {
+                    trait_methods.push(format!(
+                        "    /// After-hook for the {action} endpoint. Called after the DB operation.\n    async fn {after}(ctx: &shaperail_runtime::handlers::controller::ControllerContext, result: &serde_json::Value) -> Result<serde_json::Value, shaperail_core::ShaperailError>;"
+                    ));
+                }
+            }
+        }
+
+        if !trait_methods.is_empty() {
+            output.push_str(&format!(
+                r#"
+/// Controller trait for the {resource_name} resource.
+/// Implement this trait in `controllers/{resource_name}.controller.rs`.
+/// The compiler will enforce correct signatures — no guessing needed.
+#[async_trait::async_trait]
+pub trait {pascal}Controller {{
+{methods}
+}}
+"#,
+                resource_name = resource.resource,
+                methods = trait_methods.join("\n\n"),
+            ));
+        }
+    }
+
+    output
 }
 
 #[derive(Clone)]
@@ -247,7 +358,7 @@ impl<'a> ResourceContext<'a> {
                 endpoints
                     .iter()
                     .filter(|(_, endpoint)| {
-                        endpoint.method == HttpMethod::Get && !endpoint.path.contains(":id")
+                        *endpoint.method() == HttpMethod::Get && !endpoint.path().contains(":id")
                     })
                     .map(|(name, endpoint)| CollectionEndpoint {
                         spec: endpoint,
@@ -1237,8 +1348,8 @@ mod tests {
         endpoints.insert(
             "list".to_string(),
             EndpointSpec {
-                method: HttpMethod::Get,
-                path: "/users".to_string(),
+                method: Some(HttpMethod::Get),
+                path: Some("/users".to_string()),
                 auth: Some(AuthRule::Public),
                 input: None,
                 filters: Some(vec!["email".to_string()]),

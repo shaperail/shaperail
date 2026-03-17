@@ -1177,8 +1177,9 @@ fn database_url_from_env_or_dotenv() -> Result<Option<String>, Box<dyn std::erro
 "###;
     write_file(&root.join("build.rs"), build_rs)?;
 
-    // Example resource file
-    let example_resource = r#"resource: posts
+    // Example resource file — uses convention-based defaults (method/path inferred)
+    let example_resource = r#"# yaml-language-server: $schema=https://shaperail.dev/schema/resource.v1.json
+resource: posts
 version: 1
 
 schema:
@@ -1190,10 +1191,11 @@ schema:
   created_at: { type: timestamp, generated: true }
   updated_at: { type: timestamp, generated: true }
 
+# Convention-based defaults: for list/get/create/update/delete,
+# method and path are inferred automatically from the resource name.
+# You can still override them explicitly if needed.
 endpoints:
   list:
-    method: GET
-    path: /posts
     auth: public
     filters: [author_id, published]
     search: [title, body]
@@ -1201,25 +1203,17 @@ endpoints:
     sort: [created_at, title]
 
   get:
-    method: GET
-    path: /posts/:id
     auth: public
 
   create:
-    method: POST
-    path: /posts
     auth: [admin, member]
     input: [title, body, author_id, published]
 
   update:
-    method: PATCH
-    path: /posts/:id
     auth: [admin, owner]
     input: [title, body, published]
 
   delete:
-    method: DELETE
-    path: /posts/:id
     auth: [admin]
     soft_delete: true
 "#;
@@ -1240,6 +1234,10 @@ endpoints:
         &root.join("migrations/0001_create_posts.sql"),
         &initial_migration,
     )?;
+
+    // Write JSON Schema for resource validation (used by yaml-language-server)
+    let json_schema = shaperail_codegen::json_schema::render_json_schema();
+    write_file(&root.join("resources/.schema.json"), &json_schema)?;
 
     // .env
     let dotenv = format!(
