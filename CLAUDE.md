@@ -177,6 +177,7 @@ infrastructure, update the relevant docs BEFORE committing:
 If docs and code disagree, fix the disagreement immediately (AI-First rule).
 
 ## Git Workflow
-- Branch per milestone: `git checkout -b feat/m01-core-types`
+- Never start new feature work on `main`. Create and switch to a fresh branch first.
+- Branch per milestone or feature: `git checkout -b feat/m01-core-types`
 - Only commit when clippy + tests pass
 - Commit format: `feat(shaperail-core): M01 — Core Types`
