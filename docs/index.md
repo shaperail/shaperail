@@ -117,4 +117,4 @@ Generated Rust, OpenAPI, and routes live in `generated/` and are not hand-edited
 
 ### Examples
 
-- [**Examples**]({{ '/examples/' | relative_url }}) — [Blog API example]({{ '/blog-api-example/' | relative_url }}) plus repository examples for an incident platform, multi-tenant SaaS, multi-service workspaces, and WASM plugins.
+- [**Examples**]({{ '/examples/' | relative_url }}) — [Blog API example]({{ '/blog-api-example/' | relative_url }}) plus direct links to the checked-in repository examples for enterprise SaaS billing, an incident platform, multi-tenant SaaS, multi-service workspaces, and WASM plugins.
