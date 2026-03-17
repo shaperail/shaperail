@@ -5,6 +5,26 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-17
+
+### Added
+
+- **Convention-based endpoint defaults** — `method` and `path` are now optional for the 5 standard CRUD actions (list, get, create, update, delete). Inferred from resource name, reducing tokens and typos.
+- **`shaperail check [--json]`** — Structured diagnostics with stable error codes (SR001–SR072), fix suggestions, and inline YAML examples. `--json` for LLM consumption.
+- **`shaperail explain <file>`** — Dry-run showing routes, table columns, indexes, and relations from a resource file.
+- **`shaperail diff`** — Show what codegen would change without writing files.
+- **`shaperail export json-schema`** — JSON Schema for resource YAML files, for IDE autocomplete and LLM validation.
+- **Resource archetypes** — `shaperail resource create <name> --archetype <type>` with 5 built-in templates: basic, user, content, tenant, lookup.
+- **Controller trait generation** — Codegen produces typed `{Resource}Controller` traits and `{Action}Input` structs. Compiler-enforced function signatures.
+- **Feature flag guardrails** — `shaperail generate` warns when resources use upload/WASM/multi-DB without the matching Cargo feature enabled.
+- **JSON Schema bundled in init** — `shaperail init` writes `resources/.schema.json` for yaml-language-server autocomplete.
+
+### Changed
+
+- `EndpointSpec.method` and `EndpointSpec.path` are now `Option<>` to support convention-based defaults.
+- Scaffolded projects now declare `[features]` for graphql, grpc, and wasm-plugins with proper `#[cfg]` guards.
+- All example resource YAML files simplified to use convention-based defaults.
+
 ## [0.6.0] - 2026-03-16
 
 ### Changed
@@ -122,4 +142,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.2.2]: https://github.com/shaperail/shaperail/releases/tag/v0.2.2
 [0.2.1]: https://github.com/shaperail/shaperail/releases/tag/v0.2.1
 [0.2.0]: https://github.com/shaperail/shaperail/releases/tag/v0.2.0
+[0.7.0]: https://github.com/shaperail/shaperail/releases/tag/v0.7.0
 [0.6.0]: https://github.com/shaperail/shaperail/releases/tag/v0.6.0
