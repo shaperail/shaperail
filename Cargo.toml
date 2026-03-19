@@ -90,7 +90,7 @@ tonic = { version = "0.12", default-features = false, features = ["transport", "
 prost = "0.13"
 prost-types = "0.13"
 tonic-reflection = "0.12"
-tonic-health = "0.12"
+tonic-health = "0.14"
 tokio-stream = { version = "0.1", features = ["net"] }
 
 # WASM Plugins (M19)
