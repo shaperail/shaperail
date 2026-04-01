@@ -3877,6 +3877,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost-types"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
+dependencies = [
+ "prost 0.14.3",
+]
+
+[[package]]
 name = "pulley-interpreter"
 version = "42.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4782,7 +4791,7 @@ dependencies = [
  "opentelemetry_sdk",
  "prometheus",
  "prost 0.13.5",
- "prost-types",
+ "prost-types 0.14.3",
  "redis",
  "sea-orm",
  "sea-query",
@@ -5616,7 +5625,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "878d81f52e7fcfd80026b7fdb6a9b578b3c3653ba987f87f0dce4b64043cba27"
 dependencies = [
  "prost 0.13.5",
- "prost-types",
+ "prost-types 0.13.5",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",
