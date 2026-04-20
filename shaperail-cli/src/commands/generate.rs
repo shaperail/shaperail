@@ -135,21 +135,18 @@ pub(crate) fn write_controller_stubs(
 
         let mut lines = Vec::new();
         for (fn_name, is_after) in &hook_entries {
-            let (ctx_param, return_type, todo_body) = if *is_after {
-                (
-                    "    _result: &mut shaperail_runtime::handlers::ControllerContext,",
-                    "Result<serde_json::Value, shaperail_core::ShaperailError>",
-                    format!("todo!(\"implement {fn_name}\")"),
-                )
+            let kind_comment = if *is_after {
+                "// After-hook: called after the DB write. Access the result via `ctx.data`.\n"
             } else {
-                (
-                    "    ctx: &mut shaperail_runtime::handlers::ControllerContext,",
-                    "Result<(), shaperail_core::ShaperailError>",
-                    format!("todo!(\"implement {fn_name}\")"),
-                )
+                "// Before-hook: called before the DB write. Modify input via `ctx.input`.\n"
             };
             lines.push(format!(
-                "pub async fn {fn_name}(\n{ctx_param}\n) -> {return_type} {{\n    {todo_body}\n}}\n"
+                r#"{kind_comment}pub async fn {fn_name}(
+    ctx: &mut shaperail_runtime::handlers::ControllerContext,
+) -> Result<(), shaperail_core::ShaperailError> {{
+    todo!("implement {fn_name}")
+}}
+"#
             ));
         }
 
@@ -201,15 +198,17 @@ endpoints:
             contents.contains("todo!"),
             "stub should have todo! placeholder"
         );
-        // before-hook returns Result<(), ...>
-        assert!(
-            contents.contains("Result<(), shaperail_core::ShaperailError>"),
-            "before-hook stub should return Result<(), ShaperailError>"
+        // ALL hooks (before and after) must return Result<(), ShaperailError>
+        let occurrences = contents
+            .matches("Result<(), shaperail_core::ShaperailError>")
+            .count();
+        assert_eq!(
+            occurrences, 2,
+            "both before-hook and after-hook stubs must return Result<(), shaperail_core::ShaperailError>"
         );
-        // after-hook returns Result<serde_json::Value, ...>
         assert!(
-            contents.contains("Result<serde_json::Value, shaperail_core::ShaperailError>"),
-            "after-hook stub should return Result<serde_json::Value, ShaperailError>"
+            !contents.contains("serde_json::Value"),
+            "after-hook stub must NOT use serde_json::Value as return type"
         );
     }
 
