@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use shaperail_core::ResourceDefinition;
+use shaperail_core::{ResourceDefinition, WASM_HOOK_PREFIX};
 
 use super::load_all_resources;
 
@@ -97,30 +97,34 @@ pub(crate) fn write_controller_stubs(
     resources: &[ResourceDefinition],
     resources_dir: &Path,
 ) -> Result<(), String> {
-    use shaperail_core::WASM_HOOK_PREFIX;
+    fs::create_dir_all(resources_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", resources_dir.display()))?;
 
     for resource in resources {
         let Some(endpoints) = &resource.endpoints else {
             continue;
         };
 
-        let hook_names: Vec<&str> = endpoints
+        // Collect (fn_name, is_after) pairs for non-WASM hooks
+        let hook_entries: Vec<(&str, bool)> = endpoints
             .iter()
             .filter_map(|(_, ep)| ep.controller.as_ref())
             .flat_map(|c| {
                 let before = c
                     .before
                     .as_deref()
-                    .filter(|s| !s.starts_with(WASM_HOOK_PREFIX));
+                    .filter(|s| !s.starts_with(WASM_HOOK_PREFIX))
+                    .map(|name| (name, false));
                 let after = c
                     .after
                     .as_deref()
-                    .filter(|s| !s.starts_with(WASM_HOOK_PREFIX));
+                    .filter(|s| !s.starts_with(WASM_HOOK_PREFIX))
+                    .map(|name| (name, true));
                 [before, after].into_iter().flatten()
             })
             .collect();
 
-        if hook_names.is_empty() {
+        if hook_entries.is_empty() {
             continue;
         }
 
@@ -130,14 +134,22 @@ pub(crate) fn write_controller_stubs(
         }
 
         let mut lines = Vec::new();
-        for fn_name in &hook_names {
+        for (fn_name, is_after) in &hook_entries {
+            let (ctx_param, return_type, todo_body) = if *is_after {
+                (
+                    "    _result: &mut shaperail_runtime::handlers::ControllerContext,",
+                    "Result<serde_json::Value, shaperail_core::ShaperailError>",
+                    format!("todo!(\"implement {fn_name}\")"),
+                )
+            } else {
+                (
+                    "    ctx: &mut shaperail_runtime::handlers::ControllerContext,",
+                    "Result<(), shaperail_core::ShaperailError>",
+                    format!("todo!(\"implement {fn_name}\")"),
+                )
+            };
             lines.push(format!(
-                r#"pub async fn {fn_name}(
-    ctx: &mut shaperail_runtime::handlers::ControllerContext,
-) -> Result<(), shaperail_core::ShaperailError> {{
-    todo!("implement {fn_name}")
-}}
-"#
+                "pub async fn {fn_name}(\n{ctx_param}\n) -> {return_type} {{\n    {todo_body}\n}}\n"
             ));
         }
 
@@ -155,8 +167,8 @@ mod tests {
     #[test]
     fn controller_stub_written_when_file_missing() {
         let dir = tempfile::tempdir().unwrap();
+        // Intentionally do NOT pre-create resources_dir — write_controller_stubs must create it
         let resources_dir = dir.path().join("resources");
-        std::fs::create_dir_all(&resources_dir).unwrap();
 
         let yaml = r#"
 resource: orders
@@ -169,6 +181,7 @@ endpoints:
     input: [id]
     controller:
       before: check_inventory
+      after: audit_order
 "#;
         let rd = parse_resource(yaml).unwrap();
         write_controller_stubs(&[rd], &resources_dir).unwrap();
@@ -178,11 +191,25 @@ endpoints:
         let contents = std::fs::read_to_string(&stub_path).unwrap();
         assert!(
             contents.contains("check_inventory"),
-            "stub should contain function name"
+            "stub should contain before-hook function name"
+        );
+        assert!(
+            contents.contains("audit_order"),
+            "stub should contain after-hook function name"
         );
         assert!(
             contents.contains("todo!"),
             "stub should have todo! placeholder"
+        );
+        // before-hook returns Result<(), ...>
+        assert!(
+            contents.contains("Result<(), shaperail_core::ShaperailError>"),
+            "before-hook stub should return Result<(), ShaperailError>"
+        );
+        // after-hook returns Result<serde_json::Value, ...>
+        assert!(
+            contents.contains("Result<serde_json::Value, shaperail_core::ShaperailError>"),
+            "after-hook stub should return Result<serde_json::Value, ShaperailError>"
         );
     }
 
