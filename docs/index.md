@@ -47,7 +47,7 @@ A typical REST resource in plain Rust spans handler files, database models, migr
 | **Deterministic output** | Same resource files produce the same OpenAPI spec and code every time. |
 | **Docker-first dev** | `docker compose up -d` gives you Postgres and Redis; no manual DB setup. |
 
-> Working with an LLM? Load [llm-guide.md](/llm-guide/) as context — it is the sole file an AI assistant needs to generate valid Shaperail resources.
+> Working with an LLM? Load the [LLM Guide](/llm-guide/) as context — it is the sole file an AI assistant needs to generate valid Shaperail resources.
 
 ---
 
