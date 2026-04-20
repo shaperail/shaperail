@@ -83,20 +83,35 @@ Generated Rust, OpenAPI, and routes live in `generated/` and are not hand-edited
 
 ## Features at a glance
 
-- **REST API** — List, get, create, update, delete, bulk create/delete; cursor or offset pagination; filters, sort, full-text search; field selection and relation loading (`?include=…`).
-- **GraphQL** — Enable with `protocols: [rest, graphql]`. The current generated schema exposes `list_<resource>`, singular get-by-id fields, and `create_` / `update_` / `delete_` mutations. List fields currently support `limit` and `offset` only.
-- **gRPC** — Enable with `protocols: [rest, grpc]`. The current server supports list, stream, get, create, and delete RPCs plus health/reflection. `Update` is not implemented yet, and the CLI does not currently write `.proto` files to disk.
-- **Multi-database** — Optional `databases:` in config with named connections (e.g. `default`, `analytics`). Per-resource `db:` routes that resource to a connection; migrations run against `default`.
-- **API versioning** — Per-resource `version` field prefixes all routes (`/v1/users`, `/v2/orders`). OpenAPI spec and CLI output reflect versioned paths.
-- **Controllers** — Synchronous before/after business logic on write endpoints. Validate input, normalize data, enrich responses — in Rust or sandboxed WASM (TypeScript, Python, Rust, etc.).
-- **Auth** — JWT auth is scaffolded from `JWT_SECRET`. API key auth and Redis-backed rate limiting exist as runtime primitives but require manual wiring in the generated app.
-- **Caching** — Redis-backed cache per GET endpoint with TTL and configurable invalidation.
-- **Background jobs** — Endpoint `jobs:` declarations enqueue work into the Redis queue. Running a worker and registering handlers is still a manual bootstrap step.
-- **WebSockets** — Runtime session/channel primitives exist, but the scaffold does not auto-load `channels/*.channel.yaml` or register `/ws/...` routes.
-- **File storage** — Local, S3, GCS, Azure; upload validation, signed URLs, image processing.
-- **Events & webhooks** — Write handlers can emit events into the job queue. Subscriber execution, webhook delivery handlers, and inbound webhook route registration still require manual wiring.
-- **Observability** — Structured JSON logs, request_id, PII redaction; Prometheus metrics; OpenTelemetry; `/health` and `/health/ready`.
-- **Multi-service workspaces** — `shaperail serve --workspace` validates a workspace and starts each service in dependency order. Registry, typed clients, and saga orchestration are not wired into that flow yet.
-- **Multi-tenancy** — Add `tenant_key: org_id` to any resource for automatic row-level isolation. Queries are scoped to the JWT `tenant_id` claim; cache keys are per-tenant; rate-limit keys are too when the limiter is wired; `super_admin` bypasses the filter.
-- **WASM plugins** — Write controller hooks in TypeScript, Python, Rust, or any language that compiles to WASM. Sandboxed execution with no filesystem or network access; fuel-limited; crash-isolated from the server.
-- **OpenAPI & SDK** — Deterministic OpenAPI 3.1; TypeScript SDK generation.
+### Production-ready today
+
+Everything below works from a resource YAML file with no manual wiring.
+
+- **REST API** — List, get, create, update, delete, bulk create/delete; cursor and offset pagination; filters, sort, full-text search; field selection; relation loading (`?include=`)
+- **Authentication** — JWT auth; role-based and owner-based access control declared per endpoint
+- **Caching** — Redis-backed cache per GET endpoint with TTL, auto-invalidation on writes, configurable `invalidate_on`
+- **File storage** — Local, S3, GCS, Azure; upload validation, signed URLs, image processing
+- **Multi-tenancy** — Row-level isolation via `tenant_key`; per-tenant cache and rate-limit keys; `super_admin` bypass
+- **Observability** — Structured JSON logs, request_id propagation, Prometheus metrics, health endpoints (`/health`, `/health/ready`), OpenTelemetry trace export
+- **Migrations** — Initial create-table SQL generated from schema; sqlx compile-time verified
+- **OpenAPI 3.1** — Deterministic spec generation; TypeScript SDK generation
+- **WASM plugins** — Controller hooks in TypeScript, Python, Rust, or any WASM-targeting language; sandboxed, fuel-limited, crash-isolated
+
+### Available — requires manual wiring
+
+The runtime primitives exist and are documented. Connecting them requires code in your `main.rs` or config. Each linked guide explains exactly what to wire.
+
+- **Background jobs** — Queue and worker primitives; worker registration and handler mapping are manual ([Background jobs](/background-jobs/))
+- **Events and webhooks** — Event emission from write handlers works; subscriber execution and inbound route registration are manual ([Events and webhooks](/events-and-webhooks/))
+- **WebSockets** — Session and channel primitives work; route registration is manual ([WebSockets](/websockets/))
+- **API key auth and rate limiting** — Runtime primitives exist; wiring to endpoints is manual ([Auth and ownership](/auth-and-ownership/))
+- **GraphQL** — Enable with `protocols: [rest, graphql]`; generates list/get queries and create/update/delete mutations; list queries support `limit`/`offset` only ([GraphQL](/graphql/))
+- **gRPC** — Enable with `protocols: [rest, grpc]`; supports list, stream, get, create, delete; `Update` RPC is not yet implemented ([gRPC](/grpc/))
+
+### In progress
+
+- gRPC Update RPC
+- WebSocket auto-routing from channel YAML files
+- Events subscriber auto-execution
+- Workspace service registry and saga orchestration
+- Background job worker auto-registration
