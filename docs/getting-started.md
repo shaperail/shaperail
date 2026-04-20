@@ -1,7 +1,6 @@
 ---
 title: Getting started
-parent: Guides
-nav_order: 1
+nav_order: 2
 ---
 
 This guide gets you from zero to a running Shaperail service with browser docs,
