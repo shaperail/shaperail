@@ -63,6 +63,7 @@ schema:
   status:       { type: enum, values: [draft, published, archived], default: draft }
   created_by:   { type: uuid, required: true }
   published_at: { type: timestamp, nullable: true }
+  deleted_at:   { type: timestamp, nullable: true }
   created_at:   { type: timestamp, generated: true }
   updated_at:   { type: timestamp, generated: true }
 

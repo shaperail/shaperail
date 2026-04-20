@@ -92,6 +92,7 @@ schema:
   last_name:    { type: string, min: 1, max: 100, required: true }
   display_name: { type: string, max: 200 }
   role:         { type: enum, values: [admin, member, viewer], default: member }
+  deleted_at:   { type: timestamp, nullable: true }
   created_at:   { type: timestamp, generated: true }
   updated_at:   { type: timestamp, generated: true }
 

@@ -1163,6 +1163,7 @@ schema:
   status:             { type: enum, values: [active, suspended, closed], default: active }
   credit_limit_cents: { type: bigint, default: 0 }
   created_by:         { type: uuid, required: true }
+  deleted_at:         { type: timestamp, nullable: true }
   created_at:         { type: timestamp, generated: true }
   updated_at:         { type: timestamp, generated: true }
 
@@ -1218,6 +1219,7 @@ schema:
   sent_at:        { type: timestamp, nullable: true }
   paid_at:        { type: timestamp, nullable: true }
   created_by:     { type: uuid, required: true }
+  deleted_at:     { type: timestamp, nullable: true }
   created_at:     { type: timestamp, generated: true }
   updated_at:     { type: timestamp, generated: true }
 
