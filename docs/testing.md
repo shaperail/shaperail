@@ -545,8 +545,8 @@ Load a specific seed file:
 shaperail seed seeds/users.yaml
 ```
 
-For tests, you can also insert data programmatically using the test helpers
-shown in the integration test examples above.
+For tests, insert data programmatically using the test helpers shown in the
+integration test examples above.
 
 ### Test data builder pattern
 

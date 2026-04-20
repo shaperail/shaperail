@@ -35,9 +35,9 @@ jobs:
             ${{ runner.os }}-cargo-${{ github.job }}-
             ${{ runner.os }}-cargo-
       - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo bench --workspace --no-run
-      - run: cargo build --workspace
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo bench --locked --workspace --no-run
+      - run: cargo build --locked --workspace
 
   test:
     name: Tests
@@ -84,7 +84,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ github.job }}-
             ${{ runner.os }}-cargo-
-      - run: cargo test --workspace
+      - run: cargo test --locked --workspace
 
   audit:
     name: Security Audit

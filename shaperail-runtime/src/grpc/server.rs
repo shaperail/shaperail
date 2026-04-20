@@ -6,7 +6,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use http_body_util::BodyExt;
 use prost::bytes::Bytes;
 use shaperail_core::{GrpcConfig, ResourceDefinition};
 use tokio::task::JoinHandle;
@@ -105,8 +104,7 @@ enum GrpcResponse {
     Stream(Vec<Bytes>),
 }
 
-/// The tonic body type used in 0.12.
-type TonicBody = tonic::body::BoxBody;
+type TonicBody = tonic::body::Body;
 
 /// Wrapper implementing tonic's Service trait for dynamic dispatch.
 #[derive(Clone)]
@@ -220,9 +218,7 @@ fn grpc_data_response(data: &[u8]) -> http::Response<TonicBody> {
     frame.extend_from_slice(&len.to_be_bytes());
     frame.extend_from_slice(data);
 
-    let body = http_body_util::Full::new(Bytes::from(frame))
-        .map_err(|never: std::convert::Infallible| match never {});
-    let boxed = TonicBody::new(body);
+    let boxed = TonicBody::new(http_body_util::Full::new(Bytes::from(frame)));
 
     http::Response::builder()
         .status(200)
@@ -239,9 +235,7 @@ fn grpc_error_response(code: tonic::Code, message: &str) -> http::Response<Tonic
 
 /// Build an empty gRPC response with status and message headers.
 fn empty_grpc_response(code: i32, message: &str) -> http::Response<TonicBody> {
-    let body = http_body_util::Full::new(Bytes::new())
-        .map_err(|never: std::convert::Infallible| match never {});
-    let boxed = TonicBody::new(body);
+    let boxed = TonicBody::new(http_body_util::Full::new(Bytes::new()));
 
     http::Response::builder()
         .status(200)
@@ -250,10 +244,7 @@ fn empty_grpc_response(code: i32, message: &str) -> http::Response<TonicBody> {
         .header("grpc-message", message)
         .body(boxed)
         .unwrap_or_else(|_| {
-            // Last resort fallback
-            let fb = http_body_util::Full::new(Bytes::new())
-                .map_err(|never: std::convert::Infallible| match never {});
-            http::Response::new(TonicBody::new(fb))
+            http::Response::new(TonicBody::new(http_body_util::Full::new(Bytes::new())))
         })
 }
 
@@ -276,7 +267,7 @@ pub async fn build_grpc_server(
     let grpc_service = ShaperailGrpcServiceServer { inner: svc };
 
     // Health service
-    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    let (health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter
         .set_serving::<ShaperailGrpcServiceServer>()
         .await;

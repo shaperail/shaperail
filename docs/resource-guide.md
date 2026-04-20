@@ -186,10 +186,7 @@ Shaperail infers them from the resource name:
 For any **custom** endpoint name (e.g. `bulk_create`, `archive`), `method` and
 `path` are **required** — the parser cannot guess them.
 
-You can still specify `method` and `path` explicitly on standard actions if you
-want to override the convention (e.g. using PUT instead of PATCH for `update`).
-
-Minimal example using convention defaults:
+Example:
 
 ```yaml
 endpoints:
@@ -201,26 +198,6 @@ endpoints:
     sort: [created_at, title]
 
   create:
-    auth: [admin, member]
-    input: [title, slug, body, status, created_by]
-```
-
-Equivalent explicit form (still valid):
-
-```yaml
-endpoints:
-  list:
-    method: GET
-    path: /posts
-    auth: public
-    filters: [status, created_by]
-    search: [title, body]
-    pagination: cursor
-    sort: [created_at, title]
-
-  create:
-    method: POST
-    path: /posts
     auth: [admin, member]
     input: [title, slug, body, status, created_by]
 ```
@@ -261,7 +238,7 @@ Important behavior:
 - `input` controls which fields are accepted for writes.
 - `filters`, `search`, `pagination`, and `sort` only exist when declared.
 - `soft_delete: true` changes delete semantics to a `deleted_at` workflow.
-  Requires an `updated_at` field in the schema.
+  Requires `deleted_at: { type: timestamp, nullable: true }` in the schema.
 - Controllers, jobs, events, and cache behavior are attached per endpoint, not
   inferred globally.
 - Every create/update/delete automatically emits an event (`resource.action`)

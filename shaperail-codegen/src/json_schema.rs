@@ -220,7 +220,6 @@ pub fn generate_resource_json_schema() -> Value {
             "EndpointSpec": {
                 "type": "object",
                 "description": "Specification for a single endpoint in a resource.",
-                "required": ["method", "path"],
                 "additionalProperties": false,
                 "properties": {
                     "method": { "$ref": "#/$defs/HttpMethod" },
@@ -267,7 +266,7 @@ pub fn generate_resource_json_schema() -> Value {
                     "soft_delete": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Whether this endpoint performs a soft delete. Requires an 'updated_at' field in schema."
+                        "description": "Whether this endpoint performs a soft delete. Requires a 'deleted_at' nullable timestamp field in schema."
                     }
                 }
             },

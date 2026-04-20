@@ -73,10 +73,13 @@ pub fn run(path: &Path, json_output: bool) -> i32 {
     }
 
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&all_diagnostics).unwrap_or_else(|_| "[]".to_string())
-        );
+        match serde_json::to_string_pretty(&all_diagnostics) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("JSON serialization failed: {e}");
+                return 1;
+            }
+        }
     }
 
     if has_errors {

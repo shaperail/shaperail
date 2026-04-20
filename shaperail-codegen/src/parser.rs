@@ -70,7 +70,7 @@ schema:
         let rd = parse_resource(yaml).unwrap();
         assert_eq!(rd.resource, "users");
         assert_eq!(rd.version, 1);
-        assert_eq!(rd.schema.len(), 9);
+        assert_eq!(rd.schema.len(), 10);
         assert!(rd.endpoints.is_some());
         assert!(rd.relations.is_some());
         assert!(rd.indexes.is_some());

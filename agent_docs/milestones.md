@@ -47,7 +47,7 @@ Example: `/milestone 1` builds Core Types. `/milestone 14` builds Multi-DB suppo
 **Deliverables:**
 - [x] `parser` module: YAML string → `ResourceDefinition` (exact PRD format: `resource:` key, inline fields)
 - [x] `config_parser` module: shaperail.config.yaml → `ProjectConfig`
-- [x] `validator` module: semantic checks — enum needs values, soft_delete needs updated_at, ref field must be uuid type, hooks list must be strings
+- [x] `validator` module: semantic checks — enum needs values, soft_delete needs deleted_at, ref field must be uuid type, hooks list must be strings
 - [x] Error messages in format: `"resource 'users': field 'role' is type enum but has no values"`
 - [x] `shaperail validate <file>` CLI subcommand: reads resource file, prints errors or "✓ valid"
 - [x] Snapshot tests (insta): 5 valid resources → snapshot parsed output; 10 invalid → snapshot error messages
