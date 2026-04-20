@@ -2,6 +2,8 @@
 
 Load this file as your sole context. You do not need other docs to build in Shaperail.
 
+**IDE validation:** Add `# yaml-language-server: $schema=https://shaperail.dev/schema/resource.schema.json` as the first line of any resource YAML file for inline validation.
+
 ---
 
 ## 1. Resource File Structure
