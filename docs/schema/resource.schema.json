@@ -291,10 +291,6 @@
     "EndpointSpec": {
       "type": "object",
       "description": "Specification for a single endpoint in a resource.",
-      "required": [
-        "method",
-        "path"
-      ],
       "additionalProperties": false,
       "properties": {
         "method": {
@@ -365,7 +361,7 @@
         "soft_delete": {
           "type": "boolean",
           "default": false,
-          "description": "Whether this endpoint performs a soft delete. Requires an 'updated_at' field in schema."
+          "description": "Whether this endpoint performs a soft delete. Requires a 'deleted_at' nullable timestamp field in schema."
         }
       }
     },

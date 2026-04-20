@@ -270,14 +270,14 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                 }
             }
 
-            if ep.soft_delete && !rd.schema.contains_key("updated_at") {
+            if ep.soft_delete && !rd.schema.contains_key("deleted_at") {
                 diags.push(Diagnostic {
                     code: "SR041",
                     error: format!(
-                        "resource '{res}': endpoint '{action}' has soft_delete but schema has no 'updated_at' field"
+                        "resource '{res}': endpoint '{action}' has soft_delete but schema has no 'deleted_at' field"
                     ),
-                    fix: "add an 'updated_at' timestamp field to the schema".into(),
-                    example: "updated_at: { type: timestamp, generated: true }".into(),
+                    fix: "add 'deleted_at: { type: timestamp, nullable: true }' to the schema".into(),
+                    example: "deleted_at: { type: timestamp, nullable: true }".into(),
                 });
             }
 

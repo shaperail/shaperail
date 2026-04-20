@@ -37,7 +37,7 @@ indexes: ...          # list of index definitions (optional)
 | json      |                 | required, nullable                                                    |
 | array     | items           | items (required — e.g. `items: string`), required                    |
 
-`format` valid values: `email`, `url`, `slug`, `phone` (string fields only).
+`format` valid values: `email`, `url`, `uuid` (string fields only).
 `ref` format: `resource_name.field_name` — the field must be `type: uuid`.
 
 ---
@@ -53,7 +53,7 @@ indexes: ...          # list of index definitions (optional)
 | nullable  | bool    | timestamp, json      | Allows null — overrides `required`                              |
 | min       | number  | string, int, float   | Min length (string) or minimum value (numbers)                  |
 | max       | number  | string, int, float   | Max length (string) or maximum value (numbers)                  |
-| format    | string  | string only          | Validation format: email / url / slug / phone                   |
+| format    | string  | string only          | Validation format: email / url / uuid                           |
 | values    | list    | enum only            | Allowed enum values — required when `type: enum`                |
 | default   | any     | enum, bool, int      | Default value. For enum must be one of `values`                 |
 | ref       | string  | uuid only            | Foreign key reference in `resource.field` format                |
