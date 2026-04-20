@@ -86,8 +86,8 @@ async-graphql = { version = "7", default-features = false, features = ["chrono",
 async-graphql-actix-web = { version = "7", default-features = false }
 
 # gRPC (M16)
-tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
-prost = "0.13"
+tonic = { version = "0.14", default-features = false, features = ["transport", "router"] }
+prost = "0.14"
 prost-types = "0.14"
 tonic-reflection = "0.14"
 tonic-health = "0.14"
