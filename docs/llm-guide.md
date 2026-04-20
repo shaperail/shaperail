@@ -1,3 +1,8 @@
+---
+title: Shaperail LLM Guide
+nav_exclude: true
+---
+
 # Shaperail LLM Guide
 
 Load this file as your sole context. You do not need other docs to build in Shaperail.
