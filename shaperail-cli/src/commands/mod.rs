@@ -7,6 +7,7 @@ pub mod export;
 pub mod generate;
 pub mod init;
 pub mod jobs_status;
+pub mod llm_context;
 pub mod migrate;
 pub mod resource;
 pub mod routes;

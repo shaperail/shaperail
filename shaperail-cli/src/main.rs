@@ -97,6 +97,16 @@ enum Commands {
         /// Optional job ID to inspect
         job_id: Option<String>,
     },
+    /// Dump a project-aware context summary for LLM consumption
+    #[command(name = "llm-context")]
+    LlmContext {
+        /// Filter to a single resource by name
+        #[arg(short, long)]
+        resource: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Manage resource files
     Resource {
         #[command(subcommand)]
@@ -178,6 +188,9 @@ fn main() {
         Commands::Doctor => commands::doctor::run(),
         Commands::Routes => commands::routes::run(),
         Commands::JobsStatus { job_id } => commands::jobs_status::run(job_id.as_deref()),
+        Commands::LlmContext { resource, json } => {
+            commands::llm_context::run(resource.as_deref(), json)
+        }
         Commands::Resource { action } => match action {
             ResourceAction::Create { name, archetype } => {
                 commands::resource::run_create(&name, &archetype)
