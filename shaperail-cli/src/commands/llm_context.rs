@@ -37,7 +37,10 @@ pub fn run(resource_filter: Option<&str>, json_output: bool) -> i32 {
         .collect();
 
     if json_output {
-        print_json(&config, &filtered, &all_diags);
+        if let Err(e) = print_json(&config, &filtered, &all_diags) {
+            eprintln!("{e}");
+            return 1;
+        }
     } else {
         print_markdown(&config, &filtered, &all_diags);
     }
@@ -48,7 +51,12 @@ fn db_summary(config: &ProjectConfig) -> String {
     if let Some(ref dbs) = config.databases {
         let mut engines: Vec<String> = dbs
             .values()
-            .map(|d| format!("{:?}", d.engine).to_lowercase())
+            .map(|d| {
+                serde_json::to_value(d.engine)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_else(|| format!("{:?}", d.engine).to_lowercase())
+            })
             .collect();
         engines.sort();
         engines.dedup();
@@ -218,7 +226,7 @@ fn print_json(
     config: &ProjectConfig,
     resources: &[&shaperail_core::ResourceDefinition],
     diags: &[(String, shaperail_codegen::diagnostics::Diagnostic)],
-) {
+) -> Result<(), String> {
     let resource_list: Vec<serde_json::Value> = resources
         .iter()
         .map(|rd| {
@@ -320,7 +328,10 @@ fn print_json(
         },
     });
 
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    let s = serde_json::to_string_pretty(&output)
+        .map_err(|e| format!("JSON serialization failed: {e}"))?;
+    println!("{s}");
+    Ok(())
 }
 
 #[cfg(test)]
