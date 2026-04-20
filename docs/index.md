@@ -5,7 +5,7 @@ nav_order: 1
 
 # Shaperail
 
-**An AI-native Rust backend framework.** Define resources in YAML; get a production-ready REST API plus optional protocol and async primitives from one canonical schema.
+**Define your API as YAML resources. Shaperail generates the Rust backend — routes, database schema, validation, auth, migrations, and OpenAPI — from that one file.**
 
 *Documentation for v{{ site.release_version }}.*
 
@@ -37,6 +37,8 @@ Your app is available at:
 
 ## Why Shaperail
 
+A typical REST resource in plain Rust spans handler files, database models, migration SQL, validation logic, auth middleware, and OpenAPI annotations — 300–500 lines across 5 or more files. Add another resource, repeat the work. Shaperail replaces all of that with one ~40-line YAML file. The framework reads the file and generates the Rust code, the SQL schema, and the OpenAPI spec deterministically.
+
 | Principle | What it means |
 | --- | --- |
 | **One source of truth** | Resource YAML drives schema, routes, validation, migrations, and OpenAPI. No hidden conventions. |
@@ -45,7 +47,7 @@ Your app is available at:
 | **Deterministic output** | Same resource files produce the same OpenAPI spec and code every time. |
 | **Docker-first dev** | `docker compose up -d` gives you Postgres and Redis; no manual DB setup. |
 
-The framework is built so that docs, codegen, and runtime stay in sync — and so that LLMs can generate valid Shaperail resources and commands with minimal mistakes.
+> Working with an LLM? Load [llm-guide.md](/llm-guide/) as context — it is the sole file an AI assistant needs to generate valid Shaperail resources.
 
 ---
 
@@ -69,7 +71,7 @@ You edit these files; the framework generates the rest.
 | File | Role |
 | --- | --- |
 | `resources/*.yaml` | Schema, endpoints, auth, relations, filters, pagination, cache, indexes |
-| `resources/*.controller.rs` | One workable convention for controller modules; current apps still require manual controller registration |
+| `resources/*.controller.rs` | Business logic before/after DB writes — see [Controllers](/controllers/) |
 | `migrations/*.sql` | SQL that evolves the database (initial create files can be generated; later schema changes are manual SQL today) |
 | `shaperail.config.yaml` | Port, database, cache, auth, storage, logging, event subscribers |
 | `.env` | `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, etc. |
@@ -98,23 +100,3 @@ Generated Rust, OpenAPI, and routes live in `generated/` and are not hand-edited
 - **Multi-tenancy** — Add `tenant_key: org_id` to any resource for automatic row-level isolation. Queries are scoped to the JWT `tenant_id` claim; cache keys are per-tenant; rate-limit keys are too when the limiter is wired; `super_admin` bypasses the filter.
 - **WASM plugins** — Write controller hooks in TypeScript, Python, Rust, or any language that compiles to WASM. Sandboxed execution with no filesystem or network access; fuel-limited; crash-isolated from the server.
 - **OpenAPI & SDK** — Deterministic OpenAPI 3.1; TypeScript SDK generation.
-
----
-
-## Documentation map
-
-### Get going
-
-- [**Getting started**]({{ '/getting-started/' | relative_url }}) — Install CLI, scaffold a project, run the app, first schema change.
-
-### Guides
-
-- [**Guides**]({{ '/guides/' | relative_url }}) — Auth, controllers, migrations, Docker, caching, jobs, WebSockets, file storage, events, observability, GraphQL.
-
-### Reference
-
-- [**Reference**]({{ '/reference/' | relative_url }}) — Resource format, configuration, CLI, API responses and query parameters.
-
-### Examples
-
-- [**Examples**]({{ '/examples/' | relative_url }}) — [Blog API example]({{ '/blog-api-example/' | relative_url }}) plus direct links to the checked-in repository examples for enterprise SaaS billing, an incident platform, multi-tenant SaaS, multi-service workspaces, and WASM plugins.
