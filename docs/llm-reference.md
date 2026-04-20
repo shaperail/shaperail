@@ -1,3 +1,8 @@
+---
+title: Shaperail Quick Reference
+nav_exclude: true
+---
+
 # Shaperail Quick Reference
 
 Terse lookup tables. For patterns and examples, see [llm-guide.md](llm-guide.md).
