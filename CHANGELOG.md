@@ -5,6 +5,18 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-04-20
+
+### Changed
+
+- Add shaperail llm-context command for project-aware LLM context dumps
+- Add llm-guide.md and llm-reference.md — machine-readable context files for AI assistants
+- Add JSON Schema for resource YAML (docs/schema/resource.schema.json)
+- Add runnable incident platform example
+- LLM anti-pattern audit: remove alternative syntax from examples, fix canonical format values
+- Doc overhaul: pain-first homepage, three-tier feature list, nav cleanup
+
+
 ## [0.7.0] - 2026-03-17
 
 ### Added
@@ -144,3 +156,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.2.0]: https://github.com/shaperail/shaperail/releases/tag/v0.2.0
 [0.7.0]: https://github.com/shaperail/shaperail/releases/tag/v0.7.0
 [0.6.0]: https://github.com/shaperail/shaperail/releases/tag/v0.6.0
+[0.8.0]: https://github.com/shaperail/shaperail/releases/tag/v0.8.0
