@@ -32,6 +32,12 @@ pub fn run() -> i32 {
                 "Generated {} resource module(s) in generated/",
                 resources.len()
             );
+
+            // Write controller stubs for any newly declared controllers
+            if let Err(e) = write_controller_stubs(&resources, Path::new("resources")) {
+                eprintln!("Warning: {e}");
+            }
+
             0
         }
         Err(e) => {
@@ -83,4 +89,131 @@ fn clear_generated_rust_files(generated_dir: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Writes a stub controller file for each resource that declares native controller hooks,
+/// if the file does not already exist. Never overwrites existing files.
+pub(crate) fn write_controller_stubs(
+    resources: &[ResourceDefinition],
+    resources_dir: &Path,
+) -> Result<(), String> {
+    use shaperail_core::WASM_HOOK_PREFIX;
+
+    for resource in resources {
+        let Some(endpoints) = &resource.endpoints else {
+            continue;
+        };
+
+        let hook_names: Vec<&str> = endpoints
+            .iter()
+            .filter_map(|(_, ep)| ep.controller.as_ref())
+            .flat_map(|c| {
+                let before = c
+                    .before
+                    .as_deref()
+                    .filter(|s| !s.starts_with(WASM_HOOK_PREFIX));
+                let after = c
+                    .after
+                    .as_deref()
+                    .filter(|s| !s.starts_with(WASM_HOOK_PREFIX));
+                [before, after].into_iter().flatten()
+            })
+            .collect();
+
+        if hook_names.is_empty() {
+            continue;
+        }
+
+        let stub_path = resources_dir.join(format!("{}.controller.rs", resource.resource));
+        if stub_path.exists() {
+            continue;
+        }
+
+        let mut lines = Vec::new();
+        for fn_name in &hook_names {
+            lines.push(format!(
+                r#"pub async fn {fn_name}(
+    ctx: &mut shaperail_runtime::handlers::ControllerContext,
+) -> Result<(), shaperail_core::ShaperailError> {{
+    todo!("implement {fn_name}")
+}}
+"#
+            ));
+        }
+
+        fs::write(&stub_path, lines.join("\n"))
+            .map_err(|e| format!("Failed to write {}: {e}", stub_path.display()))?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shaperail_codegen::parser::parse_resource;
+
+    #[test]
+    fn controller_stub_written_when_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let resources_dir = dir.path().join("resources");
+        std::fs::create_dir_all(&resources_dir).unwrap();
+
+        let yaml = r#"
+resource: orders
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: [admin]
+    input: [id]
+    controller:
+      before: check_inventory
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        write_controller_stubs(&[rd], &resources_dir).unwrap();
+
+        let stub_path = resources_dir.join("orders.controller.rs");
+        assert!(stub_path.exists(), "stub file should be created");
+        let contents = std::fs::read_to_string(&stub_path).unwrap();
+        assert!(
+            contents.contains("check_inventory"),
+            "stub should contain function name"
+        );
+        assert!(
+            contents.contains("todo!"),
+            "stub should have todo! placeholder"
+        );
+    }
+
+    #[test]
+    fn controller_stub_not_overwritten_when_file_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let resources_dir = dir.path().join("resources");
+        std::fs::create_dir_all(&resources_dir).unwrap();
+
+        let existing = resources_dir.join("orders.controller.rs");
+        std::fs::write(&existing, "// existing content").unwrap();
+
+        let yaml = r#"
+resource: orders
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: [admin]
+    input: [id]
+    controller:
+      before: check_inventory
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        write_controller_stubs(&[rd], &resources_dir).unwrap();
+
+        let contents = std::fs::read_to_string(&existing).unwrap();
+        assert_eq!(
+            contents, "// existing content",
+            "existing file must not be overwritten"
+        );
+    }
 }

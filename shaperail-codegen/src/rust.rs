@@ -167,6 +167,53 @@ impl ResourceStore for {store_name} {{
     ))
 }
 
+/// Returns (resource_name, [hook_fn_names]) for each resource with native (non-WASM) controller hooks.
+fn collect_controller_hooks(resources: &[ResourceDefinition]) -> Vec<(&str, Vec<&str>)> {
+    resources
+        .iter()
+        .filter_map(|resource| {
+            let hooks: Vec<&str> = resource
+                .endpoints
+                .as_ref()
+                .map(|eps| {
+                    eps.iter()
+                        .filter_map(|(_, ep)| ep.controller.as_ref())
+                        .flat_map(|c| {
+                            let before = c
+                                .before
+                                .as_deref()
+                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX));
+                            let after = c
+                                .after
+                                .as_deref()
+                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX));
+                            [before, after].into_iter().flatten()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if hooks.is_empty() {
+                None
+            } else {
+                Some((resource.resource.as_str(), hooks))
+            }
+        })
+        .collect()
+}
+
+/// Returns #[path] declarations for job handler modules. Filled in Task 2.
+fn collect_job_path_decls(_resources: &[ResourceDefinition]) -> Vec<String> {
+    Vec::new()
+}
+
+/// Generates the build_job_registry() function. Filled in Task 2.
+fn generate_job_registry(_resources: &[ResourceDefinition]) -> String {
+    r#"pub fn build_job_registry() -> shaperail_runtime::jobs::JobRegistry {
+    shaperail_runtime::jobs::JobRegistry::new()
+}"#
+    .to_string()
+}
+
 fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
     let module_lines = resources
         .iter()
@@ -187,10 +234,64 @@ fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
+    let ctrl_hooks = collect_controller_hooks(resources);
+
+    // #[path] module declarations for controller files
+    let ctrl_path_decls: Vec<String> = ctrl_hooks
+        .iter()
+        .map(|(name, _)| {
+            format!("#[path = \"../resources/{name}.controller.rs\"]\nmod {name}_controller;")
+        })
+        .collect();
+
+    // map.register(...) calls — deduplicated
+    let mut seen_ctrl = std::collections::HashSet::new();
+    let ctrl_register_lines: Vec<String> = ctrl_hooks
+        .iter()
+        .flat_map(|(res_name, hooks)| {
+            hooks
+                .iter()
+                .filter_map(|fn_name| {
+                    let key = (*res_name, *fn_name);
+                    if seen_ctrl.insert(key) {
+                        Some(format!(
+                            "    map.register({res_name:?}, {fn_name:?}, {res_name}_controller::{fn_name});"
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    let ctrl_map_body = if ctrl_register_lines.is_empty() {
+        "    shaperail_runtime::handlers::controller::ControllerMap::new()".to_string()
+    } else {
+        let mut lines = vec![
+            "    let mut map = shaperail_runtime::handlers::controller::ControllerMap::new();"
+                .to_string(),
+        ];
+        lines.extend(ctrl_register_lines);
+        lines.push("    map".to_string());
+        lines.join("\n")
+    };
+
+    // Build the preamble: store modules, then controller path decls, then job path decls
+    let mut preamble_parts = vec![module_lines.clone()];
+    if !ctrl_path_decls.is_empty() {
+        preamble_parts.push(ctrl_path_decls.join("\n"));
+    }
+    let job_path_decls = collect_job_path_decls(resources);
+    if !job_path_decls.is_empty() {
+        preamble_parts.push(job_path_decls.join("\n"));
+    }
+    let preamble = preamble_parts.join("\n\n");
+
     format!(
         r#"#![allow(dead_code)]
 
-{module_lines}
+{preamble}
 
 pub fn build_store_registry(pool: sqlx::PgPool) -> shaperail_runtime::db::StoreRegistry {{
     let mut stores: std::collections::HashMap<
@@ -201,15 +302,16 @@ pub fn build_store_registry(pool: sqlx::PgPool) -> shaperail_runtime::db::StoreR
     std::sync::Arc::new(stores)
 }}
 
-/// Returns an empty controller map. Register custom controller functions here
-/// or populate from `resources/<name>.controller.rs` files.
 pub fn build_controller_map() -> shaperail_runtime::handlers::controller::ControllerMap {{
-    shaperail_runtime::handlers::controller::ControllerMap::new()
+{ctrl_map_body}
 }}
+
+{job_registry_fn}
 
 {controller_traits}
 "#,
-        controller_traits = generate_controller_traits(resources)
+        job_registry_fn = generate_job_registry(resources),
+        controller_traits = generate_controller_traits(resources),
     )
 }
 

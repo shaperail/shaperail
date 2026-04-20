@@ -131,3 +131,39 @@ fn snapshot_invalid_yaml_syntax() {
     let err = parse_resource(yaml).unwrap_err();
     insta::assert_snapshot!("invalid_yaml_syntax", err.to_string());
 }
+
+#[test]
+fn controller_map_populated_when_resource_has_controller() {
+    let yaml = include_str!("fixtures/valid/users.yaml");
+    let rd = shaperail_codegen::parser::parse_resource(yaml).unwrap();
+    let project = shaperail_codegen::rust::generate_project(&[rd]).unwrap();
+    assert!(
+        project.mod_rs.contains("users_controller"),
+        "expected #[path] module for users_controller in mod_rs:\n{}",
+        project.mod_rs
+    );
+    assert!(
+        project
+            .mod_rs
+            .contains(r#"map.register("users", "validate_org""#),
+        "expected map.register call in mod_rs:\n{}",
+        project.mod_rs
+    );
+}
+
+#[test]
+fn controller_map_empty_when_no_controllers() {
+    let yaml = include_str!("fixtures/valid/minimal.yaml");
+    let rd = shaperail_codegen::parser::parse_resource(yaml).unwrap();
+    let project = shaperail_codegen::rust::generate_project(&[rd]).unwrap();
+    assert!(
+        !project.mod_rs.contains("mod settings_controller"),
+        "expected no controller modules in mod_rs:\n{}",
+        project.mod_rs
+    );
+    assert!(
+        project.mod_rs.contains("ControllerMap::new()"),
+        "expected empty ControllerMap::new() in mod_rs:\n{}",
+        project.mod_rs
+    );
+}
