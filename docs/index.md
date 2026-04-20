@@ -95,16 +95,19 @@ Everything below works from a resource YAML file with no manual wiring.
 - **Observability** — Structured JSON logs, request_id propagation, Prometheus metrics, health endpoints (`/health`, `/health/ready`), OpenTelemetry trace export
 - **Migrations** — Initial create-table SQL generated from schema; sqlx compile-time verified
 - **OpenAPI 3.1** — Deterministic spec generation; TypeScript SDK generation
-- **WASM plugins** — Controller hooks in TypeScript, Python, Rust, or any WASM-targeting language; sandboxed, fuel-limited, crash-isolated
+- **WASM plugins** — Sandboxed controller hooks declared directly in YAML via the `wasm:` path prefix; supports TypeScript, Python, Rust, and any WASM-targeting language; fuel-limited, crash-isolated
+- **API versioning** — Per-resource `version` field prefixes all routes (`/v1/users`, `/v2/orders`); reflected in OpenAPI spec and CLI output
+- **Multi-database** — Named database connections via `databases:` config; per-resource `db:` routing; migrations run against `default`
 
 ### Available — requires manual wiring
 
-The runtime primitives exist and are documented. Connecting them requires code in your `main.rs` or config. Each linked guide explains exactly what to wire.
+The runtime primitives exist and are documented. Background jobs, events, WebSockets, and API key auth require code in your `main.rs` to connect. GraphQL and gRPC are enabled via a `protocols:` config line but have known feature gaps listed below. Each linked guide explains what works today.
 
 - **Background jobs** — Queue and worker primitives; worker registration and handler mapping are manual ([Background jobs](/background-jobs/))
 - **Events and webhooks** — Event emission from write handlers works; subscriber execution and inbound route registration are manual ([Events and webhooks](/events-and-webhooks/))
 - **WebSockets** — Session and channel primitives work; route registration is manual ([WebSockets](/websockets/))
 - **API key auth and rate limiting** — Runtime primitives exist; wiring to endpoints is manual ([Auth and ownership](/auth-and-ownership/))
+- **Controllers (Rust)** — Before/after business logic on write endpoints; controller registration requires manual `main.rs` wiring ([Controllers](/controllers/))
 - **GraphQL** — Enable with `protocols: [rest, graphql]`; generates list/get queries and create/update/delete mutations; list queries support `limit`/`offset` only ([GraphQL](/graphql/))
 - **gRPC** — Enable with `protocols: [rest, grpc]`; supports list, stream, get, create, delete; `Update` RPC is not yet implemented ([gRPC](/grpc/))
 
