@@ -152,13 +152,7 @@ shaperail export json-schema     # JSON Schema for resource YAML (IDE/LLM valida
 shaperail resource create <name> --archetype <type>  # archetypes: basic, user, content, tenant, lookup
 ```
 
-## All Milestones
-agent_docs/milestones.md — 26 milestones across v2 / v3 / v4
-Active: agent_docs/current-milestone.md
-
 ## Key Docs
-- agent_docs/milestones.md        → all 26 milestones with full deliverables
-- agent_docs/current-milestone.md → which milestone is active
 - agent_docs/architecture.md      → crate structure + boundaries
 - agent_docs/resource-format.md   → exact YAML spec (match PRD exactly)
 - agent_docs/codegen-patterns.md  → Rust code generation patterns
