@@ -1028,7 +1028,7 @@ async fn main() -> std::io::Result<()> {
                 job_registry,
                 std::time::Duration::from_secs(1),
             );
-            worker.spawn(shutdown_rx);
+            let _worker_handle = worker.spawn(shutdown_rx);
             Some(tx)
         } else {
             None
