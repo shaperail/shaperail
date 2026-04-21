@@ -12,6 +12,11 @@ pub struct InboundWebhookState {
     pub accepted_events: Vec<String>,
     /// Event emitter for re-emitting received events.
     pub emitter: EventEmitter,
+    /// Which HTTP header carries the HMAC signature for this endpoint.
+    /// Stored as metadata; runtime signature detection in `verify_signature` handles
+    /// all known provider headers automatically.
+    #[allow(dead_code)]
+    pub signature_header: String,
 }
 
 /// Configures Actix-web routes for inbound webhook endpoints.
@@ -26,6 +31,7 @@ pub fn configure_inbound_routes(
             secret,
             accepted_events: config.events.clone(),
             emitter: emitter.clone(),
+            signature_header: config.signature_header.clone(),
         });
 
         let path = config.path.clone();

@@ -416,6 +416,15 @@ pub struct InboundWebhookConfig {
     /// Event names this endpoint accepts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<String>,
+
+    /// HTTP header carrying the HMAC signature for this endpoint.
+    /// Defaults to `X-Webhook-Signature`. Common values: `X-Hub-Signature-256` (GitHub), `Stripe-Signature` (Stripe).
+    #[serde(default = "default_signature_header")]
+    pub signature_header: String,
+}
+
+fn default_signature_header() -> String {
+    "X-Webhook-Signature".to_string()
 }
 
 #[cfg(test)]
@@ -678,6 +687,20 @@ mod tests {
         let cfg: GrpcConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.port, 9090);
         assert!(!cfg.reflection);
+    }
+
+    #[test]
+    fn inbound_config_default_signature_header() {
+        let json = r#"{"path": "/webhooks/github", "secret_env": "GITHUB_SECRET"}"#;
+        let cfg: InboundWebhookConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.signature_header, "X-Webhook-Signature");
+    }
+
+    #[test]
+    fn inbound_config_custom_signature_header() {
+        let json = r#"{"path": "/webhooks/github", "secret_env": "GITHUB_SECRET", "signature_header": "X-Hub-Signature-256"}"#;
+        let cfg: InboundWebhookConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.signature_header, "X-Hub-Signature-256");
     }
 
     #[test]

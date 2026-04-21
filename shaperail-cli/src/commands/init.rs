@@ -152,7 +152,7 @@ use actix_web::{web, App, HttpResponse, HttpServer};
 mod generated;
 use shaperail_runtime::auth::jwt::JwtConfig;
 use shaperail_runtime::cache::{create_redis_pool, RedisCache};
-use shaperail_runtime::events::EventEmitter;
+use shaperail_runtime::events::{configure_inbound_routes, EventEmitter};
 use shaperail_runtime::handlers::{register_all_resources, AppState};
 use shaperail_runtime::jobs::{JobQueue, Worker};
 use shaperail_runtime::observability::{
@@ -1028,6 +1028,7 @@ async fn main() -> std::io::Result<()> {
     let event_emitter = job_queue
         .clone()
         .map(|queue| EventEmitter::new(queue, config.events.as_ref()));
+    let emitter_for_inbound = event_emitter.clone();
 
     let job_registry = generated::build_job_registry();
     let _worker_shutdown_tx = if !job_registry.is_empty() {
@@ -1088,6 +1089,8 @@ async fn main() -> std::io::Result<()> {
     let channels_clone = channels.clone();
     let ws_pubsub_clone = ws_pubsub.clone();
     let room_manager_clone = room_manager.clone();
+    let config_events_clone = config.events.clone();
+    let emitter_inbound_clone = emitter_for_inbound.clone();
 
     // GraphQL (M15) — only available when the "graphql" feature is enabled
     #[cfg(feature = "graphql")]
@@ -1148,6 +1151,8 @@ async fn main() -> std::io::Result<()> {
         let pubsub = ws_pubsub_clone.clone();
         let rm = room_manager_clone.clone();
         let jwt_ws = jwt_config_clone.clone();
+        let config_ev = config_events_clone.clone();
+        let emitter_ib = emitter_inbound_clone.clone();
         app.configure(move |cfg| {
             register_all_resources(cfg, &res, st);
             if let (Some(ref p), Some(ref r), Some(ref j)) = (&pubsub, &rm, &jwt_ws) {
@@ -1159,6 +1164,13 @@ async fn main() -> std::io::Result<()> {
                         p.clone(),
                         j.clone(),
                     );
+                }
+            }
+            if let Some(ref events_cfg) = config_ev {
+                if !events_cfg.inbound.is_empty() {
+                    if let Some(ref emitter) = emitter_ib {
+                        configure_inbound_routes(cfg, &events_cfg.inbound, emitter);
+                    }
                 }
             }
         })
