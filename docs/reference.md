@@ -20,3 +20,12 @@ Canonical reference for the Shaperail resource format, project configuration, CL
 | [**Resource archetypes**]({{ '/archetypes/' | relative_url }}) | The 5 resource archetypes (basic, user, content, tenant, lookup): fields, endpoints, relations, indexes, and when to use each. |
 
 Use these pages when you need the exact syntax, allowed values, or behavior of a feature.
+
+## For AI assistants
+
+These files are designed to be loaded as context into an AI assistant or IDE copilot. They are not part of the site navigation but are publicly accessible.
+
+| File | Description |
+| --- | --- |
+| [**LLM Guide**]({{ '/llm-guide/' | relative_url }}) | Single-file AI context: resource format, field types, endpoint config, relations, auth, jobs, events, WebSockets, controllers, CLI, and config — everything an LLM needs to generate valid Shaperail resources on the first pass. |
+| [**LLM Quick Reference**]({{ '/llm-reference/' | relative_url }}) | Terse lookup tables for field types, endpoint keys, config keys, and error codes. Use alongside the LLM Guide for fast token-efficient lookups. |
