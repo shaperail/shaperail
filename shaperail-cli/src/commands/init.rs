@@ -1020,17 +1020,22 @@ async fn main() -> std::io::Result<()> {
         .map(|queue| EventEmitter::new(queue, config.events.as_ref()));
 
     let job_registry = generated::build_job_registry();
-    if !job_registry.is_empty() {
+    let _worker_shutdown_tx = if !job_registry.is_empty() {
         if let Some(ref jq) = job_queue {
-            let (_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+            let (tx, shutdown_rx) = tokio::sync::watch::channel(false);
             let worker = Worker::new(
                 jq.clone(),
                 job_registry,
                 std::time::Duration::from_secs(1),
             );
-            tokio::spawn(async move { worker.spawn(shutdown_rx).await });
+            worker.spawn(shutdown_rx);
+            Some(tx)
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
 
     let jwt_config = JwtConfig::from_env().map(Arc::new);
 
