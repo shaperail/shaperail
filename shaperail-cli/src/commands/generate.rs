@@ -38,6 +38,10 @@ pub fn run() -> i32 {
                 eprintln!("Warning: {e}");
             }
 
+            if let Err(e) = write_job_stubs(&resources, Path::new("jobs")) {
+                eprintln!("Warning: {e}");
+            }
+
             0
         }
         Err(e) => {
@@ -156,6 +160,50 @@ pub(crate) fn write_controller_stubs(
     Ok(())
 }
 
+/// Writes a stub job handler file for each unique job name declared across resources,
+/// if the file does not already exist. Never overwrites existing files.
+pub(crate) fn write_job_stubs(
+    resources: &[ResourceDefinition],
+    jobs_dir: &Path,
+) -> Result<(), String> {
+    // Collect unique job names across all resources
+    let mut all_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for resource in resources {
+        if let Some(endpoints) = &resource.endpoints {
+            for (_, ep) in endpoints {
+                for job_name in ep.jobs.as_deref().unwrap_or_default() {
+                    all_names.insert(job_name.clone());
+                }
+            }
+        }
+    }
+
+    if all_names.is_empty() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(jobs_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", jobs_dir.display()))?;
+
+    for job_name in &all_names {
+        let stub_path = jobs_dir.join(format!("{job_name}.rs"));
+        if stub_path.exists() {
+            continue;
+        }
+        let stub = format!(
+            r#"pub async fn handle(
+    _payload: serde_json::Value,
+) -> Result<(), shaperail_core::ShaperailError> {{
+    todo!("implement {job_name}")
+}}
+"#
+        );
+        fs::write(&stub_path, stub)
+            .map_err(|e| format!("Failed to write {}: {e}", stub_path.display()))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,5 +289,58 @@ endpoints:
             contents, "// existing content",
             "existing file must not be overwritten"
         );
+    }
+
+    #[test]
+    fn job_stub_written_when_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let jobs_dir = dir.path().join("jobs");
+        // Do NOT pre-create jobs_dir — write_job_stubs must create it
+
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: [admin]
+    input: [id]
+    jobs: [send_welcome_email]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        write_job_stubs(&[rd], &jobs_dir).unwrap();
+
+        let stub_path = jobs_dir.join("send_welcome_email.rs");
+        assert!(stub_path.exists(), "job stub should be created");
+        let contents = std::fs::read_to_string(&stub_path).unwrap();
+        assert!(contents.contains("pub async fn handle"));
+        assert!(contents.contains("todo!"));
+    }
+
+    #[test]
+    fn job_stub_not_overwritten_when_file_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let jobs_dir = dir.path().join("jobs");
+        std::fs::create_dir_all(&jobs_dir).unwrap();
+        let existing = jobs_dir.join("send_welcome_email.rs");
+        std::fs::write(&existing, "// existing job handler").unwrap();
+
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: [admin]
+    input: [id]
+    jobs: [send_welcome_email]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        write_job_stubs(&[rd], &jobs_dir).unwrap();
+
+        let contents = std::fs::read_to_string(&existing).unwrap();
+        assert_eq!(contents, "// existing job handler");
     }
 }

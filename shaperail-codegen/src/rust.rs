@@ -201,17 +201,64 @@ fn collect_controller_hooks(resources: &[ResourceDefinition]) -> Vec<(&str, Vec<
         .collect()
 }
 
-/// Returns #[path] declarations for job handler modules. Filled in Task 2.
-fn collect_job_path_decls(_resources: &[ResourceDefinition]) -> Vec<String> {
-    Vec::new()
+/// Returns all unique job names declared across all resources, sorted for determinism.
+fn collect_job_names(resources: &[ResourceDefinition]) -> Vec<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for resource in resources {
+        if let Some(endpoints) = &resource.endpoints {
+            for (_, ep) in endpoints {
+                for job in ep.jobs.as_deref().unwrap_or_default() {
+                    names.insert(job.clone());
+                }
+            }
+        }
+    }
+    names.into_iter().collect()
 }
 
-/// Generates the build_job_registry() function. Filled in Task 2.
-fn generate_job_registry(_resources: &[ResourceDefinition]) -> String {
-    r#"pub fn build_job_registry() -> shaperail_runtime::jobs::JobRegistry {
+/// Returns #[path] declarations for job handler modules.
+fn collect_job_path_decls(resources: &[ResourceDefinition]) -> Vec<String> {
+    collect_job_names(resources)
+        .iter()
+        .map(|name| format!("#[path = \"../jobs/{name}.rs\"]\nmod job_{name};"))
+        .collect()
+}
+
+/// Generates the build_job_registry() function.
+fn generate_job_registry(resources: &[ResourceDefinition]) -> String {
+    let job_names = collect_job_names(resources);
+
+    if job_names.is_empty() {
+        return r#"pub fn build_job_registry() -> shaperail_runtime::jobs::JobRegistry {
     shaperail_runtime::jobs::JobRegistry::new()
 }"#
-    .to_string()
+        .to_string();
+    }
+
+    let inserts: Vec<String> = job_names
+        .iter()
+        .map(|name| {
+            format!(
+                r#"    handlers.insert(
+        "{name}".to_string(),
+        std::sync::Arc::new(|payload: serde_json::Value| {{
+            Box::pin(job_{name}::handle(payload))
+                as std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), shaperail_core::ShaperailError>> + Send>>
+        }}) as shaperail_runtime::jobs::JobHandler,
+    );"#
+            )
+        })
+        .collect();
+
+    format!(
+        r#"pub fn build_job_registry() -> shaperail_runtime::jobs::JobRegistry {{
+    let mut handlers: std::collections::HashMap<String, shaperail_runtime::jobs::JobHandler> =
+        std::collections::HashMap::new();
+{inserts}
+    shaperail_runtime::jobs::JobRegistry::from_handlers(handlers)
+}}"#,
+        inserts = inserts.join("\n")
+    )
 }
 
 fn generate_registry_module(resources: &[ResourceDefinition]) -> String {

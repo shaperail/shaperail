@@ -42,6 +42,11 @@ impl JobRegistry {
     pub fn get(&self, name: &str) -> Option<&JobHandler> {
         self.handlers.get(name)
     }
+
+    /// Returns true if no handlers are registered.
+    pub fn is_empty(&self) -> bool {
+        self.handlers.is_empty()
+    }
 }
 
 /// Background job worker that polls Redis and executes registered handlers.
@@ -260,5 +265,25 @@ mod tests {
     fn empty_registry() {
         let registry = JobRegistry::new();
         assert!(registry.get("anything").is_none());
+    }
+
+    #[test]
+    fn is_empty_returns_true_for_new_registry() {
+        let registry = JobRegistry::new();
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn is_empty_returns_false_when_handler_registered() {
+        let mut handlers = HashMap::new();
+        handlers.insert(
+            "a_job".to_string(),
+            Arc::new(|_payload: serde_json::Value| {
+                Box::pin(async { Ok(()) })
+                    as Pin<Box<dyn Future<Output = Result<(), ShaperailError>> + Send>>
+            }) as JobHandler,
+        );
+        let registry = JobRegistry::from_handlers(handlers);
+        assert!(!registry.is_empty());
     }
 }

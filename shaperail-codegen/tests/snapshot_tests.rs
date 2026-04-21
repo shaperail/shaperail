@@ -167,3 +167,32 @@ fn controller_map_empty_when_no_controllers() {
         project.mod_rs
     );
 }
+
+#[test]
+fn job_registry_populated_when_resource_has_jobs() {
+    let yaml = include_str!("fixtures/valid/users.yaml");
+    let rd = shaperail_codegen::parser::parse_resource(yaml).unwrap();
+    let project = shaperail_codegen::rust::generate_project(&[rd]).unwrap();
+    assert!(
+        project.mod_rs.contains("build_job_registry"),
+        "expected build_job_registry fn in mod_rs:\n{}",
+        project.mod_rs
+    );
+    assert!(
+        project.mod_rs.contains("send_welcome_email"),
+        "expected send_welcome_email in mod_rs:\n{}",
+        project.mod_rs
+    );
+}
+
+#[test]
+fn job_registry_empty_when_no_jobs() {
+    let yaml = include_str!("fixtures/valid/minimal.yaml");
+    let rd = shaperail_codegen::parser::parse_resource(yaml).unwrap();
+    let project = shaperail_codegen::rust::generate_project(&[rd]).unwrap();
+    assert!(
+        project.mod_rs.contains("JobRegistry::new()"),
+        "expected empty JobRegistry::new() in mod_rs:\n{}",
+        project.mod_rs
+    );
+}

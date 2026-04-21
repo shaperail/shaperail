@@ -154,7 +154,7 @@ use shaperail_runtime::auth::jwt::JwtConfig;
 use shaperail_runtime::cache::{create_redis_pool, RedisCache};
 use shaperail_runtime::events::EventEmitter;
 use shaperail_runtime::handlers::{register_all_resources, AppState};
-use shaperail_runtime::jobs::JobQueue;
+use shaperail_runtime::jobs::{JobQueue, Worker};
 use shaperail_runtime::observability::{
     health_handler, health_ready_handler, metrics_handler, sensitive_fields, HealthState,
     MetricsState, RequestLogger,
@@ -1018,6 +1018,20 @@ async fn main() -> std::io::Result<()> {
     let event_emitter = job_queue
         .clone()
         .map(|queue| EventEmitter::new(queue, config.events.as_ref()));
+
+    let job_registry = generated::build_job_registry();
+    if !job_registry.is_empty() {
+        if let Some(ref jq) = job_queue {
+            let (_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+            let worker = Worker::new(
+                jq.clone(),
+                job_registry,
+                std::time::Duration::from_secs(1),
+            );
+            tokio::spawn(async move { worker.spawn(shutdown_rx).await });
+        }
+    }
+
     let jwt_config = JwtConfig::from_env().map(Arc::new);
 
     let port: u16 = std::env::var("SHAPERAIL_PORT")
