@@ -5,6 +5,24 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-04-21
+
+### Added
+
+- `rate_limit: { max_requests: N, window_secs: N }` — per-endpoint rate limiting via Redis sliding window; declared in resource YAML alongside `cache:`; gracefully skipped when Redis is absent; startup warning logged when declared but Redis not configured
+- `signature_header` on inbound webhook config — declare which HTTP header carries the HMAC-SHA256 signature; GitHub and Stripe headers auto-detected as fallback
+
+### Changed
+
+- **Controller registration** — auto-wired from resource YAML at startup; no manual `main.rs` wiring required
+- **Background job worker** — auto-started with registered handlers derived from resource YAML; no manual `main.rs` wiring required
+- **WebSocket channels** — routes auto-registered from `channels/*.yaml` files at startup
+- **Inbound webhook routes** — auto-configured from `events.inbound:` in `shaperail.config.yaml`
+
+### Fixed
+
+- **Tenant isolation bypass** — users without a `tenant_id` JWT claim now receive `403 Forbidden` on all endpoints of a tenant-isolated resource (previously the check silently passed, allowing cross-tenant data access)
+
 ## [0.8.0] - 2026-04-20
 
 ### Changed

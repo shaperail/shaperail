@@ -12,6 +12,10 @@ pub struct InboundWebhookState {
     pub accepted_events: Vec<String>,
     /// Event emitter for re-emitting received events.
     pub emitter: EventEmitter,
+    /// HTTP header name carrying the HMAC-SHA256 signature for this endpoint.
+    /// Used as the primary header in `verify_signature`. GitHub and Stripe headers
+    /// are tried as fallback if the primary header is absent.
+    pub signature_header: String,
 }
 
 /// Configures Actix-web routes for inbound webhook endpoints.
@@ -26,6 +30,7 @@ pub fn configure_inbound_routes(
             secret,
             accepted_events: config.events.clone(),
             emitter: emitter.clone(),
+            signature_header: config.signature_header.clone(),
         });
 
         let path = config.path.clone();
@@ -39,15 +44,31 @@ pub fn configure_inbound_routes(
 
 /// Verifies the signature from an inbound webhook request.
 ///
-/// Supports three signature header formats:
-/// - `X-Shaperail-Signature: sha256=<hex>` (Shaperail format)
+/// Tries `signature_header` first (sha256=<hex> format). If that header is absent,
+/// falls back to auto-detecting known provider headers:
 /// - `X-Hub-Signature-256: sha256=<hex>` (GitHub format)
 /// - `Stripe-Signature: t=<ts>,v1=<sig>` (Stripe format)
+///
+/// Returns `Unauthorized` if no header matches or the HMAC is invalid.
 pub fn verify_signature(
     req: &HttpRequest,
     body: &[u8],
     secret: &str,
+    signature_header: &str,
 ) -> Result<(), ShaperailError> {
+    // Try configured signature header first (sha256=<hex> format)
+    if let Some(sig_h) = req.headers().get(signature_header) {
+        let sig_str = sig_h.to_str().map_err(|_| ShaperailError::Unauthorized)?;
+        let hex_sig = sig_str
+            .strip_prefix("sha256=")
+            .ok_or(ShaperailError::Unauthorized)?;
+        return if verify_hmac_signature(body, secret.as_bytes(), hex_sig) {
+            Ok(())
+        } else {
+            Err(ShaperailError::Unauthorized)
+        };
+    }
+
     // Try Shaperail signature header
     if let Some(sig_header) = req.headers().get("X-Shaperail-Signature") {
         let sig_str = sig_header
@@ -110,7 +131,7 @@ async fn handle_inbound_webhook(
     body: web::Bytes,
 ) -> Result<HttpResponse, ShaperailError> {
     // Verify signature
-    verify_signature(&req, &body, &state.secret)?;
+    verify_signature(&req, &body, &state.secret, &state.signature_header)?;
 
     // Parse the JSON body
     let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {

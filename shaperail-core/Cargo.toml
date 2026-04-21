@@ -19,3 +19,6 @@ chrono = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
 actix-web = { workspace = true }
 sqlx = { workspace = true }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }

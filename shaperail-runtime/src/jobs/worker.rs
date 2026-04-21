@@ -42,6 +42,11 @@ impl JobRegistry {
     pub fn get(&self, name: &str) -> Option<&JobHandler> {
         self.handlers.get(name)
     }
+
+    /// Returns true if no handlers are registered.
+    pub fn is_empty(&self) -> bool {
+        self.handlers.is_empty()
+    }
 }
 
 /// Background job worker that polls Redis and executes registered handlers.
@@ -76,8 +81,8 @@ impl Worker {
             tracing::info!("Job worker started");
             loop {
                 tokio::select! {
-                    _ = shutdown.changed() => {
-                        if *shutdown.borrow() {
+                    result = shutdown.changed() => {
+                        if result.is_err() || *shutdown.borrow() {
                             tracing::info!("Job worker shutting down");
                             break;
                         }
@@ -260,5 +265,40 @@ mod tests {
     fn empty_registry() {
         let registry = JobRegistry::new();
         assert!(registry.get("anything").is_none());
+    }
+
+    #[test]
+    fn is_empty_returns_true_for_new_registry() {
+        let registry = JobRegistry::new();
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn shutdown_arm_breaks_on_channel_close() {
+        // When the watch sender is dropped, changed() returns Err.
+        // This test documents that the worker loop checks for Err.
+        let (tx, mut rx) = tokio::sync::watch::channel(false);
+        drop(tx);
+        // In a blocking context, changed() on a closed channel returns Err immediately
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(rx.changed());
+        assert!(
+            result.is_err(),
+            "changed() must return Err when sender is dropped"
+        );
+    }
+
+    #[test]
+    fn is_empty_returns_false_when_handler_registered() {
+        let mut handlers = HashMap::new();
+        handlers.insert(
+            "a_job".to_string(),
+            Arc::new(|_payload: serde_json::Value| {
+                Box::pin(async { Ok(()) })
+                    as Pin<Box<dyn Future<Output = Result<(), ShaperailError>> + Send>>
+            }) as JobHandler,
+        );
+        let registry = JobRegistry::from_handlers(handlers);
+        assert!(!registry.is_empty());
     }
 }

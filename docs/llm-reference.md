@@ -39,6 +39,7 @@ Terse lookup tables. For patterns and examples, see [llm-guide.md](llm-guide.md)
 | jobs        |      | ✓      |     | ✓      | ✓      |        |
 | soft_delete |      |        |     |        | ✓      |        |
 | upload      |      | ✓      |     |        |        |        |
+| rate_limit  | ✓    | ✓      | ✓   | ✓      | ✓      | ✓      |
 | method      |      |        |     |        |        | ✓      |
 | path        |      |        |     |        |        | ✓      |
 

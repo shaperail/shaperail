@@ -204,18 +204,8 @@ fn test_resource_with_soft_delete_endpoint() -> ResourceDefinition {
         EndpointSpec {
             method: Some(HttpMethod::Delete),
             path: Some("/test_users/:id".to_string()),
-            auth: None,
-            input: None,
-            filters: None,
-            search: None,
-            pagination: None,
-            sort: None,
-            cache: None,
-            controller: None,
-            events: None,
-            jobs: None,
-            upload: None,
             soft_delete: true,
+            ..Default::default()
         },
     );
     resource.endpoints = Some(endpoints);
@@ -368,6 +358,7 @@ async fn test_handle_delete_soft_delete_returns_no_content(pool: sqlx::PgPool) {
         cache: None,
         event_emitter: None,
         job_queue: None,
+        rate_limiter: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,

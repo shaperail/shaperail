@@ -59,7 +59,8 @@ impl RateLimiter {
         let script = redis::Script::new(
             r#"
             redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-            redis.call('ZADD', KEYS[1], ARGV[2], ARGV[2] .. ':' .. math.random())
+            local seq = redis.call('INCR', KEYS[1] .. ':seq')
+            redis.call('ZADD', KEYS[1], ARGV[2], ARGV[2] .. ':' .. seq)
             local count = redis.call('ZCARD', KEYS[1])
             redis.call('EXPIRE', KEYS[1], ARGV[3])
             return count
@@ -80,6 +81,12 @@ impl RateLimiter {
         }
 
         Ok(self.config.max_requests - count)
+    }
+
+    /// Returns a clone of the underlying Redis pool.
+    /// Used to create per-endpoint limiter instances with different configs.
+    pub fn pool(&self) -> Arc<deadpool_redis::Pool> {
+        self.pool.clone()
     }
 
     /// Builds the rate limit key from IP and optional token.

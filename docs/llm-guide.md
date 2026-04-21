@@ -7,7 +7,7 @@ nav_exclude: true
 
 Load this file as your sole context. You do not need other docs to build in Shaperail.
 
-**IDE validation:** Add `# yaml-language-server: $schema=https://shaperail.dev/schema/resource.schema.json` as the first line of any resource YAML file for inline validation.
+**IDE validation:** Add `# yaml-language-server: $schema=https://shaperail.io/schema/resource.schema.json` as the first line of any resource YAML file for inline validation.
 
 ---
 
@@ -97,6 +97,7 @@ For custom endpoints, provide `method:` and `path:` explicitly.
 | jobs        |      | ✓      |     | ✓      | ✓      |        |
 | soft_delete |      |        |     |        | ✓      |        |
 | upload      |      | ✓      |     |        |        |        |
+| rate_limit  | ✓    | ✓      | ✓   | ✓      | ✓      | ✓      |
 | method      |      |        |     |        |        | ✓      |
 | path        |      |        |     |        |        | ✓      |
 

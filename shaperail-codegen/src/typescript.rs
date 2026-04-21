@@ -255,20 +255,12 @@ mod tests {
                 method: Some(HttpMethod::Get),
                 path: Some("/items".to_string()),
                 auth: Some(AuthRule::Roles(vec!["member".to_string()])),
-                input: None,
-                filters: None,
-                search: None,
                 pagination: Some(PaginationStyle::Cursor),
-                sort: None,
                 cache: Some(CacheSpec {
                     ttl: 60,
                     invalidate_on: None,
                 }),
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
-                soft_delete: false,
+                ..Default::default()
             },
         );
         endpoints.insert(
@@ -278,16 +270,7 @@ mod tests {
                 path: Some("/items".to_string()),
                 auth: Some(AuthRule::Roles(vec!["admin".to_string()])),
                 input: Some(vec!["name".to_string(), "active".to_string()]),
-                filters: None,
-                search: None,
-                pagination: None,
-                sort: None,
-                cache: None,
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
-                soft_delete: false,
+                ..Default::default()
             },
         );
 

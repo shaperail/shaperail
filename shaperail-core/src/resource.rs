@@ -122,6 +122,7 @@ mod tests {
                 events: None,
                 jobs: None,
                 upload: None,
+                rate_limit: None,
                 soft_delete: false,
             },
         );

@@ -765,20 +765,14 @@ mod tests {
                     "member".to_string(),
                     "admin".to_string(),
                 ])),
-                input: None,
                 filters: Some(vec!["role".to_string()]),
                 search: Some(vec!["name".to_string(), "email".to_string()]),
                 pagination: Some(PaginationStyle::Cursor),
-                sort: None,
                 cache: Some(CacheSpec {
                     ttl: 60,
                     invalidate_on: None,
                 }),
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
-                soft_delete: false,
+                ..Default::default()
             },
         );
         endpoints.insert(
@@ -792,19 +786,13 @@ mod tests {
                     "name".to_string(),
                     "role".to_string(),
                 ]),
-                filters: None,
-                search: None,
-                pagination: None,
-                sort: None,
-                cache: None,
                 controller: Some(shaperail_core::ControllerSpec {
                     before: Some("validate_org".to_string()),
                     after: None,
                 }),
                 events: Some(vec!["user.created".to_string()]),
                 jobs: Some(vec!["send_welcome_email".to_string()]),
-                upload: None,
-                soft_delete: false,
+                ..Default::default()
             },
         );
         endpoints.insert(
@@ -817,16 +805,7 @@ mod tests {
                     "owner".to_string(),
                 ])),
                 input: Some(vec!["name".to_string(), "role".to_string()]),
-                filters: None,
-                search: None,
-                pagination: None,
-                sort: None,
-                cache: None,
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
-                soft_delete: false,
+                ..Default::default()
             },
         );
         endpoints.insert(
@@ -835,17 +814,8 @@ mod tests {
                 method: Some(HttpMethod::Delete),
                 path: Some("/users/:id".to_string()),
                 auth: Some(AuthRule::Roles(vec!["admin".to_string()])),
-                input: None,
-                filters: None,
-                search: None,
-                pagination: None,
-                sort: None,
-                cache: None,
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
                 soft_delete: true,
+                ..Default::default()
             },
         );
 
@@ -930,23 +900,14 @@ mod tests {
             EndpointSpec {
                 method: Some(HttpMethod::Post),
                 path: Some("/assets".to_string()),
-                auth: None,
                 input: Some(vec!["title".to_string(), "attachment".to_string()]),
-                filters: None,
-                search: None,
-                pagination: None,
-                sort: None,
-                cache: None,
-                controller: None,
-                events: None,
-                jobs: None,
                 upload: Some(UploadSpec {
                     field: "attachment".to_string(),
                     storage: "local".to_string(),
                     max_size: "5mb".to_string(),
                     types: Some(vec!["image/png".to_string()]),
                 }),
-                soft_delete: false,
+                ..Default::default()
             },
         );
 

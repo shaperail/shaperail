@@ -152,13 +152,14 @@ use actix_web::{web, App, HttpResponse, HttpServer};
 mod generated;
 use shaperail_runtime::auth::jwt::JwtConfig;
 use shaperail_runtime::cache::{create_redis_pool, RedisCache};
-use shaperail_runtime::events::EventEmitter;
+use shaperail_runtime::events::{configure_inbound_routes, EventEmitter};
 use shaperail_runtime::handlers::{register_all_resources, AppState};
-use shaperail_runtime::jobs::JobQueue;
+use shaperail_runtime::jobs::{JobQueue, Worker};
 use shaperail_runtime::observability::{
     health_handler, health_ready_handler, metrics_handler, sensitive_fields, HealthState,
     MetricsState, RequestLogger,
 };
+use shaperail_runtime::ws::{load_channels, RedisPubSub, RoomManager};
 
 fn io_error(message: impl Into<String>) -> io::Error {
     io::Error::other(message.into())
@@ -1014,10 +1015,45 @@ async fn main() -> std::io::Result<()> {
         None => None,
     };
     let cache = redis_pool.as_ref().map(|pool| RedisCache::new(pool.clone()));
+    let channels = load_channels(std::path::Path::new("channels/"));
+    let ws_pubsub = redis_pool
+        .as_ref()
+        .map(|pool| RedisPubSub::new(pool.clone()));
+    let room_manager = if channels.is_empty() {
+        None
+    } else {
+        Some(RoomManager::new())
+    };
     let job_queue = redis_pool.as_ref().map(|pool| JobQueue::new(pool.clone()));
+    let rate_limiter = redis_pool.as_ref().map(|pool| {
+        std::sync::Arc::new(shaperail_runtime::auth::RateLimiter::new(
+            pool.clone(),
+            shaperail_runtime::auth::RateLimitConfig::default(),
+        ))
+    });
     let event_emitter = job_queue
         .clone()
         .map(|queue| EventEmitter::new(queue, config.events.as_ref()));
+    let emitter_for_inbound = event_emitter.clone();
+
+    let job_registry = generated::build_job_registry();
+    let (worker_shutdown_tx, worker_handle) = if !job_registry.is_empty() {
+        if let Some(ref jq) = job_queue {
+            let (tx, shutdown_rx) = tokio::sync::watch::channel(false);
+            let worker = Worker::new(
+                jq.clone(),
+                job_registry,
+                std::time::Duration::from_secs(1),
+            );
+            let handle = worker.spawn(shutdown_rx);
+            (Some(tx), Some(handle))
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
     let jwt_config = JwtConfig::from_env().map(Arc::new);
 
     let port: u16 = std::env::var("SHAPERAIL_PORT")
@@ -1039,6 +1075,7 @@ async fn main() -> std::io::Result<()> {
         cache,
         event_emitter,
         job_queue,
+        rate_limiter,
         metrics: Some(metrics_state.get_ref().clone()),
         #[cfg(feature = "wasm-plugins")]
         wasm_runtime: None,
@@ -1046,6 +1083,20 @@ async fn main() -> std::io::Result<()> {
     });
     let health_state = web::Data::new(HealthState::new(Some(pool), redis_pool));
 
+    // Warn if any endpoint declares rate_limit but Redis is not configured
+    if state.rate_limiter.is_none() {
+        let has_rate_limit = resources.iter().any(|r| {
+            r.endpoints.as_ref().map_or(false, |eps| {
+                eps.values().any(|ep| ep.rate_limit.is_some())
+            })
+        });
+        if has_rate_limit {
+            tracing::warn!(
+                "One or more endpoints declare rate_limit but Redis is not configured \
+                 — rate limiting will be skipped. Set REDIS_URL to enable it."
+            );
+        }
+    }
     tracing::info!("Starting Shaperail server on port {port}");
     tracing::info!("OpenAPI spec available at http://localhost:{port}/openapi.json");
     tracing::info!("API docs available at http://localhost:{port}/docs");
@@ -1056,6 +1107,11 @@ async fn main() -> std::io::Result<()> {
     let metrics_state_clone = metrics_state.clone();
     let jwt_config_clone = jwt_config.clone();
     let openapi_json_clone = openapi_json.clone();
+    let channels_clone = channels.clone();
+    let ws_pubsub_clone = ws_pubsub.clone();
+    let room_manager_clone = room_manager.clone();
+    let config_events_clone = config.events.clone();
+    let emitter_inbound_clone = emitter_for_inbound.clone();
 
     // GraphQL (M15) — only available when the "graphql" feature is enabled
     #[cfg(feature = "graphql")]
@@ -1112,11 +1168,52 @@ async fn main() -> std::io::Result<()> {
                 .route("/graphql", web::post().to(shaperail_runtime::graphql::graphql_handler))
                 .route("/graphql/playground", web::get().to(shaperail_runtime::graphql::playground_handler));
         }
-        app.configure(|cfg| register_all_resources(cfg, &res, st))
+        let ch = channels_clone.clone();
+        let pubsub = ws_pubsub_clone.clone();
+        let rm = room_manager_clone.clone();
+        let jwt_ws = jwt_config_clone.clone();
+        let config_ev = config_events_clone.clone();
+        let emitter_ib = emitter_inbound_clone.clone();
+        app.configure(move |cfg| {
+            register_all_resources(cfg, &res, st);
+            if !ch.is_empty() {
+                if let (Some(ref p), Some(ref r), Some(ref j)) = (&pubsub, &rm, &jwt_ws) {
+                    for channel in &ch {
+                        shaperail_runtime::ws::configure_ws_routes(
+                            cfg,
+                            channel.clone(),
+                            r.clone(),
+                            p.clone(),
+                            j.clone(),
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        "channels/ YAML files found but WebSocket routes not registered \
+                         — requires Redis (REDIS_URL) and JWT (SHAPERAIL_JWT_SECRET)"
+                    );
+                }
+            }
+            if let Some(ref events_cfg) = config_ev {
+                if !events_cfg.inbound.is_empty() {
+                    if let Some(ref emitter) = emitter_ib {
+                        configure_inbound_routes(cfg, &events_cfg.inbound, emitter);
+                    }
+                }
+            }
+        })
     })
     .bind(("0.0.0.0", port))?
     .run()
-    .await
+    .await?;
+
+    // Signal worker to stop and wait for it to finish draining
+    drop(worker_shutdown_tx);
+    if let Some(handle) = worker_handle {
+        let _ = handle.await;
+    }
+
+    Ok(())
 }
 "###;
     write_file(&root.join("src/main.rs"), main_rs)?;

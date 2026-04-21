@@ -119,18 +119,8 @@ impl RelationLoader {
             .unwrap_or_else(|| EndpointSpec {
                 method: Some(HttpMethod::Get),
                 path: Some(format!("/{}", resource.resource)),
-                auth: None,
-                input: None,
-                filters: None,
-                search: None,
                 pagination: Some(PaginationStyle::Offset),
-                sort: None,
-                cache: None,
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
-                soft_delete: false,
+                ..Default::default()
             });
 
         let filters = FilterSet {

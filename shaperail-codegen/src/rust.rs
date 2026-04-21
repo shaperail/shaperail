@@ -167,6 +167,100 @@ impl ResourceStore for {store_name} {{
     ))
 }
 
+/// Returns (resource_name, [hook_fn_names]) for each resource with native (non-WASM) controller hooks.
+fn collect_controller_hooks(resources: &[ResourceDefinition]) -> Vec<(&str, Vec<&str>)> {
+    resources
+        .iter()
+        .filter_map(|resource| {
+            let hooks: Vec<&str> = resource
+                .endpoints
+                .as_ref()
+                .map(|eps| {
+                    eps.iter()
+                        .filter_map(|(_, ep)| ep.controller.as_ref())
+                        .flat_map(|c| {
+                            let before = c
+                                .before
+                                .as_deref()
+                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX));
+                            let after = c
+                                .after
+                                .as_deref()
+                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX));
+                            [before, after].into_iter().flatten()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if hooks.is_empty() {
+                None
+            } else {
+                Some((resource.resource.as_str(), hooks))
+            }
+        })
+        .collect()
+}
+
+/// Returns all unique job names declared across all resources, sorted for determinism.
+fn collect_job_names(resources: &[ResourceDefinition]) -> Vec<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for resource in resources {
+        if let Some(endpoints) = &resource.endpoints {
+            for (_, ep) in endpoints {
+                for job in ep.jobs.as_deref().unwrap_or_default() {
+                    names.insert(job.clone());
+                }
+            }
+        }
+    }
+    names.into_iter().collect()
+}
+
+/// Returns #[path] declarations for job handler modules.
+fn collect_job_path_decls(resources: &[ResourceDefinition]) -> Vec<String> {
+    collect_job_names(resources)
+        .iter()
+        .map(|name| format!("#[path = \"../jobs/{name}.rs\"]\nmod job_{name};"))
+        .collect()
+}
+
+/// Generates the build_job_registry() function.
+fn generate_job_registry(resources: &[ResourceDefinition]) -> String {
+    let job_names = collect_job_names(resources);
+
+    if job_names.is_empty() {
+        return r#"pub fn build_job_registry() -> shaperail_runtime::jobs::JobRegistry {
+    shaperail_runtime::jobs::JobRegistry::new()
+}"#
+        .to_string();
+    }
+
+    let inserts: Vec<String> = job_names
+        .iter()
+        .map(|name| {
+            format!(
+                r#"    handlers.insert(
+        "{name}".to_string(),
+        std::sync::Arc::new(|payload: serde_json::Value| {{
+            Box::pin(job_{name}::handle(payload))
+                as std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), shaperail_core::ShaperailError>> + Send>>
+        }}) as shaperail_runtime::jobs::JobHandler,
+    );"#
+            )
+        })
+        .collect();
+
+    format!(
+        r#"pub fn build_job_registry() -> shaperail_runtime::jobs::JobRegistry {{
+    let mut handlers: std::collections::HashMap<String, shaperail_runtime::jobs::JobHandler> =
+        std::collections::HashMap::new();
+{inserts}
+    shaperail_runtime::jobs::JobRegistry::from_handlers(handlers)
+}}"#,
+        inserts = inserts.join("\n")
+    )
+}
+
 fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
     let module_lines = resources
         .iter()
@@ -187,10 +281,64 @@ fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
+    let ctrl_hooks = collect_controller_hooks(resources);
+
+    // #[path] module declarations for controller files
+    let ctrl_path_decls: Vec<String> = ctrl_hooks
+        .iter()
+        .map(|(name, _)| {
+            format!("#[path = \"../resources/{name}.controller.rs\"]\nmod {name}_controller;")
+        })
+        .collect();
+
+    // map.register(...) calls — deduplicated
+    let mut seen_ctrl = std::collections::HashSet::new();
+    let ctrl_register_lines: Vec<String> = ctrl_hooks
+        .iter()
+        .flat_map(|(res_name, hooks)| {
+            hooks
+                .iter()
+                .filter_map(|fn_name| {
+                    let key = (*res_name, *fn_name);
+                    if seen_ctrl.insert(key) {
+                        Some(format!(
+                            "    map.register({res_name:?}, {fn_name:?}, {res_name}_controller::{fn_name});"
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    let ctrl_map_body = if ctrl_register_lines.is_empty() {
+        "    shaperail_runtime::handlers::controller::ControllerMap::new()".to_string()
+    } else {
+        let mut lines = vec![
+            "    let mut map = shaperail_runtime::handlers::controller::ControllerMap::new();"
+                .to_string(),
+        ];
+        lines.extend(ctrl_register_lines);
+        lines.push("    map".to_string());
+        lines.join("\n")
+    };
+
+    // Build the preamble: store modules, then controller path decls, then job path decls
+    let mut preamble_parts = vec![module_lines.clone()];
+    if !ctrl_path_decls.is_empty() {
+        preamble_parts.push(ctrl_path_decls.join("\n"));
+    }
+    let job_path_decls = collect_job_path_decls(resources);
+    if !job_path_decls.is_empty() {
+        preamble_parts.push(job_path_decls.join("\n"));
+    }
+    let preamble = preamble_parts.join("\n\n");
+
     format!(
         r#"#![allow(dead_code)]
 
-{module_lines}
+{preamble}
 
 pub fn build_store_registry(pool: sqlx::PgPool) -> shaperail_runtime::db::StoreRegistry {{
     let mut stores: std::collections::HashMap<
@@ -201,124 +349,14 @@ pub fn build_store_registry(pool: sqlx::PgPool) -> shaperail_runtime::db::StoreR
     std::sync::Arc::new(stores)
 }}
 
-/// Returns an empty controller map. Register custom controller functions here
-/// or populate from `resources/<name>.controller.rs` files.
 pub fn build_controller_map() -> shaperail_runtime::handlers::controller::ControllerMap {{
-    shaperail_runtime::handlers::controller::ControllerMap::new()
+{ctrl_map_body}
 }}
 
-{controller_traits}
+{job_registry_fn}
 "#,
-        controller_traits = generate_controller_traits(resources)
+        job_registry_fn = generate_job_registry(resources),
     )
-}
-
-/// Generate typed controller trait stubs for all resources that declare controllers.
-///
-/// For each resource with controller declarations, generates:
-/// - An input struct for each endpoint action that has a controller
-/// - A trait with the exact function signatures the controller must implement
-///
-/// This eliminates the #1 source of LLM errors: guessing controller function signatures.
-fn generate_controller_traits(resources: &[ResourceDefinition]) -> String {
-    let mut output = String::new();
-
-    for resource in resources {
-        let endpoints_with_controllers: Vec<_> = resource
-            .endpoints
-            .as_ref()
-            .map(|endpoints| {
-                endpoints
-                    .iter()
-                    .filter(|(_, ep)| ep.controller.is_some())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        if endpoints_with_controllers.is_empty() {
-            continue;
-        }
-
-        let pascal = to_pascal_case(&resource.resource);
-        let mut trait_methods = Vec::new();
-
-        for (action, ep) in &endpoints_with_controllers {
-            let controller = ep.controller.as_ref().unwrap();
-            let action_pascal = to_pascal_case(action);
-
-            // Determine input fields for this endpoint
-            let input_fields: Vec<_> = ep
-                .input
-                .as_ref()
-                .map(|fields| {
-                    fields
-                        .iter()
-                        .filter_map(|name| {
-                            resource.schema.get(name).map(|field| {
-                                format!("    pub {name}: {},", model_field_type(field))
-                            })
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            if !input_fields.is_empty() {
-                output.push_str(&format!(
-                    r#"
-/// Input fields for the {resource_name} {action} endpoint.
-/// Auto-generated from the resource schema — do not edit.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct {pascal}{action_pascal}Input {{
-{fields}
-}}
-"#,
-                    resource_name = resource.resource,
-                    fields = input_fields.join("\n"),
-                ));
-            }
-
-            // Generate trait method for before hook
-            if let Some(before) = &controller.before {
-                if !before.starts_with(shaperail_core::WASM_HOOK_PREFIX) {
-                    let input_type = if input_fields.is_empty() {
-                        "serde_json::Value".to_string()
-                    } else {
-                        format!("{pascal}{action_pascal}Input")
-                    };
-                    trait_methods.push(format!(
-                        "    /// Before-hook for the {action} endpoint. Called before the DB operation.\n    async fn {before}(ctx: &shaperail_runtime::handlers::ControllerContext, input: &{input_type}) -> Result<(), shaperail_core::ShaperailError>;"
-                    ));
-                }
-            }
-
-            // Generate trait method for after hook
-            if let Some(after) = &controller.after {
-                if !after.starts_with(shaperail_core::WASM_HOOK_PREFIX) {
-                    trait_methods.push(format!(
-                        "    /// After-hook for the {action} endpoint. Called after the DB operation.\n    async fn {after}(ctx: &shaperail_runtime::handlers::ControllerContext, result: &serde_json::Value) -> Result<serde_json::Value, shaperail_core::ShaperailError>;"
-                    ));
-                }
-            }
-        }
-
-        if !trait_methods.is_empty() {
-            output.push_str(&format!(
-                r#"
-/// Controller trait for the {resource_name} resource.
-/// Implement this trait in `controllers/{resource_name}.controller.rs`.
-/// The compiler will enforce correct signatures — no guessing needed.
-#[shaperail_runtime::db::async_trait]
-pub trait {pascal}Controller {{
-{methods}
-}}
-"#,
-                resource_name = resource.resource,
-                methods = trait_methods.join("\n\n"),
-            ));
-        }
-    }
-
-    output
 }
 
 #[derive(Clone)]
@@ -1363,17 +1401,11 @@ mod tests {
                 method: Some(HttpMethod::Get),
                 path: Some("/users".to_string()),
                 auth: Some(AuthRule::Public),
-                input: None,
                 filters: Some(vec!["email".to_string()]),
                 search: Some(vec!["email".to_string()]),
                 pagination: Some(PaginationStyle::Cursor),
                 sort: Some(vec!["created_at".to_string()]),
-                cache: None,
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
-                soft_delete: false,
+                ..Default::default()
             },
         );
 

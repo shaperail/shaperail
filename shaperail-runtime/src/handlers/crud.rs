@@ -3,6 +3,8 @@ use std::sync::Arc;
 use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse};
 use futures_util::TryStreamExt;
+#[cfg(test)]
+use shaperail_core::RateLimitSpec;
 use shaperail_core::{EndpointSpec, FieldError, FieldType, ResourceDefinition, ShaperailError};
 
 use crate::auth::extractor::{try_extract_auth, AuthenticatedUser};
@@ -30,6 +32,8 @@ pub struct AppState {
     pub cache: Option<RedisCache>,
     pub event_emitter: Option<EventEmitter>,
     pub job_queue: Option<JobQueue>,
+    /// Per-endpoint Redis-backed rate limiter. `None` if Redis is not configured.
+    pub rate_limiter: Option<Arc<crate::auth::RateLimiter>>,
     pub metrics: Option<MetricsState>,
     /// WASM plugin runtime (M19). Requires `wasm-plugins` feature.
     #[cfg(feature = "wasm-plugins")]
@@ -107,8 +111,9 @@ fn is_super_admin(user: Option<&AuthenticatedUser>) -> bool {
 }
 
 /// Checks that a fetched record belongs to the authenticated user's tenant.
-/// Returns `Err(NotFound)` if the tenant_key value doesn't match.
-/// Skips the check if: no tenant_key on resource, user is super_admin, or user has no tenant_id.
+/// Returns `Err(Forbidden)` if the user has no `tenant_id` claim or is unauthenticated.
+/// Returns `Err(NotFound)` if the tenant_key value doesn't match the user's tenant.
+/// Skips the check if: no tenant_key on resource, or user is super_admin.
 fn verify_tenant(
     resource: &ResourceDefinition,
     user: Option<&AuthenticatedUser>,
@@ -123,7 +128,7 @@ fn verify_tenant(
     }
     let user_tenant = match user.and_then(|u| u.tenant_id.as_deref()) {
         Some(t) => t,
-        None => return Ok(()), // No tenant_id in token — no filtering
+        None => return Err(ShaperailError::Forbidden),
     };
     let record_tenant = data.get(tenant_key).and_then(|v| v.as_str()).unwrap_or("");
     if record_tenant != user_tenant {
@@ -133,21 +138,26 @@ fn verify_tenant(
 }
 
 /// Injects tenant_key filter into a FilterSet for list queries.
-/// Adds `tenant_key = tenant_id` as an additional filter unless super_admin.
+/// Returns `Err(Forbidden)` if the user is unauthenticated or has no `tenant_id` claim.
+/// Skips the injection if: no tenant_key on resource, or user is super_admin.
 fn inject_tenant_filter(
     resource: &ResourceDefinition,
     user: Option<&AuthenticatedUser>,
     filters: &mut crate::db::FilterSet,
-) {
+) -> Result<(), ShaperailError> {
     let tenant_key = match &resource.tenant_key {
         Some(k) => k,
-        None => return,
+        None => return Ok(()),
     };
     if is_super_admin(user) {
-        return;
+        return Ok(());
     }
-    if let Some(tenant_id) = user.and_then(|u| u.tenant_id.as_deref()) {
-        filters.add(tenant_key.clone(), tenant_id.to_string());
+    match user.and_then(|u| u.tenant_id.as_deref()) {
+        Some(tenant_id) => {
+            filters.add(tenant_key.clone(), tenant_id.to_string());
+            Ok(())
+        }
+        None => Err(ShaperailError::Forbidden),
     }
 }
 
@@ -206,6 +216,46 @@ pub(crate) fn store_for_or_error(
     Ok(None)
 }
 
+/// Checks the per-endpoint rate limit for the current request.
+///
+/// Returns `Ok(())` if:
+/// - The endpoint has no `rate_limit:` configured, or
+/// - `AppState.rate_limiter` is `None` (Redis not configured).
+///
+/// Returns `Err(ShaperailError::RateLimited)` if the limit is exceeded.
+async fn check_rate_limit(
+    endpoint: &EndpointSpec,
+    state: &AppState,
+    req: &HttpRequest,
+    user: Option<&AuthenticatedUser>,
+    resource_action: &str,
+) -> Result<(), ShaperailError> {
+    let Some(ref spec) = endpoint.rate_limit else {
+        return Ok(());
+    };
+    let Some(ref limiter) = state.rate_limiter else {
+        return Ok(());
+    };
+    let ip = req
+        .connection_info()
+        .peer_addr()
+        .unwrap_or("unknown")
+        .to_string();
+    let user_id = user.map(|u| u.id.as_str());
+    let tenant_id = user.and_then(|u| u.tenant_id.as_deref());
+    let base_key = crate::auth::RateLimiter::key_for_tenant(&ip, user_id, tenant_id);
+    let key = format!("{resource_action}:{base_key}");
+    // Per-endpoint config — pool is shared (Arc clone), config is endpoint-specific
+    let endpoint_limiter = crate::auth::RateLimiter::new(
+        limiter.pool(),
+        crate::auth::RateLimitConfig {
+            max_requests: spec.max_requests,
+            window_secs: spec.window_secs,
+        },
+    );
+    endpoint_limiter.check(&key).await.map(|_| ())
+}
+
 /// Generates an Actix-web list handler for a resource endpoint.
 pub async fn handle_list(
     req: HttpRequest,
@@ -214,6 +264,14 @@ pub async fn handle_list(
     endpoint: web::Data<Arc<EndpointSpec>>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:list", resource.resource),
+    )
+    .await?;
 
     // Cache check for endpoints with cache.ttl configured
     if let (Some(ref cache), Some(ref cache_spec)) = (&state.cache, &endpoint.cache) {
@@ -268,7 +326,7 @@ async fn execute_list(
     let mut params = parse_list_params(req, endpoint);
 
     // M18: Inject tenant filter — scopes all list queries to user's tenant
-    inject_tenant_filter(resource, user.as_ref(), &mut params.filters);
+    inject_tenant_filter(resource, user.as_ref(), &mut params.filters)?;
 
     let store_opt = store_for_or_error(state, resource)?;
     let (rows, meta) = if let Some(store) = store_opt {
@@ -320,6 +378,14 @@ pub async fn handle_get(
     path: web::Path<String>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:get", resource.resource),
+    )
+    .await?;
     let id = parse_uuid(&path)?;
 
     // Cache check for endpoints with cache.ttl configured
@@ -689,6 +755,14 @@ pub async fn handle_create(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:create", resource.resource),
+    )
+    .await?;
     let mut input_data = extract_input(&body, &resource, &endpoint)?;
     // M18: Auto-inject tenant_id into create input
     inject_tenant_into_input(&resource, user.as_ref(), &mut input_data);
@@ -735,8 +809,18 @@ pub async fn handle_create_upload(
     endpoint: web::Data<Arc<EndpointSpec>>,
     payload: Multipart,
 ) -> Result<HttpResponse, ShaperailError> {
-    enforce_auth(&req, &endpoint)?;
-    let input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
+    let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:create_upload", resource.resource),
+    )
+    .await?;
+    let mut input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
+    // M18: Auto-inject tenant_id into create input (mirrors handle_create)
+    inject_tenant_into_input(&resource, user.as_ref(), &mut input_data);
     validate_input(&input_data, &resource)?;
 
     let store_opt = store_for_or_error(&state, &resource)?;
@@ -768,6 +852,14 @@ pub async fn handle_update(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:update", resource.resource),
+    )
+    .await?;
     let id = parse_uuid(&path)?;
     let input_data = extract_input(&body, &resource, &endpoint)?;
     let store_opt = store_for_or_error(&state, &resource)?;
@@ -832,6 +924,14 @@ pub async fn handle_update_upload(
     payload: Multipart,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:update_upload", resource.resource),
+    )
+    .await?;
     let id = parse_uuid(&path)?;
     let input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
     let store_opt = store_for_or_error(&state, &resource)?;
@@ -883,6 +983,14 @@ pub async fn handle_delete(
     path: web::Path<String>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:delete", resource.resource),
+    )
+    .await?;
     let id = parse_uuid(&path)?;
     let store_opt = store_for_or_error(&state, &resource)?;
 
@@ -942,7 +1050,15 @@ pub async fn handle_bulk_create(
     endpoint: web::Data<Arc<EndpointSpec>>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, ShaperailError> {
-    enforce_auth(&req, &endpoint)?;
+    let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:bulk_create", resource.resource),
+    )
+    .await?;
     let items = body.as_array().ok_or_else(|| {
         ShaperailError::Validation(vec![FieldError {
             field: "body".to_string(),
@@ -999,7 +1115,15 @@ pub async fn handle_bulk_delete(
     endpoint: web::Data<Arc<EndpointSpec>>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, ShaperailError> {
-    enforce_auth(&req, &endpoint)?;
+    let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:bulk_delete", resource.resource),
+    )
+    .await?;
     let ids = body.as_array().ok_or_else(|| {
         ShaperailError::Validation(vec![FieldError {
             field: "body".to_string(),
@@ -1379,18 +1503,8 @@ mod tests {
         let endpoint = EndpointSpec {
             method: Some(HttpMethod::Post),
             path: Some("/users".to_string()),
-            auth: None,
             input: Some(vec!["name".to_string()]),
-            filters: None,
-            search: None,
-            pagination: None,
-            sort: None,
-            cache: None,
-            controller: None,
-            events: None,
-            jobs: None,
-            upload: None,
-            soft_delete: false,
+            ..Default::default()
         };
 
         let body =
@@ -1409,18 +1523,7 @@ mod tests {
         let endpoint = EndpointSpec {
             method: Some(HttpMethod::Post),
             path: Some("/users".to_string()),
-            auth: None,
-            input: None,
-            filters: None,
-            search: None,
-            pagination: None,
-            sort: None,
-            cache: None,
-            controller: None,
-            events: None,
-            jobs: None,
-            upload: None,
-            soft_delete: false,
+            ..Default::default()
         };
 
         let body =
@@ -1495,7 +1598,7 @@ mod tests {
     }
 
     #[test]
-    fn verify_tenant_no_user_tenant_id_passes() {
+    fn verify_tenant_no_tenant_id_returns_forbidden() {
         let resource = tenant_resource();
         let user = AuthenticatedUser {
             id: "u1".to_string(),
@@ -1503,8 +1606,57 @@ mod tests {
             tenant_id: None,
         };
         let data = serde_json::json!({"id": "r1", "org_id": "org-b", "name": "Test"});
-        // No tenant_id in token — no filtering applied
-        assert!(verify_tenant(&resource, Some(&user), &data).is_ok());
+        let result = verify_tenant(&resource, Some(&user), &data);
+        assert!(
+            matches!(result, Err(ShaperailError::Forbidden)),
+            "user with no tenant_id must be forbidden on tenant-isolated resource"
+        );
+    }
+
+    #[test]
+    fn verify_tenant_unauthenticated_user_returns_forbidden() {
+        let resource = tenant_resource();
+        let data = serde_json::json!({"id": "r1", "org_id": "org-b", "name": "Test"});
+        let result = verify_tenant(&resource, None, &data);
+        assert!(
+            matches!(result, Err(ShaperailError::Forbidden)),
+            "unauthenticated user must be forbidden on tenant-isolated resource"
+        );
+    }
+
+    #[test]
+    fn inject_tenant_filter_no_tenant_id_returns_forbidden() {
+        let resource = tenant_resource();
+        let user = AuthenticatedUser {
+            id: "u1".to_string(),
+            role: "member".to_string(),
+            tenant_id: None,
+        };
+        let mut filters = crate::db::FilterSet::default();
+        let result = inject_tenant_filter(&resource, Some(&user), &mut filters);
+        assert!(
+            matches!(result, Err(ShaperailError::Forbidden)),
+            "inject_tenant_filter must return Forbidden when tenant_id is absent"
+        );
+        assert!(
+            filters.filters.is_empty(),
+            "no filter should be injected on error"
+        );
+    }
+
+    #[test]
+    fn inject_tenant_filter_unauthenticated_returns_forbidden() {
+        let resource = tenant_resource();
+        let mut filters = crate::db::FilterSet::default();
+        let result = inject_tenant_filter(&resource, None, &mut filters);
+        assert!(
+            matches!(result, Err(ShaperailError::Forbidden)),
+            "inject_tenant_filter must return Forbidden for unauthenticated user on tenant-isolated resource"
+        );
+        assert!(
+            filters.filters.is_empty(),
+            "no filter should be injected on error"
+        );
     }
 
     #[test]
@@ -1512,7 +1664,7 @@ mod tests {
         let resource = tenant_resource();
         let user = user_with_tenant("u1", "member", "org-a");
         let mut filters = crate::db::FilterSet::default();
-        inject_tenant_filter(&resource, Some(&user), &mut filters);
+        inject_tenant_filter(&resource, Some(&user), &mut filters).unwrap();
         assert_eq!(filters.filters.len(), 1);
         assert_eq!(filters.filters[0].field, "org_id");
         assert_eq!(filters.filters[0].value, "org-a");
@@ -1523,7 +1675,7 @@ mod tests {
         let resource = tenant_resource();
         let user = user_with_tenant("u1", "super_admin", "org-a");
         let mut filters = crate::db::FilterSet::default();
-        inject_tenant_filter(&resource, Some(&user), &mut filters);
+        inject_tenant_filter(&resource, Some(&user), &mut filters).unwrap();
         assert!(filters.is_empty());
     }
 
@@ -1555,5 +1707,27 @@ mod tests {
         let user = user_with_tenant("u1", "admin", "org-a");
         assert!(!is_super_admin(Some(&user)));
         assert!(!is_super_admin(None));
+    }
+
+    #[test]
+    fn rate_limit_field_defaults_to_none() {
+        // endpoint with no rate_limit field — helper must return Ok without touching Redis
+        let endpoint = EndpointSpec {
+            rate_limit: None,
+            ..Default::default()
+        };
+        assert!(endpoint.rate_limit.is_none());
+    }
+
+    #[test]
+    fn rate_limit_spec_fields_accessible() {
+        let endpoint = EndpointSpec {
+            rate_limit: Some(RateLimitSpec {
+                max_requests: 10,
+                window_secs: 60,
+            }),
+            ..Default::default()
+        };
+        let _ = endpoint.rate_limit.as_ref().unwrap();
     }
 }
