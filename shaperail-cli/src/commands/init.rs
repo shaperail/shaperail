@@ -1155,14 +1155,21 @@ async fn main() -> std::io::Result<()> {
         let emitter_ib = emitter_inbound_clone.clone();
         app.configure(move |cfg| {
             register_all_resources(cfg, &res, st);
-            if let (Some(ref p), Some(ref r), Some(ref j)) = (&pubsub, &rm, &jwt_ws) {
-                for channel in &ch {
-                    shaperail_runtime::ws::configure_ws_routes(
-                        cfg,
-                        channel.clone(),
-                        r.clone(),
-                        p.clone(),
-                        j.clone(),
+            if !ch.is_empty() {
+                if let (Some(ref p), Some(ref r), Some(ref j)) = (&pubsub, &rm, &jwt_ws) {
+                    for channel in &ch {
+                        shaperail_runtime::ws::configure_ws_routes(
+                            cfg,
+                            channel.clone(),
+                            r.clone(),
+                            p.clone(),
+                            j.clone(),
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        "channels/ YAML files found but WebSocket routes not registered \
+                         — requires Redis (REDIS_URL) and JWT (SHAPERAIL_JWT_SECRET)"
                     );
                 }
             }
