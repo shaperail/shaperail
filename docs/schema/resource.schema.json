@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://shaperail.dev/schema/resource.v1.json",
+  "$id": "https://shaperail.io/schema/resource.v1.json",
   "title": "Shaperail Resource Definition",
   "description": "Schema for Shaperail resource YAML files. Defines a single API resource with its fields, endpoints, relations, and indexes.",
   "type": "object",

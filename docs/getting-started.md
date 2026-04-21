@@ -35,7 +35,7 @@ cargo install shaperail-cli
 If you prefer a release binary on macOS or Linux:
 
 ```bash
-curl -fsSL https://shaperail.dev/install.sh | sh
+curl -fsSL https://shaperail.io/install.sh | sh
 ```
 
 ## Scaffold a project
