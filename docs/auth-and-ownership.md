@@ -93,12 +93,19 @@ so API keys are currently a manual integration step.
 
 ## Rate limiting
 
-The runtime contains a Redis-backed `RateLimiter`, but the scaffolded app does
-not wire it into request handling automatically.
+Rate limiting is declared per-endpoint in the resource YAML:
 
-If you need application-level rate limiting today, you must add that middleware
-or wrapper yourself. Until then, rely on your reverse proxy or edge layer for
-enforcement.
+```yaml
+endpoints:
+  list:
+    auth: [member, admin]
+    rate_limit: { max_requests: 100, window_secs: 60 }
+```
+
+Behavior:
+- Uses a Redis sliding window — requires Redis to be configured
+- Silently skipped when Redis is absent (no error, no enforcement)
+- A startup warning is logged when `rate_limit:` is declared on any endpoint but `REDIS_URL` is not set
 
 ## What Shaperail does not do automatically
 

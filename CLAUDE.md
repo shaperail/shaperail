@@ -130,7 +130,7 @@ indexes:
 ## Release Targets
 - `shaperail-core`, `shaperail-codegen`, `shaperail-runtime`, `shaperail-cli` published to crates.io
 - GitHub Releases with pre-built binaries for macOS, Linux, Windows
-- Install script: `curl -fsSL https://shaperail.dev/install.sh | sh`
+- Install script: `curl -fsSL https://shaperail.io/install.sh | sh`
 
 ## Commands
 ```bash

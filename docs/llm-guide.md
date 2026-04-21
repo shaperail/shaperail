@@ -97,6 +97,7 @@ For custom endpoints, provide `method:` and `path:` explicitly.
 | jobs        |      | ✓      |     | ✓      | ✓      |        |
 | soft_delete |      |        |     |        | ✓      |        |
 | upload      |      | ✓      |     |        |        |        |
+| rate_limit  | ✓    | ✓      | ✓   | ✓      | ✓      | ✓      |
 | method      |      |        |     |        |        | ✓      |
 | path        |      |        |     |        |        | ✓      |
 

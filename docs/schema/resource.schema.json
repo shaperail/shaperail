@@ -235,6 +235,24 @@
         }
       }
     },
+    "RateLimitSpec": {
+      "type": "object",
+      "description": "Per-endpoint rate limiting. Requires Redis. Silently skipped if Redis is not configured.",
+      "properties": {
+        "max_requests": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum requests allowed within the window."
+        },
+        "window_secs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Window duration in seconds."
+        }
+      },
+      "required": ["max_requests", "window_secs"],
+      "additionalProperties": false
+    },
     "UploadSpec": {
       "type": "object",
       "description": "File upload configuration for an endpoint.",
@@ -337,6 +355,9 @@
         },
         "cache": {
           "$ref": "#/$defs/CacheSpec"
+        },
+        "rate_limit": {
+          "$ref": "#/$defs/RateLimitSpec"
         },
         "controller": {
           "$ref": "#/$defs/ControllerSpec"

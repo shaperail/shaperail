@@ -134,7 +134,7 @@ events:
 ```
 
 The scaffolded app calls `configure_inbound_routes(...)` automatically at
-startup by reading the `inbound_webhooks:` section in `shaperail.config.yaml`,
+startup by reading the `events.inbound:` section in `shaperail.config.yaml`,
 so these routes are live as soon as they are declared — no manual wiring
 required.
 

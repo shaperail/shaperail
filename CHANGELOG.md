@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Controller registration** — auto-wired from resource YAML at startup; no manual `main.rs` wiring required
 - **Background job worker** — auto-started with registered handlers derived from resource YAML; no manual `main.rs` wiring required
 - **WebSocket channels** — routes auto-registered from `channels/*.yaml` files at startup
-- **Inbound webhook routes** — auto-configured from `inbound_webhooks:` in `shaperail.config.yaml`
+- **Inbound webhook routes** — auto-configured from `events.inbound:` in `shaperail.config.yaml`
 
 ### Fixed
 
