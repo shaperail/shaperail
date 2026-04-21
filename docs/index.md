@@ -100,20 +100,18 @@ Everything below works from a resource YAML file with no manual wiring.
 
 ### Available — requires manual wiring
 
-The runtime primitives exist and are documented. Background jobs, events, WebSockets, and API key auth require code in your `main.rs` to connect. GraphQL and gRPC require a Cargo feature flag and a `protocols:` config line, and have known feature gaps listed below. Each linked guide explains what works today.
+The runtime primitives exist and are documented. GraphQL and gRPC require a Cargo feature flag and a `protocols:` config line, and have known feature gaps listed below. Each linked guide explains what works today.
 
-- **Background jobs** — Queue and worker primitives; worker registration and handler mapping are manual ([Background jobs](/background-jobs/))
-- **Events and webhooks** — Event emission from write handlers works; subscriber execution and inbound route registration are manual ([Events and webhooks](/events-and-webhooks/))
-- **WebSockets** — Session and channel primitives work; route registration is manual ([WebSockets](/websockets/))
-- **API key auth and rate limiting** — Runtime primitives exist; wiring to endpoints is manual ([Auth and ownership](/auth-and-ownership/))
-- **Controllers** — Before/after business logic on write endpoints in Rust or WASM (TypeScript, Python, Rust, Go, or any WASM-targeting language); controller registration requires manual `main.rs` wiring ([Controllers](/controllers/))
+- **Background jobs** — Queue, worker, and handler registration are fully auto-wired from resource YAML; enqueue jobs from `jobs:` on any write endpoint ([Background jobs](/background-jobs/))
+- **Events and webhooks** — Event emission from write handlers and inbound webhook route registration are auto-configured; subscriber execution is still manual ([Events and webhooks](/events-and-webhooks/))
+- **WebSockets** — Routes auto-registered from `channels/*.yaml` files at startup ([WebSockets](/websockets/))
+- **Rate limiting** — Per-endpoint via `rate_limit: { max_requests: N, window_secs: N }` in resource YAML; requires Redis; startup warning when declared but Redis absent ([Auth and ownership](/auth-and-ownership/))
+- **Controllers** — Before/after business logic on write endpoints in Rust or WASM (TypeScript, Python, Rust, Go, or any WASM-targeting language); auto-wired from resource YAML at startup ([Controllers](/controllers/))
 - **GraphQL** — Enable with `protocols: [rest, graphql]`; generates list/get queries and create/update/delete mutations; list queries support `limit`/`offset` only ([GraphQL](/graphql/))
 - **gRPC** — Enable with `protocols: [rest, grpc]`; supports list, stream, get, create, delete; `Update` RPC is not yet implemented ([gRPC](/grpc/))
 
 ### In progress
 
 - gRPC Update RPC
-- WebSocket auto-routing from channel YAML files
 - Events subscriber auto-execution
 - Workspace service registry and saga orchestration
-- Background job worker auto-registration

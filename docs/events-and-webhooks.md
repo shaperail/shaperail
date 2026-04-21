@@ -47,8 +47,6 @@ The generated app does **not** automatically provide:
 - a worker that consumes the queued event jobs
 - registered handlers for webhook delivery, channel broadcast, or hook
   execution
-- inbound webhook route registration
-
 So the emitter and config parsing are present, but subscriber execution still
 requires manual wiring.
 
@@ -135,9 +133,10 @@ events:
       events: []
 ```
 
-Current limitation: the scaffolded app does not call
-`configure_inbound_routes(...)` automatically, so these routes are not live
-until you wire them into your Actix app manually.
+The scaffolded app calls `configure_inbound_routes(...)` automatically at
+startup by reading the `inbound_webhooks:` section in `shaperail.config.yaml`,
+so these routes are live as soon as they are declared — no manual wiring
+required.
 
 ## Practical guidance
 
@@ -145,5 +144,7 @@ until you wire them into your Actix app manually.
   declarations.
 - Expect endpoint writes to enqueue event work automatically when Redis is
   configured.
-- Expect delivery, broadcast, hook execution, and inbound webhook routing to be
-  manual until you add worker and route wiring yourself.
+- Expect delivery, broadcast, and hook execution to be manual until you add
+  worker wiring yourself.
+- Inbound webhook routes are auto-registered from `shaperail.config.yaml` at
+  startup — no manual wiring required.
