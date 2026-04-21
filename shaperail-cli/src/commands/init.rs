@@ -1031,7 +1031,7 @@ async fn main() -> std::io::Result<()> {
     let emitter_for_inbound = event_emitter.clone();
 
     let job_registry = generated::build_job_registry();
-    let _worker_shutdown_tx = if !job_registry.is_empty() {
+    let (worker_shutdown_tx, worker_handle) = if !job_registry.is_empty() {
         if let Some(ref jq) = job_queue {
             let (tx, shutdown_rx) = tokio::sync::watch::channel(false);
             let worker = Worker::new(
@@ -1039,13 +1039,13 @@ async fn main() -> std::io::Result<()> {
                 job_registry,
                 std::time::Duration::from_secs(1),
             );
-            let _worker_handle = worker.spawn(shutdown_rx);
-            Some(tx)
+            let handle = worker.spawn(shutdown_rx);
+            (Some(tx), Some(handle))
         } else {
-            None
+            (None, None)
         }
     } else {
-        None
+        (None, None)
     };
 
     let jwt_config = JwtConfig::from_env().map(Arc::new);
@@ -1177,7 +1177,15 @@ async fn main() -> std::io::Result<()> {
     })
     .bind(("0.0.0.0", port))?
     .run()
-    .await
+    .await?;
+
+    // Signal worker to stop and wait for it to finish draining
+    drop(worker_shutdown_tx);
+    if let Some(handle) = worker_handle {
+        let _ = handle.await;
+    }
+
+    Ok(())
 }
 "###;
     write_file(&root.join("src/main.rs"), main_rs)?;

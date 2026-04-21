@@ -128,6 +128,13 @@ pub(crate) fn write_controller_stubs(
             })
             .collect();
 
+        // Deduplicate by function name — same name may appear on multiple endpoints
+        let mut seen = std::collections::BTreeMap::new();
+        for (name, is_after) in hook_entries {
+            seen.entry(name).or_insert(is_after);
+        }
+        let hook_entries: Vec<(&str, bool)> = seen.into_iter().collect();
+
         if hook_entries.is_empty() {
             continue;
         }
@@ -257,6 +264,41 @@ endpoints:
         assert!(
             !contents.contains("serde_json::Value"),
             "after-hook stub must NOT use serde_json::Value as return type"
+        );
+    }
+
+    #[test]
+    fn controller_stub_deduplicates_same_hook_on_multiple_endpoints() {
+        let dir = tempfile::tempdir().unwrap();
+        let resources_dir = dir.path().join("resources");
+        std::fs::create_dir_all(&resources_dir).unwrap();
+
+        // Same before-hook name on both create and update
+        let yaml = r#"
+resource: orders
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: [admin]
+    input: [id]
+    controller:
+      before: validate_org
+  update:
+    auth: [admin]
+    input: [id]
+    controller:
+      before: validate_org
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        write_controller_stubs(&[rd], &resources_dir).unwrap();
+
+        let contents = std::fs::read_to_string(resources_dir.join("orders.controller.rs")).unwrap();
+        let count = contents.matches("pub async fn validate_org").count();
+        assert_eq!(
+            count, 1,
+            "duplicate fn name should appear only once in stub"
         );
     }
 
