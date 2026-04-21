@@ -231,6 +231,7 @@ endpoints:
 | `events` | Events to emit on success (e.g., `[user.created]`) |
 | `jobs` | Background jobs to enqueue on success (e.g., `[send_welcome_email]`) |
 | `upload` | Multipart file upload config: `{ field: avatar, storage: s3, max_size: 5mb }` |
+| `rate_limit` | Per-endpoint rate limiting: `{ max_requests: 100, window_secs: 60 }`. Requires Redis. Silently skipped if Redis is not configured. |
 | `soft_delete` | When `true`, sets `deleted_at` instead of removing the row |
 
 Important behavior:
