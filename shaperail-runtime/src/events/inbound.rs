@@ -12,9 +12,10 @@ pub struct InboundWebhookState {
     pub accepted_events: Vec<String>,
     /// Event emitter for re-emitting received events.
     pub emitter: EventEmitter,
-    /// Which HTTP header carries the HMAC signature for this endpoint.
-    /// Stored as metadata; runtime signature detection in `verify_signature` handles
-    /// all known provider headers automatically.
+    /// The configured signature header name from the resource YAML.
+    /// Stored for introspection; `verify_signature` auto-detects known provider headers
+    /// (X-Shaperail-Signature, X-Hub-Signature-256, Stripe-Signature) rather than
+    /// consulting this field. Custom headers are not yet supported by verification.
     #[allow(dead_code)]
     pub signature_header: String,
 }
@@ -43,12 +44,15 @@ pub fn configure_inbound_routes(
     }
 }
 
-/// Verifies the signature from an inbound webhook request.
+/// Verifies the signature from an inbound webhook request by auto-detecting the provider.
 ///
-/// Supports three signature header formats:
+/// Checks three well-known headers in order; returns `Unauthorized` if none match:
 /// - `X-Shaperail-Signature: sha256=<hex>` (Shaperail format)
 /// - `X-Hub-Signature-256: sha256=<hex>` (GitHub format)
 /// - `Stripe-Signature: t=<ts>,v1=<sig>` (Stripe format)
+///
+/// The `signature_header` field on `InboundWebhookState` is not consulted here.
+/// Custom header names are not yet supported.
 pub fn verify_signature(
     req: &HttpRequest,
     body: &[u8],

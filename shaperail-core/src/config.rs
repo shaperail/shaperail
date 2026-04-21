@@ -689,6 +689,9 @@ mod tests {
         assert!(!cfg.reflection);
     }
 
+    // All config tests in this file use serde_json for consistency with the established
+    // pattern. The actual config format is YAML, but serde deserialization of simple
+    // struct fields is format-agnostic — JSON and YAML produce the same result here.
     #[test]
     fn inbound_config_default_signature_header() {
         let json = r#"{"path": "/webhooks/github", "secret_env": "GITHUB_SECRET"}"#;
