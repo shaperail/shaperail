@@ -1858,11 +1858,15 @@ volumes:
     write_file(&root.join("CLAUDE.md"), AGENT_ADAPTER_MD)?;
     write_file(&root.join("AGENTS.md"), AGENT_ADAPTER_MD)?;
     write_file(&root.join("GEMINI.md"), AGENT_ADAPTER_MD)?;
-    fs::create_dir_all(root.join(".cursor/rules"))
-        .map_err(|e| format!("Failed to create .cursor/rules: {e}"))?;
+    fs::create_dir_all(&root.join(".cursor/rules")).map_err(|e| {
+        format!(
+            "Failed to create {}: {e}",
+            root.join(".cursor/rules").display()
+        )
+    })?;
     write_file(&root.join(".cursor/rules/shaperail.md"), AGENT_ADAPTER_MD)?;
-    fs::create_dir_all(root.join(".github"))
-        .map_err(|e| format!("Failed to create .github: {e}"))?;
+    fs::create_dir_all(&root.join(".github"))
+        .map_err(|e| format!("Failed to create {}: {e}", root.join(".github").display()))?;
     write_file(
         &root.join(".github/copilot-instructions.md"),
         AGENT_ADAPTER_MD,
