@@ -460,3 +460,53 @@ fn init_scaffold_compiles_with_local_workspace_deps() {
 
     assert!(status.success(), "scaffolded project should compile");
 }
+
+#[test]
+fn scaffold_writes_llm_context_files() {
+    let tmp = TempDir::new().unwrap();
+    let project_name = "llm-test";
+
+    shaperail()
+        .args(["init", project_name])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    let root = tmp.path().join(project_name);
+
+    assert!(
+        root.join("llm-context.md").exists(),
+        "llm-context.md missing"
+    );
+    assert!(root.join("CLAUDE.md").exists(), "CLAUDE.md missing");
+    assert!(root.join("AGENTS.md").exists(), "AGENTS.md missing");
+    assert!(root.join("GEMINI.md").exists(), "GEMINI.md missing");
+    assert!(
+        root.join(".cursor/rules/shaperail.md").exists(),
+        ".cursor/rules/shaperail.md missing"
+    );
+    assert!(
+        root.join(".github/copilot-instructions.md").exists(),
+        ".github/copilot-instructions.md missing"
+    );
+    assert!(
+        root.join(".windsurfrules").exists(),
+        ".windsurfrules missing"
+    );
+
+    let claude = std::fs::read_to_string(root.join("CLAUDE.md")).unwrap();
+    assert!(
+        claude.contains("llm-context.md"),
+        "CLAUDE.md should reference llm-context.md"
+    );
+
+    let ctx = std::fs::read_to_string(root.join("llm-context.md")).unwrap();
+    assert!(
+        ctx.contains("shaperail context"),
+        "llm-context.md should mention shaperail context command"
+    );
+    assert!(
+        ctx.contains("resource:"),
+        "llm-context.md should contain resource syntax"
+    );
+}
