@@ -1084,7 +1084,7 @@ async fn main() -> std::io::Result<()> {
     let health_state = web::Data::new(HealthState::new(Some(pool), redis_pool));
 
     // Warn if any endpoint declares rate_limit but Redis is not configured
-    if rate_limiter.is_none() {
+    if state.rate_limiter.is_none() {
         let has_rate_limit = resources.iter().any(|r| {
             r.endpoints.as_ref().map_or(false, |eps| {
                 eps.values().any(|ep| ep.rate_limit.is_some())
