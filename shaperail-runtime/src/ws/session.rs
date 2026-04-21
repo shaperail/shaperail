@@ -381,7 +381,11 @@ pub fn configure_ws_routes(
 pub fn load_channels(dir: &std::path::Path) -> Vec<shaperail_core::ChannelDefinition> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
-        Err(_) => return Vec::new(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(e) => {
+            tracing::warn!(path = %dir.display(), error = %e, "Failed to read channels directory");
+            return Vec::new();
+        }
     };
 
     let mut channels = Vec::new();
@@ -555,5 +559,26 @@ mod tests {
         .unwrap();
         let channels = load_channels(dir.path());
         assert!(channels.is_empty(), "non-channel files should be ignored");
+    }
+
+    #[test]
+    fn load_channels_reads_multiple_valid_yaml_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("notifications.channel.yaml"),
+            "channel: notifications\nrooms: false\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("presence.channel.yaml"),
+            "channel: presence\nrooms: true\n",
+        )
+        .unwrap();
+
+        let mut channels = load_channels(dir.path());
+        channels.sort_by(|a, b| a.channel.cmp(&b.channel));
+        assert_eq!(channels.len(), 2);
+        assert_eq!(channels[0].channel, "notifications");
+        assert_eq!(channels[1].channel, "presence");
     }
 }
