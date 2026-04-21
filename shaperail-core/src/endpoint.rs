@@ -106,6 +106,25 @@ pub enum PaginationStyle {
     Offset,
 }
 
+/// Per-endpoint rate limiting configuration.
+///
+/// Declared in resource YAML:
+/// ```yaml
+/// list:
+///   auth: [member]
+///   rate_limit: { max_requests: 100, window_secs: 60 }
+/// ```
+///
+/// Requires Redis. Silently skipped if Redis is not configured.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RateLimitSpec {
+    /// Maximum requests allowed within the window.
+    pub max_requests: u64,
+    /// Window duration in seconds.
+    pub window_secs: u64,
+}
+
 /// Cache configuration for an endpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -243,7 +262,7 @@ impl ControllerSpec {
 /// When the endpoint name matches a known convention (list, get, create, update, delete),
 /// `method` and `path` can be omitted and will be inferred from the resource name.
 /// Use `apply_endpoint_defaults()` after parsing to fill them in.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EndpointSpec {
     /// HTTP method (GET, POST, PATCH, PUT, DELETE).
@@ -299,6 +318,10 @@ pub struct EndpointSpec {
     /// File upload configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upload: Option<UploadSpec>,
+
+    /// Per-endpoint rate limiting. Requires Redis. Skipped if Redis is not configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<RateLimitSpec>,
 
     /// Whether this endpoint performs a soft delete.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -501,5 +524,34 @@ mod tests {
         }"#;
         let ep: EndpointSpec = serde_json::from_str(json).unwrap();
         assert!(ep.soft_delete);
+    }
+
+    #[test]
+    fn rate_limit_spec_parses_from_yaml() {
+        let yaml = "max_requests: 50\nwindow_secs: 30\n";
+        let spec: RateLimitSpec = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(spec.max_requests, 50);
+        assert_eq!(spec.window_secs, 30);
+    }
+
+    #[test]
+    fn endpoint_spec_rate_limit_field_roundtrips() {
+        let yaml = r#"
+auth: [member]
+rate_limit:
+  max_requests: 100
+  window_secs: 60
+"#;
+        let spec: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
+        let rl = spec.rate_limit.unwrap();
+        assert_eq!(rl.max_requests, 100);
+        assert_eq!(rl.window_secs, 60);
+    }
+
+    #[test]
+    fn endpoint_spec_rate_limit_absent_is_none() {
+        let yaml = "auth: [member]\n";
+        let spec: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
+        assert!(spec.rate_limit.is_none());
     }
 }

@@ -1401,17 +1401,11 @@ mod tests {
                 method: Some(HttpMethod::Get),
                 path: Some("/users".to_string()),
                 auth: Some(AuthRule::Public),
-                input: None,
                 filters: Some(vec!["email".to_string()]),
                 search: Some(vec!["email".to_string()]),
                 pagination: Some(PaginationStyle::Cursor),
                 sort: Some(vec!["created_at".to_string()]),
-                cache: None,
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
-                soft_delete: false,
+                ..Default::default()
             },
         );
 

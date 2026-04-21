@@ -1025,6 +1025,12 @@ async fn main() -> std::io::Result<()> {
         Some(RoomManager::new())
     };
     let job_queue = redis_pool.as_ref().map(|pool| JobQueue::new(pool.clone()));
+    let rate_limiter = redis_pool.as_ref().map(|pool| {
+        std::sync::Arc::new(shaperail_runtime::auth::RateLimiter::new(
+            pool.clone(),
+            shaperail_runtime::auth::RateLimitConfig::default(),
+        ))
+    });
     let event_emitter = job_queue
         .clone()
         .map(|queue| EventEmitter::new(queue, config.events.as_ref()));
@@ -1069,6 +1075,7 @@ async fn main() -> std::io::Result<()> {
         cache,
         event_emitter,
         job_queue,
+        rate_limiter,
         metrics: Some(metrics_state.get_ref().clone()),
         #[cfg(feature = "wasm-plugins")]
         wasm_runtime: None,
@@ -1076,6 +1083,20 @@ async fn main() -> std::io::Result<()> {
     });
     let health_state = web::Data::new(HealthState::new(Some(pool), redis_pool));
 
+    // Warn if any endpoint declares rate_limit but Redis is not configured
+    if rate_limiter.is_none() {
+        let has_rate_limit = resources.iter().any(|r| {
+            r.endpoints.as_ref().map_or(false, |eps| {
+                eps.values().any(|ep| ep.rate_limit.is_some())
+            })
+        });
+        if has_rate_limit {
+            tracing::warn!(
+                "One or more endpoints declare rate_limit but Redis is not configured \
+                 — rate limiting will be skipped. Set REDIS_URL to enable it."
+            );
+        }
+    }
     tracing::info!("Starting Shaperail server on port {port}");
     tracing::info!("OpenAPI spec available at http://localhost:{port}/openapi.json");
     tracing::info!("API docs available at http://localhost:{port}/docs");

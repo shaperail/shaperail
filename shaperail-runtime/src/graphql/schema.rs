@@ -89,18 +89,8 @@ fn build_query_object(resources: &[ResourceDefinition]) -> Object {
                         .unwrap_or_else(|| EndpointSpec {
                             method: Some(HttpMethod::Get),
                             path: Some(format!("/{}", res.resource)),
-                            auth: None,
-                            input: None,
-                            filters: None,
-                            search: None,
                             pagination: Some(PaginationStyle::Offset),
-                            sort: None,
-                            cache: None,
-                            controller: None,
-                            events: None,
-                            jobs: None,
-                            upload: None,
-                            soft_delete: false,
+                            ..Default::default()
                         });
                     rbac::enforce(endpoint.auth.as_ref(), gql.user.as_ref())
                         .map_err(|e| e.to_string())?;
@@ -171,18 +161,7 @@ fn build_query_object(resources: &[ResourceDefinition]) -> Object {
                     .unwrap_or_else(|| EndpointSpec {
                         method: Some(HttpMethod::Get),
                         path: Some(format!("/{}/:id", res.resource)),
-                        auth: None,
-                        input: None,
-                        filters: None,
-                        search: None,
-                        pagination: None,
-                        sort: None,
-                        cache: None,
-                        controller: None,
-                        events: None,
-                        jobs: None,
-                        upload: None,
-                        soft_delete: false,
+                        ..Default::default()
                     });
                 rbac::enforce(endpoint.auth.as_ref(), gql.user.as_ref())
                     .map_err(|e| e.to_string())?;
@@ -266,18 +245,7 @@ fn build_input_objects(resources: &[ResourceDefinition]) -> Vec<InputObject> {
             .unwrap_or_else(|| EndpointSpec {
                 method: Some(HttpMethod::Post),
                 path: Some(format!("/{}", resource.resource)),
-                auth: None,
-                input: None,
-                filters: None,
-                search: None,
-                pagination: None,
-                sort: None,
-                cache: None,
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
-                soft_delete: false,
+                ..Default::default()
             });
         let type_name = object_type_name(&resource.resource);
         let input_name = format!("{}Input", type_name);
@@ -453,18 +421,8 @@ fn build_mutation_object(resources: &[ResourceDefinition]) -> Object {
                 .unwrap_or_else(|| EndpointSpec {
                     method: Some(HttpMethod::Delete),
                     path: Some(format!("/{}/:id", resource.resource)),
-                    auth: None,
-                    input: None,
-                    filters: None,
-                    search: None,
-                    pagination: None,
-                    sort: None,
-                    cache: None,
-                    controller: None,
-                    events: None,
-                    jobs: None,
-                    upload: None,
                     soft_delete: true,
+                    ..Default::default()
                 });
             let delete_field = Field::new(
                 format!("delete_{}", resource.resource),

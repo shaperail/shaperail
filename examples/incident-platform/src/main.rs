@@ -230,6 +230,12 @@ async fn main() -> std::io::Result<()> {
             .map_err(|error| io_error(format!("Failed to initialize metrics: {error}")))?,
     );
 
+    let rate_limiter = redis_pool.as_ref().map(|pool| {
+        Arc::new(shaperail_runtime::auth::RateLimiter::new(
+            pool.clone(),
+            shaperail_runtime::auth::RateLimitConfig::default(),
+        ))
+    });
     let state = Arc::new(AppState {
         pool: pool.clone(),
         resources: resources.clone(),
@@ -239,6 +245,7 @@ async fn main() -> std::io::Result<()> {
         cache,
         event_emitter: event_emitter.clone(),
         job_queue,
+        rate_limiter,
         metrics: Some(metrics_state.get_ref().clone()),
         #[cfg(feature = "wasm-plugins")]
         wasm_runtime: None,

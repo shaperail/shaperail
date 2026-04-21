@@ -380,18 +380,7 @@ mod tests {
         EndpointSpec {
             method: Some(method),
             path: Some(path.to_string()),
-            auth: None,
-            input: None,
-            filters: None,
-            search: None,
-            pagination: None,
-            sort: None,
-            cache: None,
-            controller: None,
-            events: None,
-            jobs: None,
-            upload: None,
-            soft_delete: false,
+            ..Default::default()
         }
     }
 

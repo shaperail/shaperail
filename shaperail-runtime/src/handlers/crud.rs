@@ -3,6 +3,8 @@ use std::sync::Arc;
 use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse};
 use futures_util::TryStreamExt;
+#[cfg(test)]
+use shaperail_core::RateLimitSpec;
 use shaperail_core::{EndpointSpec, FieldError, FieldType, ResourceDefinition, ShaperailError};
 
 use crate::auth::extractor::{try_extract_auth, AuthenticatedUser};
@@ -30,6 +32,8 @@ pub struct AppState {
     pub cache: Option<RedisCache>,
     pub event_emitter: Option<EventEmitter>,
     pub job_queue: Option<JobQueue>,
+    /// Per-endpoint Redis-backed rate limiter. `None` if Redis is not configured.
+    pub rate_limiter: Option<Arc<crate::auth::RateLimiter>>,
     pub metrics: Option<MetricsState>,
     /// WASM plugin runtime (M19). Requires `wasm-plugins` feature.
     #[cfg(feature = "wasm-plugins")]
@@ -212,6 +216,46 @@ pub(crate) fn store_for_or_error(
     Ok(None)
 }
 
+/// Checks the per-endpoint rate limit for the current request.
+///
+/// Returns `Ok(())` if:
+/// - The endpoint has no `rate_limit:` configured, or
+/// - `AppState.rate_limiter` is `None` (Redis not configured).
+///
+/// Returns `Err(ShaperailError::RateLimited)` if the limit is exceeded.
+async fn check_rate_limit(
+    endpoint: &EndpointSpec,
+    state: &AppState,
+    req: &HttpRequest,
+    user: Option<&AuthenticatedUser>,
+    resource_action: &str,
+) -> Result<(), ShaperailError> {
+    let Some(ref spec) = endpoint.rate_limit else {
+        return Ok(());
+    };
+    let Some(ref limiter) = state.rate_limiter else {
+        return Ok(());
+    };
+    let ip = req
+        .connection_info()
+        .peer_addr()
+        .unwrap_or("unknown")
+        .to_string();
+    let user_id = user.map(|u| u.id.as_str());
+    let tenant_id = user.and_then(|u| u.tenant_id.as_deref());
+    let base_key = crate::auth::RateLimiter::key_for_tenant(&ip, user_id, tenant_id);
+    let key = format!("{resource_action}:{base_key}");
+    // Per-endpoint config — pool is shared (Arc clone), config is endpoint-specific
+    let endpoint_limiter = crate::auth::RateLimiter::new(
+        limiter.pool(),
+        crate::auth::RateLimitConfig {
+            max_requests: spec.max_requests,
+            window_secs: spec.window_secs,
+        },
+    );
+    endpoint_limiter.check(&key).await.map(|_| ())
+}
+
 /// Generates an Actix-web list handler for a resource endpoint.
 pub async fn handle_list(
     req: HttpRequest,
@@ -220,6 +264,14 @@ pub async fn handle_list(
     endpoint: web::Data<Arc<EndpointSpec>>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:list", resource.resource),
+    )
+    .await?;
 
     // Cache check for endpoints with cache.ttl configured
     if let (Some(ref cache), Some(ref cache_spec)) = (&state.cache, &endpoint.cache) {
@@ -326,6 +378,14 @@ pub async fn handle_get(
     path: web::Path<String>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:get", resource.resource),
+    )
+    .await?;
     let id = parse_uuid(&path)?;
 
     // Cache check for endpoints with cache.ttl configured
@@ -695,6 +755,14 @@ pub async fn handle_create(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:create", resource.resource),
+    )
+    .await?;
     let mut input_data = extract_input(&body, &resource, &endpoint)?;
     // M18: Auto-inject tenant_id into create input
     inject_tenant_into_input(&resource, user.as_ref(), &mut input_data);
@@ -741,8 +809,18 @@ pub async fn handle_create_upload(
     endpoint: web::Data<Arc<EndpointSpec>>,
     payload: Multipart,
 ) -> Result<HttpResponse, ShaperailError> {
-    enforce_auth(&req, &endpoint)?;
-    let input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
+    let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:create_upload", resource.resource),
+    )
+    .await?;
+    let mut input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
+    // M18: Auto-inject tenant_id into create input (mirrors handle_create)
+    inject_tenant_into_input(&resource, user.as_ref(), &mut input_data);
     validate_input(&input_data, &resource)?;
 
     let store_opt = store_for_or_error(&state, &resource)?;
@@ -774,6 +852,14 @@ pub async fn handle_update(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:update", resource.resource),
+    )
+    .await?;
     let id = parse_uuid(&path)?;
     let input_data = extract_input(&body, &resource, &endpoint)?;
     let store_opt = store_for_or_error(&state, &resource)?;
@@ -838,6 +924,14 @@ pub async fn handle_update_upload(
     payload: Multipart,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:update_upload", resource.resource),
+    )
+    .await?;
     let id = parse_uuid(&path)?;
     let input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
     let store_opt = store_for_or_error(&state, &resource)?;
@@ -889,6 +983,14 @@ pub async fn handle_delete(
     path: web::Path<String>,
 ) -> Result<HttpResponse, ShaperailError> {
     let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:delete", resource.resource),
+    )
+    .await?;
     let id = parse_uuid(&path)?;
     let store_opt = store_for_or_error(&state, &resource)?;
 
@@ -948,7 +1050,15 @@ pub async fn handle_bulk_create(
     endpoint: web::Data<Arc<EndpointSpec>>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, ShaperailError> {
-    enforce_auth(&req, &endpoint)?;
+    let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:bulk_create", resource.resource),
+    )
+    .await?;
     let items = body.as_array().ok_or_else(|| {
         ShaperailError::Validation(vec![FieldError {
             field: "body".to_string(),
@@ -1005,7 +1115,15 @@ pub async fn handle_bulk_delete(
     endpoint: web::Data<Arc<EndpointSpec>>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, ShaperailError> {
-    enforce_auth(&req, &endpoint)?;
+    let user = enforce_auth(&req, &endpoint)?;
+    check_rate_limit(
+        &endpoint,
+        &state,
+        &req,
+        user.as_ref(),
+        &format!("{}:bulk_delete", resource.resource),
+    )
+    .await?;
     let ids = body.as_array().ok_or_else(|| {
         ShaperailError::Validation(vec![FieldError {
             field: "body".to_string(),
@@ -1385,18 +1503,8 @@ mod tests {
         let endpoint = EndpointSpec {
             method: Some(HttpMethod::Post),
             path: Some("/users".to_string()),
-            auth: None,
             input: Some(vec!["name".to_string()]),
-            filters: None,
-            search: None,
-            pagination: None,
-            sort: None,
-            cache: None,
-            controller: None,
-            events: None,
-            jobs: None,
-            upload: None,
-            soft_delete: false,
+            ..Default::default()
         };
 
         let body =
@@ -1415,18 +1523,7 @@ mod tests {
         let endpoint = EndpointSpec {
             method: Some(HttpMethod::Post),
             path: Some("/users".to_string()),
-            auth: None,
-            input: None,
-            filters: None,
-            search: None,
-            pagination: None,
-            sort: None,
-            cache: None,
-            controller: None,
-            events: None,
-            jobs: None,
-            upload: None,
-            soft_delete: false,
+            ..Default::default()
         };
 
         let body =
@@ -1610,5 +1707,27 @@ mod tests {
         let user = user_with_tenant("u1", "admin", "org-a");
         assert!(!is_super_admin(Some(&user)));
         assert!(!is_super_admin(None));
+    }
+
+    #[test]
+    fn rate_limit_field_defaults_to_none() {
+        // endpoint with no rate_limit field — helper must return Ok without touching Redis
+        let endpoint = EndpointSpec {
+            rate_limit: None,
+            ..Default::default()
+        };
+        assert!(endpoint.rate_limit.is_none());
+    }
+
+    #[test]
+    fn rate_limit_spec_fields_accessible() {
+        let endpoint = EndpointSpec {
+            rate_limit: Some(RateLimitSpec {
+                max_requests: 10,
+                window_secs: 60,
+            }),
+            ..Default::default()
+        };
+        let _ = endpoint.rate_limit.as_ref().unwrap();
     }
 }

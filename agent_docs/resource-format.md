@@ -96,6 +96,7 @@ endpoints:
     pagination: cursor           # cursor | offset
     sort: [field1, field2]
     cache: { ttl: 60, invalidate_on: [create, update, delete] }
+    rate_limit: { max_requests: 100, window_secs: 60 }
 
   create:
     auth: [admin]
@@ -111,6 +112,26 @@ endpoints:
     path: /users/:id/publish
     auth: [admin]
 ```
+
+### Endpoint-level keys reference
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `auth` | string or array | No | Roles allowed to call this endpoint, or `public` |
+| `filters` | array | No | Query-param filters exposed on list endpoints |
+| `search` | array | No | Fields included in full-text search |
+| `pagination` | string | No | `cursor` or `offset` |
+| `sort` | array | No | Fields available for `?sort=` |
+| `input` | array | No | Subset of schema fields accepted as input |
+| `cache` | object | No | Per-endpoint response cache. `{ ttl: <seconds>, invalidate_on: [create, update, delete] }`. Requires Redis. |
+| `rate_limit` | object | No | Per-endpoint rate limiting. `{ max_requests: <n>, window_secs: <n> }`. Requires Redis. Silently skipped if Redis is not configured. |
+| `controller` | object | No | Before/after hooks. `{ before: fn_name }`, `{ after: fn_name }`, or both |
+| `events` | array | No | Domain events emitted after a successful write |
+| `jobs` | array | No | Background jobs enqueued after a successful write |
+| `upload` | object | No | Multipart file upload config. `{ field, storage, max_size, types }` |
+| `soft_delete` | boolean | No | Delete sets `deleted_at` instead of removing the row |
+| `method` | string | Custom only | HTTP method — required for non-CRUD endpoint names |
+| `path` | string | Custom only | Path template — required for non-CRUD endpoint names |
 
 ## Controller
 Controllers replace the old `hooks:` field. A controller declaration attaches

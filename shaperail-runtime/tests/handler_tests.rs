@@ -178,6 +178,7 @@ mod handler_unit_tests {
                 events: None,
                 jobs: None,
                 upload: None,
+                rate_limit: None,
                 soft_delete: false,
             },
         );
@@ -202,6 +203,7 @@ mod handler_unit_tests {
                 events: None,
                 jobs: None,
                 upload: None,
+                rate_limit: None,
                 soft_delete: false,
             },
         );
@@ -224,6 +226,7 @@ mod handler_unit_tests {
                 events: None,
                 jobs: None,
                 upload: None,
+                rate_limit: None,
                 soft_delete: false,
             },
         );
@@ -243,6 +246,7 @@ mod handler_unit_tests {
                 events: None,
                 jobs: None,
                 upload: None,
+                rate_limit: None,
                 soft_delete: true,
             },
         );

@@ -1322,18 +1322,8 @@ mod tests {
             shaperail_core::EndpointSpec {
                 method: Some(shaperail_core::HttpMethod::Delete),
                 path: Some("/users/:id".to_string()),
-                auth: None,
-                input: None,
-                filters: None,
-                search: None,
-                pagination: None,
-                sort: None,
-                cache: None,
-                controller: None,
-                events: None,
-                jobs: None,
-                upload: None,
                 soft_delete: true,
+                ..Default::default()
             },
         )]));
 
