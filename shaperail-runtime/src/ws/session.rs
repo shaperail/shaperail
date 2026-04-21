@@ -375,6 +375,41 @@ pub fn configure_ws_routes(
         .route(&format!("/ws/{channel_name}"), web::get().to(ws_handler));
 }
 
+/// Reads all `*.channel.yaml` files from `dir` and returns parsed `ChannelDefinition` values.
+/// Returns an empty vec if the directory does not exist or contains no channel files.
+/// Files that fail to parse are skipped with a warning log.
+pub fn load_channels(dir: &std::path::Path) -> Vec<shaperail_core::ChannelDefinition> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut channels = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".channel.yaml") {
+            continue;
+        }
+        let contents = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "Failed to read channel file");
+                continue;
+            }
+        };
+        match serde_yaml::from_str::<shaperail_core::ChannelDefinition>(&contents) {
+            Ok(def) => channels.push(def),
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "Failed to parse channel file");
+            }
+        }
+    }
+    channels
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -482,5 +517,43 @@ mod tests {
         assert_eq!(parse_token("foo=bar&token=xyz"), Some("xyz".to_string()));
         assert_eq!(parse_token("foo=bar"), None);
         assert_eq!(parse_token(""), None);
+    }
+
+    #[test]
+    fn load_channels_returns_empty_for_missing_dir() {
+        let result = load_channels(std::path::Path::new("/nonexistent/path/to/channels"));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn load_channels_reads_valid_yaml_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let yaml = "channel: notifications\nauth: [member, admin]\nrooms: true\n";
+        std::fs::write(dir.path().join("notifications.channel.yaml"), yaml).unwrap();
+
+        let channels = load_channels(dir.path());
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].channel, "notifications");
+        assert!(channels[0].rooms);
+    }
+
+    #[test]
+    fn load_channels_skips_invalid_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("bad.channel.yaml"), "not: valid: yaml: [[[").unwrap();
+        let channels = load_channels(dir.path());
+        assert!(channels.is_empty(), "invalid yaml file should be skipped");
+    }
+
+    #[test]
+    fn load_channels_ignores_non_channel_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("users.yaml"),
+            "resource: users\nversion: 1\nschema: {}\n",
+        )
+        .unwrap();
+        let channels = load_channels(dir.path());
+        assert!(channels.is_empty(), "non-channel files should be ignored");
     }
 }

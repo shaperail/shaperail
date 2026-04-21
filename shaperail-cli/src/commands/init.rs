@@ -159,6 +159,7 @@ use shaperail_runtime::observability::{
     health_handler, health_ready_handler, metrics_handler, sensitive_fields, HealthState,
     MetricsState, RequestLogger,
 };
+use shaperail_runtime::ws::{load_channels, RedisPubSub, RoomManager};
 
 fn io_error(message: impl Into<String>) -> io::Error {
     io::Error::other(message.into())
@@ -1014,6 +1015,15 @@ async fn main() -> std::io::Result<()> {
         None => None,
     };
     let cache = redis_pool.as_ref().map(|pool| RedisCache::new(pool.clone()));
+    let channels = load_channels(std::path::Path::new("channels/"));
+    let ws_pubsub = redis_pool
+        .as_ref()
+        .map(|pool| RedisPubSub::new(pool.clone()));
+    let room_manager = if channels.is_empty() {
+        None
+    } else {
+        Some(RoomManager::new())
+    };
     let job_queue = redis_pool.as_ref().map(|pool| JobQueue::new(pool.clone()));
     let event_emitter = job_queue
         .clone()
@@ -1075,6 +1085,9 @@ async fn main() -> std::io::Result<()> {
     let metrics_state_clone = metrics_state.clone();
     let jwt_config_clone = jwt_config.clone();
     let openapi_json_clone = openapi_json.clone();
+    let channels_clone = channels.clone();
+    let ws_pubsub_clone = ws_pubsub.clone();
+    let room_manager_clone = room_manager.clone();
 
     // GraphQL (M15) — only available when the "graphql" feature is enabled
     #[cfg(feature = "graphql")]
@@ -1131,7 +1144,24 @@ async fn main() -> std::io::Result<()> {
                 .route("/graphql", web::post().to(shaperail_runtime::graphql::graphql_handler))
                 .route("/graphql/playground", web::get().to(shaperail_runtime::graphql::playground_handler));
         }
-        app.configure(|cfg| register_all_resources(cfg, &res, st))
+        let ch = channels_clone.clone();
+        let pubsub = ws_pubsub_clone.clone();
+        let rm = room_manager_clone.clone();
+        let jwt_ws = jwt_config_clone.clone();
+        app.configure(move |cfg| {
+            register_all_resources(cfg, &res, st);
+            if let (Some(ref p), Some(ref r), Some(ref j)) = (&pubsub, &rm, &jwt_ws) {
+                for channel in &ch {
+                    shaperail_runtime::ws::configure_ws_routes(
+                        cfg,
+                        channel.clone(),
+                        r.clone(),
+                        p.clone(),
+                        j.clone(),
+                    );
+                }
+            }
+        })
     })
     .bind(("0.0.0.0", port))?
     .run()
