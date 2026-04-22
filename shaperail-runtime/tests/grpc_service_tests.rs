@@ -75,13 +75,16 @@ fn test_resource() -> ResourceDefinition {
     }
 }
 
-fn make_state(pool: sqlx::PgPool) -> Arc<AppState> {
+fn make_state(
+    pool: sqlx::PgPool,
+    jwt: Option<shaperail_runtime::auth::jwt::JwtConfig>,
+) -> Arc<AppState> {
     Arc::new(AppState {
         pool,
         resources: vec![],
         stores: None,
         controllers: None,
-        jwt_config: None,
+        jwt_config: jwt.map(std::sync::Arc::new),
         cache: None,
         event_emitter: None,
         job_queue: None,
@@ -117,7 +120,7 @@ async fn grpc_handle_update_changes_record(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    let state = make_state(pool.clone());
+    let state = make_state(pool.clone(), None);
     let resource = test_resource();
     let request_bytes = encode_update_request("item-1", "updated");
 
@@ -134,7 +137,7 @@ async fn grpc_handle_update_changes_record(pool: sqlx::PgPool) {
 
 #[sqlx::test]
 async fn grpc_handle_update_missing_id_returns_error(pool: sqlx::PgPool) {
-    let state = make_state(pool);
+    let state = make_state(pool, None);
     let resource = test_resource();
 
     let result: Result<prost::bytes::Bytes, tonic::Status> =
