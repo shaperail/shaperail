@@ -346,6 +346,34 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                     });
                 }
             }
+
+            // SR073 / SR074: subscriber event and handler must not be empty
+            if let Some(subs) = &ep.subscribers {
+                for (i, sub) in subs.iter().enumerate() {
+                    if sub.event.is_empty() {
+                        diags.push(Diagnostic {
+                            code: "SR073",
+                            error: format!(
+                                "resource '{res}': endpoint '{action}' subscriber[{i}] has an empty event pattern"
+                            ),
+                            fix: "provide a non-empty event pattern (e.g., \"user.created\" or \"*.deleted\")".into(),
+                            example: format!(
+                                "subscribers:\n  - event: {res}.created\n    handler: my_handler"
+                            ),
+                        });
+                    }
+                    if sub.handler.is_empty() {
+                        diags.push(Diagnostic {
+                            code: "SR074",
+                            error: format!(
+                                "resource '{res}': endpoint '{action}' subscriber[{i}] has an empty handler name"
+                            ),
+                            fix: "provide a non-empty handler name (e.g., \"send_welcome_email\")".into(),
+                            example: "subscribers:\n  - event: user.created\n    handler: send_welcome_email".into(),
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -440,41 +468,6 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                         fix: "use 'asc' or 'desc' for the index order".into(),
                         example: "- { fields: [created_at], order: desc }".into(),
                     });
-                }
-            }
-        }
-    }
-
-    // SR073 / SR074: subscriber event and handler must not be empty
-    if let Some(endpoints) = &rd.endpoints {
-        for (action, ep) in endpoints {
-            if let Some(subs) = &ep.subscribers {
-                for (i, sub) in subs.iter().enumerate() {
-                    if sub.event.is_empty() {
-                        diags.push(Diagnostic {
-                            code: "SR073",
-                            error: format!(
-                                "resource '{}': endpoint '{}' subscriber[{}] has an empty event pattern",
-                                rd.resource, action, i
-                            ),
-                            fix: "provide a non-empty event pattern (e.g., \"user.created\" or \"*.deleted\")".into(),
-                            example: format!(
-                                "subscribers:\n  - event: {}.created\n    handler: my_handler",
-                                rd.resource
-                            ),
-                        });
-                    }
-                    if sub.handler.is_empty() {
-                        diags.push(Diagnostic {
-                            code: "SR074",
-                            error: format!(
-                                "resource '{}': endpoint '{}' subscriber[{}] has an empty handler name",
-                                rd.resource, action, i
-                            ),
-                            fix: "provide a non-empty handler name (e.g., \"send_welcome_email\")".into(),
-                            example: "subscribers:\n  - event: user.created\n    handler: send_welcome_email".into(),
-                        });
-                    }
                 }
             }
         }
