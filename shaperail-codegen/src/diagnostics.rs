@@ -445,6 +445,41 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
         }
     }
 
+    // SR073 / SR074: subscriber event and handler must not be empty
+    if let Some(endpoints) = &rd.endpoints {
+        for (action, ep) in endpoints {
+            if let Some(subs) = &ep.subscribers {
+                for (i, sub) in subs.iter().enumerate() {
+                    if sub.event.is_empty() {
+                        diags.push(Diagnostic {
+                            code: "SR073",
+                            error: format!(
+                                "resource '{}': endpoint '{}' subscriber[{}] has an empty event pattern",
+                                rd.resource, action, i
+                            ),
+                            fix: "provide a non-empty event pattern (e.g., \"user.created\" or \"*.deleted\")".into(),
+                            example: format!(
+                                "subscribers:\n  - event: {}.created\n    handler: my_handler",
+                                rd.resource
+                            ),
+                        });
+                    }
+                    if sub.handler.is_empty() {
+                        diags.push(Diagnostic {
+                            code: "SR074",
+                            error: format!(
+                                "resource '{}': endpoint '{}' subscriber[{}] has an empty handler name",
+                                rd.resource, action, i
+                            ),
+                            fix: "provide a non-empty handler name (e.g., \"send_welcome_email\")".into(),
+                            example: "subscribers:\n  - event: user.created\n    handler: send_welcome_email".into(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     diags
 }
 
@@ -532,5 +567,53 @@ schema:
         let json = serde_json::to_string(&d).unwrap();
         assert!(json.contains("SR010"));
         assert!(json.contains("fix"));
+    }
+
+    #[test]
+    fn subscriber_with_empty_event_has_fix_suggestion() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: [admin]
+    subscribers:
+      - event: ""
+        handler: my_handler
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        let d = diags.iter().find(|d| d.code == "SR073");
+        assert!(
+            d.is_some(),
+            "Expected SR073 diagnostic for empty subscriber event"
+        );
+        assert!(d.unwrap().fix.contains("event"));
+    }
+
+    #[test]
+    fn subscriber_with_empty_handler_has_fix_suggestion() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: [admin]
+    subscribers:
+      - event: items.created
+        handler: ""
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        let d = diags.iter().find(|d| d.code == "SR074");
+        assert!(
+            d.is_some(),
+            "Expected SR074 diagnostic for empty subscriber handler"
+        );
+        assert!(d.unwrap().fix.contains("handler"));
     }
 }
