@@ -730,8 +730,8 @@ pub fn build_schema_with_config(
         r.endpoints
             .as_ref()
             .map(|e| {
-                e.keys()
-                    .any(|k| !["list", "get", "create", "update", "delete"].contains(&k.as_str()))
+                e.values()
+                    .any(|ep| ep.events.as_ref().is_some_and(|ev| !ev.is_empty()))
             })
             .unwrap_or(false)
     });
