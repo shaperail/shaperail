@@ -267,6 +267,8 @@ fn test_asset_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: Some(shaperail_core::UploadSpec {
                 field: "attachment".to_string(),
                 storage: "local".to_string(),
@@ -292,6 +294,8 @@ fn test_asset_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -540,6 +544,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -561,6 +567,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -587,6 +595,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -608,6 +618,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -629,6 +641,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: true,
@@ -1444,6 +1458,8 @@ async fn test_bulk_create(pool: sqlx::PgPool) {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -2206,6 +2222,8 @@ fn org_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -2226,6 +2244,8 @@ fn org_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -2246,6 +2266,8 @@ fn org_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -2294,6 +2316,105 @@ fn build_test_store_registry(
         map.insert(resource.resource.clone(), store);
     }
     Arc::new(map)
+}
+
+// ---------------------------------------------------------------------------
+// Custom endpoint dispatch
+// ---------------------------------------------------------------------------
+
+#[sqlx::test]
+async fn custom_endpoint_dispatches_to_registered_handler(pool: sqlx::PgPool) {
+    use shaperail_runtime::handlers::custom::{handler_key, CustomHandlerFn, CustomHandlerMap};
+    use std::sync::Arc;
+
+    let resource = ResourceDefinition {
+        resource: "items".to_string(),
+        version: 1,
+        db: None,
+        tenant_key: None,
+        schema: {
+            let mut s = IndexMap::new();
+            s.insert(
+                "id".to_string(),
+                FieldSchema {
+                    field_type: FieldType::Uuid,
+                    primary: true,
+                    generated: true,
+                    required: true,
+                    unique: true,
+                    nullable: false,
+                    reference: None,
+                    min: None,
+                    max: None,
+                    format: None,
+                    values: None,
+                    default: None,
+                    sensitive: false,
+                    search: false,
+                    items: None,
+                },
+            );
+            s
+        },
+        endpoints: Some({
+            let mut eps = IndexMap::new();
+            eps.insert(
+                "archive".to_string(),
+                EndpointSpec {
+                    method: Some(HttpMethod::Post),
+                    path: Some("/items/:id/archive".to_string()),
+                    auth: None,
+                    handler: Some("archive_item".to_string()),
+                    ..Default::default()
+                },
+            );
+            eps
+        }),
+        relations: None,
+        indexes: None,
+    };
+
+    let mut custom_handlers: CustomHandlerMap = std::collections::HashMap::new();
+    custom_handlers.insert(
+        handler_key("items", "archive"),
+        Arc::new(|_req, _state, _res, _ep| {
+            Box::pin(async {
+                actix_web::HttpResponse::Ok().json(serde_json::json!({"status": "archived"}))
+            })
+        }),
+    );
+
+    let state = Arc::new(AppState {
+        pool,
+        resources: vec![],
+        stores: None,
+        controllers: None,
+        jwt_config: None,
+        cache: None,
+        event_emitter: None,
+        job_queue: None,
+        rate_limiter: None,
+        custom_handlers: Some(custom_handlers),
+        metrics: Some(MetricsState::new().expect("metrics state")),
+        wasm_runtime: None,
+        event_bus: tokio::sync::broadcast::channel(16).0,
+    });
+
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .configure(|cfg| register_resource(cfg, &resource, state.clone())),
+    )
+    .await;
+
+    let req = actix_test::TestRequest::post()
+        .uri("/v1/items/some-id/archive")
+        .to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    assert_eq!(body["status"], "archived");
 }
 
 #[sqlx::test(migrations = "tests/fixtures/migrations")]

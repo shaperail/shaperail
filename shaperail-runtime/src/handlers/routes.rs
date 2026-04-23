@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use actix_multipart::Multipart;
-use actix_web::web;
+use actix_web::{web, HttpRequest};
 use shaperail_core::{HttpMethod, ResourceDefinition};
 
 use super::crud::{self, AppState};
@@ -165,126 +165,46 @@ pub fn register_resource(
                         ),
                     );
                 }
-                _ => {
-                    // Custom endpoint names — map by HTTP method
-                    match *endpoint.method() {
-                        HttpMethod::Get if actix_path.contains("{id}") => {
-                            let ep = ep_arc.clone();
-                            let r = res.clone();
-                            cfg.route(
-                                &actix_path,
-                                web::get().to(
-                                    move |req,
-                                          state: web::Data<Arc<AppState>>,
-                                          path: web::Path<String>| {
-                                        let ep = web::Data::new(ep.clone());
-                                        let r = web::Data::new(r.clone());
-                                        crud::handle_get(req, state, r, ep, path)
-                                    },
-                                ),
-                            );
-                        }
-                        HttpMethod::Get => {
-                            let ep = ep_arc.clone();
-                            let r = res.clone();
-                            cfg.route(
-                                &actix_path,
-                                web::get().to(move |req, state: web::Data<Arc<AppState>>| {
-                                    let ep = web::Data::new(ep.clone());
-                                    let r = web::Data::new(r.clone());
-                                    crud::handle_list(req, state, r, ep)
-                                }),
-                            );
-                        }
-                        HttpMethod::Post => {
-                            let ep = ep_arc.clone();
-                            let r = res.clone();
-                            if endpoint.upload.is_some() {
-                                cfg.route(
-                                    &actix_path,
-                                    web::post().to(
-                                        move |req,
-                                              state: web::Data<Arc<AppState>>,
-                                              payload: Multipart| {
-                                            let ep = web::Data::new(ep.clone());
-                                            let r = web::Data::new(r.clone());
-                                            crud::handle_create_upload(req, state, r, ep, payload)
-                                        },
-                                    ),
-                                );
-                            } else {
-                                cfg.route(
-                                    &actix_path,
-                                    web::post().to(
-                                        move |req,
-                                              state: web::Data<Arc<AppState>>,
-                                              body: web::Json<serde_json::Value>| {
-                                            let ep = web::Data::new(ep.clone());
-                                            let r = web::Data::new(r.clone());
-                                            crud::handle_create(req, state, r, ep, body)
-                                        },
-                                    ),
-                                );
+                action_name => {
+                    // Non-convention endpoint: dispatch to registered custom handler.
+                    let ep = ep_arc.clone();
+                    let r = res.clone();
+                    let action_owned = action_name.to_string();
+                    let method = endpoint.method().clone();
+                    let route = match method {
+                        HttpMethod::Get => web::get(),
+                        HttpMethod::Post => web::post(),
+                        HttpMethod::Patch => web::patch(),
+                        HttpMethod::Put => web::put(),
+                        HttpMethod::Delete => web::delete(),
+                    };
+                    cfg.route(
+                        &actix_path,
+                        route.to(move |req: HttpRequest, state: web::Data<Arc<AppState>>| {
+                            let ep = ep.clone();
+                            let r = r.clone();
+                            let action = action_owned.clone();
+                            async move {
+                                let resource_name = r.resource.clone();
+                                let key = super::custom::handler_key(&resource_name, &action);
+                                let handler = state
+                                    .custom_handlers
+                                    .as_ref()
+                                    .and_then(|m| m.get(&key))
+                                    .cloned();
+                                match handler {
+                                    Some(f) => f(req, state.get_ref().clone(), r, ep).await,
+                                    None => actix_web::HttpResponse::NotImplemented()
+                                        .json(serde_json::json!({
+                                            "error": format!(
+                                                "Custom handler '{}' not registered for {resource_name}:{action}",
+                                                ep.handler.as_deref().unwrap_or("(none)")
+                                            )
+                                        })),
+                                }
                             }
-                        }
-                        HttpMethod::Patch | HttpMethod::Put => {
-                            let ep = ep_arc.clone();
-                            let r = res.clone();
-                            if endpoint.upload.is_some() {
-                                cfg.route(
-                                    &actix_path,
-                                    web::method(match *endpoint.method() {
-                                        HttpMethod::Patch => actix_web::http::Method::PATCH,
-                                        _ => actix_web::http::Method::PUT,
-                                    })
-                                    .to(
-                                        move |req,
-                                              state: web::Data<Arc<AppState>>,
-                                              path: web::Path<String>,
-                                              payload: Multipart| {
-                                            let ep = web::Data::new(ep.clone());
-                                            let r = web::Data::new(r.clone());
-                                            crud::handle_update_upload(req, state, r, ep, path, payload)
-                                        },
-                                    ),
-                                );
-                            } else {
-                                cfg.route(
-                                    &actix_path,
-                                    web::method(match *endpoint.method() {
-                                        HttpMethod::Patch => actix_web::http::Method::PATCH,
-                                        _ => actix_web::http::Method::PUT,
-                                    })
-                                    .to(
-                                        move |req,
-                                              state: web::Data<Arc<AppState>>,
-                                              path: web::Path<String>,
-                                              body: web::Json<serde_json::Value>| {
-                                            let ep = web::Data::new(ep.clone());
-                                            let r = web::Data::new(r.clone());
-                                            crud::handle_update(req, state, r, ep, path, body)
-                                        },
-                                    ),
-                                );
-                            }
-                        }
-                        HttpMethod::Delete => {
-                            let ep = ep_arc.clone();
-                            let r = res.clone();
-                            cfg.route(
-                                &actix_path,
-                                web::delete().to(
-                                    move |req,
-                                          state: web::Data<Arc<AppState>>,
-                                          path: web::Path<String>| {
-                                        let ep = web::Data::new(ep.clone());
-                                        let r = web::Data::new(r.clone());
-                                        crud::handle_delete(req, state, r, ep, path)
-                                    },
-                                ),
-                            );
-                        }
-                    }
+                        }),
+                    );
                 }
             }
         }
