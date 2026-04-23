@@ -89,6 +89,7 @@ fn make_state(
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,

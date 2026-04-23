@@ -1,5 +1,6 @@
 pub mod controller;
 pub mod crud;
+pub mod custom;
 pub mod params;
 pub mod relations;
 pub mod response;

@@ -1550,6 +1550,7 @@ async fn main() -> std::io::Result<()> {
         event_emitter,
         job_queue,
         rate_limiter,
+        custom_handlers: None,
         metrics: Some(metrics_state.get_ref().clone()),
         #[cfg(feature = "wasm-plugins")]
         wasm_runtime: None,
