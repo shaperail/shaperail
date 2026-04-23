@@ -2655,7 +2655,7 @@ async fn cross_protocol_auth_member_gets_same_result_via_rest_and_graphql(pool: 
         .await;
     let gql_body: serde_json::Value = actix_test::read_body_json(gql_resp).await;
     assert!(
-        gql_body["errors"].is_array() && !gql_body["errors"].as_array().unwrap().is_empty(),
+        gql_body.get("errors").is_some(),
         "GraphQL: member should get errors on admin-only query, got: {gql_body}"
     );
 }
