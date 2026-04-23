@@ -1552,6 +1552,7 @@ async fn main() -> std::io::Result<()> {
         MetricsState::new().map_err(|e| io_error(format!("Failed to initialize metrics: {e}")))?,
     );
     let controllers = generated::build_controller_map();
+    let handler_map = generated::build_handler_map();
 
     let state = Arc::new(AppState {
         pool: pool.clone(),
@@ -1563,7 +1564,7 @@ async fn main() -> std::io::Result<()> {
         event_emitter,
         job_queue,
         rate_limiter,
-        custom_handlers: None,
+        custom_handlers: if handler_map.is_empty() { None } else { Some(handler_map) },
         metrics: Some(metrics_state.get_ref().clone()),
         saga_executor: saga_executor.clone(),
         #[cfg(feature = "wasm-plugins")]
