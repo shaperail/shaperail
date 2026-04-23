@@ -716,10 +716,46 @@ pub fn build_schema_with_config(
     let resource_objects = build_resource_objects(resources);
     let input_objects = build_input_objects(resources);
 
-    let mut builder: SchemaBuilder = Schema::build("Query", Some("Mutation"), Some("Subscription"))
+    // async-graphql requires every named root type to have at least one field.
+    // Only register Mutation/Subscription if the resources actually declare them.
+    let has_mutations = resources.iter().any(|r| {
+        r.endpoints
+            .as_ref()
+            .map(|e| {
+                e.contains_key("create") || e.contains_key("update") || e.contains_key("delete")
+            })
+            .unwrap_or(false)
+    });
+    let has_subscriptions = resources.iter().any(|r| {
+        r.endpoints
+            .as_ref()
+            .map(|e| {
+                e.keys()
+                    .any(|k| !["list", "get", "create", "update", "delete"].contains(&k.as_str()))
+            })
+            .unwrap_or(false)
+    });
+
+    let mutation_name = if has_mutations {
+        Some("Mutation")
+    } else {
+        None
+    };
+    let subscription_name = if has_subscriptions {
+        Some("Subscription")
+    } else {
+        None
+    };
+
+    let mut builder: SchemaBuilder = Schema::build("Query", mutation_name, subscription_name);
+    if has_mutations {
+        builder = builder.register(mutation);
+    }
+    if has_subscriptions {
+        builder = builder.register(subscription);
+    }
+    let mut builder = builder
         .register(query)
-        .register(mutation)
-        .register(subscription)
         .limit_depth(depth_limit)
         .limit_complexity(complexity_limit);
 
