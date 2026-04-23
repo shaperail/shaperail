@@ -274,9 +274,15 @@ pub fn load_sagas(dir: &std::path::Path) -> Vec<SagaDefinition> {
         if path.extension().and_then(|e| e.to_str()) == Some("yaml")
             && path.to_str().is_some_and(|s| s.contains(".saga."))
         {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(saga) = serde_yaml::from_str::<SagaDefinition>(&content) {
-                    sagas.push(saga);
+            match std::fs::read_to_string(&path) {
+                Ok(content) => match serde_yaml::from_str::<SagaDefinition>(&content) {
+                    Ok(saga) => sagas.push(saga),
+                    Err(e) => {
+                        tracing::warn!(path = %path.display(), error = %e, "Failed to parse saga file; skipping")
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(path = %path.display(), error = %e, "Failed to read saga file; skipping")
                 }
             }
         }
