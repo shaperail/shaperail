@@ -167,10 +167,19 @@ pub fn register_resource(
                 }
                 action_name => {
                     // Non-convention endpoint: dispatch to registered custom handler.
+                    let Some(method) = endpoint.method.clone() else {
+                        // apply_endpoint_defaults was not called; skip registration
+                        // rather than panicking. The validator should have caught this.
+                        tracing::warn!(
+                            resource = %resource.resource,
+                            action = %action_name,
+                            "custom endpoint has no method set; skipping route registration"
+                        );
+                        continue;
+                    };
                     let ep = ep_arc.clone();
                     let r = res.clone();
                     let action_owned = action_name.to_string();
-                    let method = endpoint.method().clone();
                     let route = match method {
                         HttpMethod::Get => web::get(),
                         HttpMethod::Post => web::post(),
