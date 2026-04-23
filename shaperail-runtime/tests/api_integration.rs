@@ -2336,7 +2336,7 @@ fn build_test_store_registry(
 
 #[sqlx::test]
 async fn custom_endpoint_dispatches_to_registered_handler(pool: sqlx::PgPool) {
-    use shaperail_runtime::handlers::custom::{handler_key, CustomHandlerFn, CustomHandlerMap};
+    use shaperail_runtime::handlers::custom::{handler_key, CustomHandlerMap};
     use std::sync::Arc;
 
     let resource = ResourceDefinition {
