@@ -1488,7 +1488,7 @@ async fn main() -> std::io::Result<()> {
     let merged_events: Option<shaperail_core::EventsConfig> =
         if resources.iter().any(|r| {
             r.endpoints.as_ref().map_or(false, |eps| {
-                eps.values().any(|ep| ep.subscribers.is_some())
+                eps.values().any(|ep| ep.subscribers.as_ref().map_or(false, |s| !s.is_empty()))
             })
         }) {
             let mut base = config
@@ -1927,6 +1927,9 @@ volumes:
     Ok(())
 }
 
+// NOTE: This is a test-only mirror of the `collect_resource_subscribers` function
+// embedded in the `main_rs` template string above (search "fn collect_resource_subscribers").
+// If the template function changes, update this copy to match.
 #[cfg(test)]
 fn collect_resource_subscribers(
     resources: &[shaperail_core::ResourceDefinition],
