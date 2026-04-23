@@ -1979,6 +1979,34 @@ fn collect_resource_subscribers(
     result
 }
 
+fn write_file(path: &Path, content: &str) -> Result<(), String> {
+    fs::write(path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))
+}
+
+fn shaperail_dependency(crate_name: &str) -> String {
+    shaperail_dependency_with_options(crate_name, true)
+}
+
+fn shaperail_dependency_no_defaults(crate_name: &str) -> String {
+    shaperail_dependency_with_options(crate_name, false)
+}
+
+fn shaperail_dependency_with_options(crate_name: &str, default_features: bool) -> String {
+    let df = if default_features {
+        String::new()
+    } else {
+        ", default-features = false".to_string()
+    };
+    match std::env::var(DEV_WORKSPACE_ENV) {
+        Ok(workspace_root) if !workspace_root.is_empty() => {
+            let path = Path::new(&workspace_root).join(crate_name);
+            let path = path.to_string_lossy().replace('\\', "\\\\");
+            format!(r#"{{ version = "{SHAPERAIL_VERSION}", path = "{path}"{df} }}"#)
+        }
+        _ => format!(r#"{{ version = "{SHAPERAIL_VERSION}"{df} }}"#),
+    }
+}
+
 #[cfg(test)]
 mod subscriber_tests {
     use super::collect_resource_subscribers;
@@ -2026,33 +2054,5 @@ mod subscriber_tests {
         let resources: Vec<ResourceDefinition> = vec![];
         let subs = collect_resource_subscribers(&resources);
         assert!(subs.is_empty());
-    }
-}
-
-fn write_file(path: &Path, content: &str) -> Result<(), String> {
-    fs::write(path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))
-}
-
-fn shaperail_dependency(crate_name: &str) -> String {
-    shaperail_dependency_with_options(crate_name, true)
-}
-
-fn shaperail_dependency_no_defaults(crate_name: &str) -> String {
-    shaperail_dependency_with_options(crate_name, false)
-}
-
-fn shaperail_dependency_with_options(crate_name: &str, default_features: bool) -> String {
-    let df = if default_features {
-        String::new()
-    } else {
-        ", default-features = false".to_string()
-    };
-    match std::env::var(DEV_WORKSPACE_ENV) {
-        Ok(workspace_root) if !workspace_root.is_empty() => {
-            let path = Path::new(&workspace_root).join(crate_name);
-            let path = path.to_string_lossy().replace('\\', "\\\\");
-            format!(r#"{{ version = "{SHAPERAIL_VERSION}", path = "{path}"{df} }}"#)
-        }
-        _ => format!(r#"{{ version = "{SHAPERAIL_VERSION}"{df} }}"#),
     }
 }

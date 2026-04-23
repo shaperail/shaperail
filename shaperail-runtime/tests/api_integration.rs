@@ -2616,7 +2616,8 @@ async fn cross_protocol_auth_member_gets_same_result_via_rest_and_graphql(pool: 
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
 
-    let gql_schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
+    let gql_schema =
+        build_schema(std::slice::from_ref(&resource), state.clone()).expect("build_schema");
     let app = actix_test::init_service(
         App::new()
             .app_data(web::Data::new(state.clone()))
