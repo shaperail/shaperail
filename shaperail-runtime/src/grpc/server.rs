@@ -87,7 +87,8 @@ impl ShaperailGrpcService {
             let data = service::handle_create(self.state.clone(), resource, user, body).await?;
             Ok(GrpcResponse::Unary(data))
         } else if method_name.starts_with("Update") {
-            Err(Status::unimplemented("Update not yet implemented"))
+            let data = service::handle_update(self.state.clone(), resource, user, body).await?;
+            Ok(GrpcResponse::Unary(data))
         } else if method_name.starts_with("Delete") {
             let data = service::handle_delete(self.state.clone(), resource, user, body).await?;
             Ok(GrpcResponse::Unary(data))
