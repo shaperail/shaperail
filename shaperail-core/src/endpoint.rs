@@ -248,6 +248,22 @@ impl ControllerSpec {
     }
 }
 
+/// A subscriber declaration within an endpoint — auto-registered at startup.
+///
+/// ```yaml
+/// subscribers:
+///   - event: user.created
+///     handler: send_welcome_email
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubscriberSpec {
+    /// Event name pattern (e.g., "user.created", "*.deleted").
+    pub event: String,
+    /// Handler function name in `resources/<resource>.controller.rs`.
+    pub handler: String,
+}
+
 /// Specification for a single endpoint in a resource.
 ///
 /// Matches the YAML format:
@@ -322,6 +338,10 @@ pub struct EndpointSpec {
     /// Per-endpoint rate limiting. Requires Redis. Skipped if Redis is not configured.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<RateLimitSpec>,
+
+    /// Event subscribers auto-registered at startup from this endpoint's events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscribers: Option<Vec<SubscriberSpec>>,
 
     /// Whether this endpoint performs a soft delete.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -553,5 +573,36 @@ rate_limit:
         let yaml = "auth: [member]\n";
         let spec: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
         assert!(spec.rate_limit.is_none());
+    }
+
+    #[test]
+    fn endpoint_spec_subscribers_parse() {
+        let yaml = r#"
+auth: [admin]
+events: [user.created]
+subscribers:
+  - event: user.created
+    handler: send_welcome_email
+  - event: "*.deleted"
+    handler: cleanup_resources
+"#;
+        let spec: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
+        let subs = spec.subscribers.as_ref().unwrap();
+        assert_eq!(subs.len(), 2);
+        assert_eq!(subs[0].event, "user.created");
+        assert_eq!(subs[0].handler, "send_welcome_email");
+        assert_eq!(subs[1].event, "*.deleted");
+    }
+
+    #[test]
+    fn subscriber_spec_unknown_field_rejected() {
+        let yaml = r#"
+subscribers:
+  - event: user.created
+    handler: send_welcome_email
+    extra: bad_field
+"#;
+        let result = serde_yaml::from_str::<EndpointSpec>(yaml);
+        assert!(result.is_err());
     }
 }
