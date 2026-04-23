@@ -12,5 +12,6 @@ pub mod observability;
 #[cfg(feature = "wasm-plugins")]
 pub mod plugins;
 pub mod registry;
+pub mod sagas;
 pub mod storage;
 pub mod ws;
