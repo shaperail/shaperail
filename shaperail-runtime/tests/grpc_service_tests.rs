@@ -91,6 +91,7 @@ fn make_state(
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     })

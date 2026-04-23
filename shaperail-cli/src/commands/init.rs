@@ -585,6 +585,7 @@ use shaperail_runtime::observability::{
     health_handler, health_ready_handler, metrics_handler, sensitive_fields, HealthState,
     MetricsState, RequestLogger,
 };
+use shaperail_runtime::sagas::{load_sagas, SagaExecutor};
 use shaperail_runtime::ws::{load_channels, RedisPubSub, RoomManager};
 
 fn io_error(message: impl Into<String>) -> io::Error {
@@ -1528,6 +1529,18 @@ async fn main() -> std::io::Result<()> {
         (None, None)
     };
 
+    let saga_defs = load_sagas(std::path::Path::new("sagas/"));
+    let saga_executor: Option<Arc<SagaExecutor>> = if !saga_defs.is_empty() {
+        let service_urls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let executor = Arc::new(SagaExecutor::new(pool.clone(), service_urls));
+        if let Err(e) = executor.ensure_table().await {
+            tracing::warn!("Failed to create saga_executions table: {e}");
+        }
+        Some(executor)
+    } else {
+        None
+    };
+
     let jwt_config = JwtConfig::from_env().map(Arc::new);
 
     let port: u16 = std::env::var("SHAPERAIL_PORT")
@@ -1552,6 +1565,7 @@ async fn main() -> std::io::Result<()> {
         rate_limiter,
         custom_handlers: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        saga_executor: saga_executor.clone(),
         #[cfg(feature = "wasm-plugins")]
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(256).0,
@@ -1587,6 +1601,7 @@ async fn main() -> std::io::Result<()> {
     let room_manager_clone = room_manager.clone();
     let config_events_clone = config.events.clone();
     let emitter_inbound_clone = emitter_for_inbound.clone();
+    let saga_defs_clone = saga_defs.clone();
 
     // GraphQL (M15) — only available when the "graphql" feature is enabled
     #[cfg(feature = "graphql")]
@@ -1649,6 +1664,7 @@ async fn main() -> std::io::Result<()> {
         let jwt_ws = jwt_config_clone.clone();
         let config_ev = config_events_clone.clone();
         let emitter_ib = emitter_inbound_clone.clone();
+        let saga_defs_inner = saga_defs_clone.clone();
         app.configure(move |cfg| {
             register_all_resources(cfg, &res, st);
             if !ch.is_empty() {
@@ -1675,6 +1691,11 @@ async fn main() -> std::io::Result<()> {
                         configure_inbound_routes(cfg, &events_cfg.inbound, emitter);
                     }
                 }
+            }
+            if !saga_defs_inner.is_empty() {
+                cfg.app_data(web::Data::new(saga_defs_inner.clone()))
+                   .route("/v1/sagas/{name}", web::post().to(shaperail_runtime::sagas::handler::start_saga))
+                   .route("/v1/sagas/{id}", web::get().to(shaperail_runtime::sagas::handler::get_saga_status));
             }
         })
     })

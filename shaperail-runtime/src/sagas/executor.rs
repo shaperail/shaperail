@@ -260,6 +260,30 @@ impl SagaExecutor {
     }
 }
 
+/// Load all saga definitions from `*.saga.yaml` files in `dir`.
+pub fn load_sagas(dir: &std::path::Path) -> Vec<SagaDefinition> {
+    if !dir.exists() {
+        return vec![];
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return vec![];
+    };
+    let mut sagas = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("yaml")
+            && path.to_str().is_some_and(|s| s.contains(".saga."))
+        {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(saga) = serde_yaml::from_str::<SagaDefinition>(&content) {
+                    sagas.push(saga);
+                }
+            }
+        }
+    }
+    sagas
+}
+
 fn parse_action(action: &str) -> Result<(reqwest::Method, String), shaperail_core::ShaperailError> {
     let parts: Vec<&str> = action.splitn(2, ' ').collect();
     if parts.len() != 2 {

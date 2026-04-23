@@ -56,6 +56,7 @@ fn make_state(pool: sqlx::PgPool, jwt: Option<JwtConfig>) -> Arc<AppState> {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     })
@@ -686,6 +687,7 @@ async fn test_graphql_list_query(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -731,6 +733,7 @@ async fn test_graphql_create_mutation(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -786,6 +789,7 @@ async fn test_graphql_auth_rejects_unauthorized_mutation(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -844,6 +848,7 @@ async fn test_graphql_dataloader_caches_relation_lookups(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -923,6 +928,7 @@ async fn test_graphql_schema_includes_subscription_type(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -976,6 +982,7 @@ async fn test_graphql_depth_limit_rejects_deep_queries(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1029,6 +1036,7 @@ async fn test_graphql_default_limits_accept_normal_queries(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1645,6 +1653,7 @@ async fn test_metrics_capture_requests_errors_and_cache(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1739,6 +1748,7 @@ async fn test_list_cache_hit_serves_stale_data_after_db_delete(pool: sqlx::PgPoo
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1818,6 +1828,7 @@ async fn test_write_invalidates_cached_list(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1898,6 +1909,7 @@ async fn test_nocache_bypasses_cached_response(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -2396,6 +2408,7 @@ async fn custom_endpoint_dispatches_to_registered_handler(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: Some(custom_handlers),
         metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -2436,6 +2449,7 @@ async fn test_list_with_include_uses_store(pool: sqlx::PgPool) {
         rate_limiter: None,
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
