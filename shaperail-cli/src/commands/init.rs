@@ -1928,8 +1928,6 @@ volumes:
 }
 
 #[cfg(test)]
-/// Collects event subscribers declared in resource endpoint YAML and converts
-/// them to `EventSubscriber` entries pointing to hook targets.
 fn collect_resource_subscribers(
     resources: &[shaperail_core::ResourceDefinition],
 ) -> Vec<shaperail_core::EventSubscriber> {
@@ -1957,7 +1955,7 @@ fn collect_resource_subscribers(
 
 #[cfg(test)]
 mod subscriber_tests {
-    use super::*;
+    use super::collect_resource_subscribers;
     use shaperail_core::{EndpointSpec, ResourceDefinition, SubscriberSpec};
 
     fn resource_with_subscribers() -> ResourceDefinition {
