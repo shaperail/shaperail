@@ -1347,6 +1347,33 @@ async fn docs_handler() -> HttpResponse {
         .body(DOCS_HTML)
 }
 
+/// Collects event subscribers declared in resource endpoint YAML and converts
+/// them to `EventSubscriber` entries pointing to hook targets.
+fn collect_resource_subscribers(
+    resources: &[shaperail_core::ResourceDefinition],
+) -> Vec<shaperail_core::EventSubscriber> {
+    let mut result = Vec::new();
+    for resource in resources {
+        let Some(endpoints) = &resource.endpoints else {
+            continue;
+        };
+        for endpoint in endpoints.values() {
+            let Some(subs) = &endpoint.subscribers else {
+                continue;
+            };
+            for sub in subs {
+                result.push(shaperail_core::EventSubscriber {
+                    event: sub.event.clone(),
+                    targets: vec![shaperail_core::EventTarget::Hook {
+                        name: sub.handler.clone(),
+                    }],
+                });
+            }
+        }
+    }
+    result
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     dotenvy::dotenv().ok();
@@ -1457,9 +1484,30 @@ async fn main() -> std::io::Result<()> {
             shaperail_runtime::auth::RateLimitConfig::default(),
         ))
     });
+    // Merge config-level subscribers with resource-level subscribers.
+    let merged_events: Option<shaperail_core::EventsConfig> =
+        if resources.iter().any(|r| {
+            r.endpoints.as_ref().map_or(false, |eps| {
+                eps.values().any(|ep| ep.subscribers.is_some())
+            })
+        }) {
+            let mut base = config
+                .events
+                .clone()
+                .unwrap_or_else(|| shaperail_core::EventsConfig {
+                    subscribers: vec![],
+                    webhooks: None,
+                    inbound: vec![],
+                });
+            base.subscribers
+                .extend(collect_resource_subscribers(&resources));
+            Some(base)
+        } else {
+            config.events.clone()
+        };
     let event_emitter = job_queue
         .clone()
-        .map(|queue| EventEmitter::new(queue, config.events.as_ref()));
+        .map(|queue| EventEmitter::new(queue, merged_events.as_ref()));
     let emitter_for_inbound = event_emitter.clone();
 
     let job_registry = generated::build_job_registry();
@@ -1858,14 +1906,14 @@ volumes:
     write_file(&root.join("CLAUDE.md"), AGENT_ADAPTER_MD)?;
     write_file(&root.join("AGENTS.md"), AGENT_ADAPTER_MD)?;
     write_file(&root.join("GEMINI.md"), AGENT_ADAPTER_MD)?;
-    fs::create_dir_all(&root.join(".cursor/rules")).map_err(|e| {
+    fs::create_dir_all(root.join(".cursor/rules")).map_err(|e| {
         format!(
             "Failed to create {}: {e}",
             root.join(".cursor/rules").display()
         )
     })?;
     write_file(&root.join(".cursor/rules/shaperail.md"), AGENT_ADAPTER_MD)?;
-    fs::create_dir_all(&root.join(".github"))
+    fs::create_dir_all(root.join(".github"))
         .map_err(|e| format!("Failed to create {}: {e}", root.join(".github").display()))?;
     write_file(
         &root.join(".github/copilot-instructions.md"),
@@ -1877,6 +1925,84 @@ volumes:
     super::generate::write_generated_modules(&resources, &root.join("generated"))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+/// Collects event subscribers declared in resource endpoint YAML and converts
+/// them to `EventSubscriber` entries pointing to hook targets.
+fn collect_resource_subscribers(
+    resources: &[shaperail_core::ResourceDefinition],
+) -> Vec<shaperail_core::EventSubscriber> {
+    let mut result = Vec::new();
+    for resource in resources {
+        let Some(endpoints) = &resource.endpoints else {
+            continue;
+        };
+        for endpoint in endpoints.values() {
+            let Some(subs) = &endpoint.subscribers else {
+                continue;
+            };
+            for sub in subs {
+                result.push(shaperail_core::EventSubscriber {
+                    event: sub.event.clone(),
+                    targets: vec![shaperail_core::EventTarget::Hook {
+                        name: sub.handler.clone(),
+                    }],
+                });
+            }
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod subscriber_tests {
+    use super::*;
+    use shaperail_core::{EndpointSpec, ResourceDefinition, SubscriberSpec};
+
+    fn resource_with_subscribers() -> ResourceDefinition {
+        let mut endpoints = indexmap::IndexMap::new();
+        endpoints.insert(
+            "create".to_string(),
+            EndpointSpec {
+                events: Some(vec!["user.created".to_string()]),
+                subscribers: Some(vec![SubscriberSpec {
+                    event: "user.created".to_string(),
+                    handler: "send_welcome_email".to_string(),
+                }]),
+                ..Default::default()
+            },
+        );
+        ResourceDefinition {
+            resource: "users".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema: indexmap::IndexMap::new(),
+            endpoints: Some(endpoints),
+            relations: None,
+            indexes: None,
+        }
+    }
+
+    #[test]
+    fn collect_resource_subscribers_extracts_all() {
+        let resources = vec![resource_with_subscribers()];
+        let subs = collect_resource_subscribers(&resources);
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].event, "user.created");
+        assert!(matches!(
+            &subs[0].targets[0],
+            shaperail_core::EventTarget::Hook { name } if name == "send_welcome_email"
+        ));
+    }
+
+    #[test]
+    fn collect_resource_subscribers_empty_when_none() {
+        let resources: Vec<ResourceDefinition> = vec![];
+        let subs = collect_resource_subscribers(&resources);
+        assert!(subs.is_empty());
+    }
 }
 
 fn write_file(path: &Path, content: &str) -> Result<(), String> {
