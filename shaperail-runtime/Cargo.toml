@@ -70,7 +70,7 @@ tonic-health = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true }
 http-body = { version = "1", optional = true }
 http-body-util = { version = "0.1", optional = true }
-tower = { version = "0.4", default-features = false, optional = true }
+tower = { version = "0.5", default-features = false, optional = true }
 
 # Optional: MongoDB (feature = "multi-db")
 mongodb = { workspace = true, optional = true }
