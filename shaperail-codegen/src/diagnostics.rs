@@ -346,6 +346,51 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                     });
                 }
             }
+
+            // SR073 / SR074: subscriber event and handler must not be empty
+            if let Some(subs) = &ep.subscribers {
+                for (i, sub) in subs.iter().enumerate() {
+                    if sub.event.is_empty() {
+                        diags.push(Diagnostic {
+                            code: "SR073",
+                            error: format!(
+                                "resource '{res}': endpoint '{action}' subscriber[{i}] has an empty event pattern"
+                            ),
+                            fix: "provide a non-empty event pattern (e.g., \"user.created\" or \"*.deleted\")".into(),
+                            example: format!(
+                                "subscribers:\n  - event: {res}.created\n    handler: my_handler"
+                            ),
+                        });
+                    }
+                    if sub.handler.is_empty() {
+                        diags.push(Diagnostic {
+                            code: "SR074",
+                            error: format!(
+                                "resource '{res}': endpoint '{action}' subscriber[{i}] has an empty handler name"
+                            ),
+                            fix: "provide a non-empty handler name (e.g., \"send_welcome_email\")".into(),
+                            example: "subscribers:\n  - event: user.created\n    handler: send_welcome_email".into(),
+                        });
+                    }
+                }
+            }
+
+            // SR075: non-convention endpoints must declare a handler
+            const CONVENTIONS: &[&str] = &["list", "get", "create", "update", "delete"];
+            if !CONVENTIONS.contains(&action.as_str()) && ep.handler.is_none() {
+                diags.push(Diagnostic {
+                    code: "SR075",
+                    error: format!(
+                        "resource '{res}': endpoint '{action}' is not a standard action (list/get/create/update/delete) and has no 'handler:' declared",
+                    ),
+                    fix: "add a 'handler: <function_name>' field pointing to a function in resources/<resource>.controller.rs".into(),
+                    example: format!(
+                        "{action}:\n  method: POST\n  path: /{name}/{action}\n  auth: [admin]\n  handler: {action}_{name}",
+                        action = action,
+                        name = rd.resource
+                    ),
+                });
+            }
         }
     }
 
@@ -532,5 +577,96 @@ schema:
         let json = serde_json::to_string(&d).unwrap();
         assert!(json.contains("SR010"));
         assert!(json.contains("fix"));
+    }
+
+    #[test]
+    fn subscriber_with_empty_event_has_fix_suggestion() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: [admin]
+    subscribers:
+      - event: ""
+        handler: my_handler
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        let d = diags.iter().find(|d| d.code == "SR073");
+        assert!(
+            d.is_some(),
+            "Expected SR073 diagnostic for empty subscriber event"
+        );
+        assert!(d.unwrap().fix.contains("event"));
+    }
+
+    #[test]
+    fn subscriber_with_empty_handler_has_fix_suggestion() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: [admin]
+    subscribers:
+      - event: items.created
+        handler: ""
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        let d = diags.iter().find(|d| d.code == "SR074");
+        assert!(
+            d.is_some(),
+            "Expected SR074 diagnostic for empty subscriber handler"
+        );
+        assert!(d.unwrap().fix.contains("handler"));
+    }
+
+    #[test]
+    fn non_convention_endpoint_without_handler_produces_sr075() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  archive:
+    method: POST
+    path: /items/:id/archive
+    auth: [admin]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        let d = diags.iter().find(|d| d.code == "SR075");
+        assert!(
+            d.is_some(),
+            "Expected SR075 for non-convention endpoint missing handler"
+        );
+        assert!(d.unwrap().fix.contains("handler"));
+    }
+
+    #[test]
+    fn non_convention_endpoint_with_handler_no_sr075() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  archive:
+    method: POST
+    path: /items/:id/archive
+    auth: [admin]
+    handler: archive_item
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        let has_sr075 = diags.iter().any(|d| d.code == "SR075");
+        assert!(!has_sr075, "SR075 should not fire when handler is present");
     }
 }

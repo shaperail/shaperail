@@ -121,6 +121,8 @@ mod tests {
                 controller: None,
                 events: None,
                 jobs: None,
+                subscribers: None,
+                handler: None,
                 upload: None,
                 rate_limit: None,
                 soft_delete: false,

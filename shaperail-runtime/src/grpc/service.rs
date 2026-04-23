@@ -254,6 +254,119 @@ pub async fn handle_create(
     Ok(response_buf.freeze())
 }
 
+/// Handle an Update RPC: updates a resource record by ID.
+pub async fn handle_update(
+    state: Arc<AppState>,
+    resource: &ResourceDefinition,
+    user: Option<&AuthenticatedUser>,
+    request_data: &[u8],
+) -> Result<Bytes, Status> {
+    let endpoint = resource.endpoints.as_ref().and_then(|e| e.get("update"));
+    let auth_rule = endpoint.and_then(|e| e.auth.as_ref());
+    enforce_auth(auth_rule, user)?;
+
+    let input_fields = endpoint
+        .and_then(|e| e.input.as_ref())
+        .cloned()
+        .unwrap_or_default();
+
+    if input_fields.is_empty() {
+        return Err(Status::invalid_argument(
+            "Update endpoint has no input fields declared",
+        ));
+    }
+
+    // Build combined decode schema: id first, then input fields
+    let mut update_schema = indexmap::IndexMap::new();
+    update_schema.insert(
+        "id".to_string(),
+        shaperail_core::FieldSchema {
+            field_type: shaperail_core::FieldType::String,
+            primary: false,
+            generated: false,
+            required: true,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+        },
+    );
+    for field_name in &input_fields {
+        if let Some(field) = resource.schema.get(field_name) {
+            update_schema.insert(field_name.clone(), field.clone());
+        }
+    }
+
+    let req_json = decode_resource_message(&update_schema, request_data);
+    let id = req_json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Status::invalid_argument("Missing 'id' field"))?;
+
+    let table = &resource.resource;
+    let set_clauses: Vec<String> = input_fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| format!("{f} = ${}", i + 1))
+        .collect();
+    let set_clause = set_clauses.join(", ");
+    let id_param = input_fields.len() + 1;
+    let query = format!(
+        "UPDATE {table} SET {set_clause} WHERE id = ${id_param} RETURNING row_to_json({table}.*)"
+    );
+
+    let mut q = sqlx::query_as::<_, (serde_json::Value,)>(&query);
+    for field_name in &input_fields {
+        let val = req_json
+            .get(field_name)
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        match val {
+            serde_json::Value::String(s) => q = q.bind(s),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    q = q.bind(i.to_string());
+                } else if let Some(f) = n.as_f64() {
+                    q = q.bind(f.to_string());
+                } else {
+                    q = q.bind(n.to_string());
+                }
+            }
+            serde_json::Value::Bool(b) => q = q.bind(b.to_string()),
+            _ => q = q.bind(Option::<String>::None),
+        }
+    }
+    q = q.bind(id);
+
+    let row = q
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| Status::internal(e.to_string()))?;
+
+    let record = row
+        .map(|(v,)| v)
+        .ok_or_else(|| Status::not_found("Not found"))?;
+
+    let data_bytes = encode_resource_message(&resource.schema, &record);
+    let mut response_buf = BytesMut::new();
+    prost::encoding::encode_key(
+        1,
+        prost::encoding::WireType::LengthDelimited,
+        &mut response_buf,
+    );
+    prost::encoding::encode_varint(data_bytes.len() as u64, &mut response_buf);
+    response_buf.extend_from_slice(&data_bytes);
+
+    Ok(response_buf.freeze())
+}
+
 /// Handle a Delete RPC.
 pub async fn handle_delete(
     state: Arc<AppState>,

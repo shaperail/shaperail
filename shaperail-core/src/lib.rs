@@ -27,7 +27,8 @@ pub use config::{
 pub use database::DatabaseEngine;
 pub use endpoint::{
     apply_endpoint_defaults, endpoint_convention, AuthRule, CacheSpec, ControllerSpec,
-    EndpointSpec, HttpMethod, PaginationStyle, RateLimitSpec, UploadSpec, WASM_HOOK_PREFIX,
+    EndpointSpec, HttpMethod, PaginationStyle, RateLimitSpec, SubscriberSpec, UploadSpec,
+    WASM_HOOK_PREFIX,
 };
 pub use error::{FieldError, ShaperailError};
 pub use field_type::FieldType;

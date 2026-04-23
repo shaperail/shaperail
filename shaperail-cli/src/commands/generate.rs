@@ -42,6 +42,10 @@ pub fn run() -> i32 {
                 eprintln!("Warning: {e}");
             }
 
+            if let Err(e) = write_handler_stubs(&resources, Path::new("resources")) {
+                eprintln!("Warning: {e}");
+            }
+
             0
         }
         Err(e) => {
@@ -206,6 +210,58 @@ pub(crate) fn write_job_stubs(
 "#
         );
         fs::write(&stub_path, stub)
+            .map_err(|e| format!("Failed to write {}: {e}", stub_path.display()))?;
+    }
+    Ok(())
+}
+
+/// Writes a stub handler file for each resource that declares custom endpoints,
+/// if the file does not already exist. Never overwrites existing files.
+pub(crate) fn write_handler_stubs(
+    resources: &[ResourceDefinition],
+    resources_dir: &Path,
+) -> Result<(), String> {
+    let conventions = shaperail_codegen::rust::HANDLER_CONVENTIONS;
+
+    fs::create_dir_all(resources_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", resources_dir.display()))?;
+
+    for resource in resources {
+        let Some(endpoints) = &resource.endpoints else {
+            continue;
+        };
+
+        let handlers: Vec<(&str, &str)> = endpoints
+            .iter()
+            .filter(|(action, _)| !conventions.contains(&action.as_str()))
+            .filter_map(|(action, ep)| ep.handler.as_deref().map(|h| (action.as_str(), h)))
+            .collect();
+
+        if handlers.is_empty() {
+            continue;
+        }
+
+        let stub_path = resources_dir.join(format!("{}.handlers.rs", resource.resource));
+        if stub_path.exists() {
+            continue;
+        }
+
+        let mut lines = Vec::new();
+        for (action, fn_name) in &handlers {
+            lines.push(format!(
+                r#"pub async fn {fn_name}(
+    _req: actix_web::HttpRequest,
+    _state: std::sync::Arc<shaperail_runtime::handlers::AppState>,
+    _resource: std::sync::Arc<shaperail_core::ResourceDefinition>,
+    _endpoint: std::sync::Arc<shaperail_core::EndpointSpec>,
+) -> actix_web::HttpResponse {{
+    todo!("implement {fn_name} for {action}")
+}}
+"#
+            ));
+        }
+
+        fs::write(&stub_path, lines.join("\n"))
             .map_err(|e| format!("Failed to write {}: {e}", stub_path.display()))?;
     }
     Ok(())
@@ -384,5 +440,91 @@ endpoints:
 
         let contents = std::fs::read_to_string(&existing).unwrap();
         assert_eq!(contents, "// existing job handler");
+    }
+
+    #[test]
+    fn handler_stub_written_when_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let resources_dir = dir.path().join("resources");
+        // Do NOT pre-create resources_dir — write_handler_stubs must create it
+
+        let yaml = r#"
+resource: orders
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  archive:
+    method: POST
+    path: /orders/:id/archive
+    auth: [admin]
+    handler: archive_order
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        write_handler_stubs(&[rd], &resources_dir).unwrap();
+
+        let stub_path = resources_dir.join("orders.handlers.rs");
+        assert!(stub_path.exists(), "handler stub should be created");
+        let contents = std::fs::read_to_string(&stub_path).unwrap();
+        assert!(contents.contains("pub async fn archive_order"));
+        assert!(contents.contains("todo!("));
+    }
+
+    #[test]
+    fn handler_stub_not_written_for_convention_endpoints() {
+        let dir = tempfile::tempdir().unwrap();
+        let resources_dir = dir.path().join("resources");
+
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  list:
+    auth: [admin]
+  create:
+    auth: [admin]
+    input: [id]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        write_handler_stubs(&[rd], &resources_dir).unwrap();
+
+        let stub_path = resources_dir.join("items.handlers.rs");
+        assert!(
+            !stub_path.exists(),
+            "no handler stub when only convention endpoints exist"
+        );
+    }
+
+    #[test]
+    fn handler_stub_not_overwritten_when_file_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let resources_dir = dir.path().join("resources");
+        std::fs::create_dir_all(&resources_dir).unwrap();
+
+        let existing = resources_dir.join("orders.handlers.rs");
+        std::fs::write(&existing, "// existing content").unwrap();
+
+        let yaml = r#"
+resource: orders
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  archive:
+    method: POST
+    path: /orders/:id/archive
+    auth: [admin]
+    handler: archive_order
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        write_handler_stubs(&[rd], &resources_dir).unwrap();
+
+        let contents = std::fs::read_to_string(&existing).unwrap();
+        assert_eq!(
+            contents, "// existing content",
+            "existing file must not be overwritten"
+        );
     }
 }

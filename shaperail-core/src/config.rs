@@ -707,6 +707,20 @@ mod tests {
     }
 
     #[test]
+    fn inbound_config_default_signature_header() {
+        let json = r#"{"path": "/webhooks/github", "secret_env": "GITHUB_SECRET"}"#;
+        let cfg: InboundWebhookConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.signature_header, "X-Webhook-Signature");
+    }
+
+    #[test]
+    fn inbound_config_custom_signature_header() {
+        let json = r#"{"path": "/webhooks/github", "secret_env": "GITHUB_SECRET", "signature_header": "X-Hub-Signature-256"}"#;
+        let cfg: InboundWebhookConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.signature_header, "X-Hub-Signature-256");
+    }
+
+    #[test]
     fn project_config_with_grpc() {
         let json = r#"{
             "project": "grpc-app",

@@ -201,6 +201,36 @@ fn collect_controller_hooks(resources: &[ResourceDefinition]) -> Vec<(&str, Vec<
         .collect()
 }
 
+/// The five built-in convention endpoint actions. Used by codegen and CLI to filter custom endpoints.
+pub const HANDLER_CONVENTIONS: &[&str] = &["list", "get", "create", "update", "delete"];
+
+/// Returns (resource_name, [(action, handler_fn)]) for resources with custom endpoints.
+/// Only includes non-convention endpoints that have `handler:` declared.
+fn collect_custom_handlers(resources: &[ResourceDefinition]) -> Vec<(&str, Vec<(&str, &str)>)> {
+    resources
+        .iter()
+        .filter_map(|resource| {
+            let handlers: Vec<(&str, &str)> = resource
+                .endpoints
+                .as_ref()
+                .map(|eps| {
+                    eps.iter()
+                        .filter(|(action, _)| !HANDLER_CONVENTIONS.contains(&action.as_str()))
+                        .filter_map(|(action, ep)| {
+                            ep.handler.as_deref().map(|h| (action.as_str(), h))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if handlers.is_empty() {
+                None
+            } else {
+                Some((resource.resource.as_str(), handlers))
+            }
+        })
+        .collect()
+}
+
 /// Returns all unique job names declared across all resources, sorted for determinism.
 fn collect_job_names(resources: &[ResourceDefinition]) -> Vec<String> {
     let mut names = std::collections::BTreeSet::new();
@@ -221,6 +251,16 @@ fn collect_job_path_decls(resources: &[ResourceDefinition]) -> Vec<String> {
     collect_job_names(resources)
         .iter()
         .map(|name| format!("#[path = \"../jobs/{name}.rs\"]\nmod job_{name};"))
+        .collect()
+}
+
+/// Returns #[path] declarations for handler modules.
+fn collect_handler_path_decls(resources: &[ResourceDefinition]) -> Vec<String> {
+    collect_custom_handlers(resources)
+        .iter()
+        .map(|(name, _)| {
+            format!("#[path = \"../resources/{name}.handlers.rs\"]\nmod {name}_handlers;")
+        })
         .collect()
 }
 
@@ -258,6 +298,37 @@ fn generate_job_registry(resources: &[ResourceDefinition]) -> String {
     shaperail_runtime::jobs::JobRegistry::from_handlers(handlers)
 }}"#,
         inserts = inserts.join("\n")
+    )
+}
+
+fn generate_handler_map_fn(resources: &[ResourceDefinition]) -> String {
+    let custom = collect_custom_handlers(resources);
+
+    if custom.is_empty() {
+        return r#"pub fn build_handler_map() -> shaperail_runtime::handlers::custom::CustomHandlerMap {
+    shaperail_runtime::handlers::custom::CustomHandlerMap::new()
+}"#
+        .to_string();
+    }
+
+    let inserts: Vec<String> = custom
+        .iter()
+        .flat_map(|(res_name, handlers)| {
+            handlers.iter().map(move |(action, handler_fn)| {
+                format!(
+                    "    map.insert(\n        shaperail_runtime::handlers::custom::handler_key({res_name:?}, {action:?}),\n        std::sync::Arc::new(|req, state, res, ep| {{\n            Box::pin({res_name}_handlers::{handler_fn}(req, state, res, ep))\n        }}),\n    );"
+                )
+            })
+        })
+        .collect();
+
+    format!(
+        r#"pub fn build_handler_map() -> shaperail_runtime::handlers::custom::CustomHandlerMap {{
+    let mut map = shaperail_runtime::handlers::custom::CustomHandlerMap::new();
+{inserts}
+    map
+}}"#,
+        inserts = inserts.join("\n"),
     )
 }
 
@@ -333,6 +404,10 @@ fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
     if !job_path_decls.is_empty() {
         preamble_parts.push(job_path_decls.join("\n"));
     }
+    let handler_path_decls = collect_handler_path_decls(resources);
+    if !handler_path_decls.is_empty() {
+        preamble_parts.push(handler_path_decls.join("\n"));
+    }
     let preamble = preamble_parts.join("\n\n");
 
     format!(
@@ -354,8 +429,11 @@ pub fn build_controller_map() -> shaperail_runtime::handlers::controller::Contro
 }}
 
 {job_registry_fn}
+
+{handler_map_fn}
 "#,
         job_registry_fn = generate_job_registry(resources),
+        handler_map_fn = generate_handler_map_fn(resources),
     )
 }
 
@@ -1438,5 +1516,110 @@ mod tests {
 
         assert!(project.mod_rs.contains("pub mod users;"));
         assert!(project.mod_rs.contains("build_store_registry"));
+    }
+
+    #[test]
+    fn collect_custom_handlers_returns_non_convention_endpoints_with_handler() {
+        let mut endpoints = indexmap::IndexMap::new();
+        endpoints.insert(
+            "list".to_string(),
+            EndpointSpec {
+                method: Some(HttpMethod::Get),
+                path: Some("/items".to_string()),
+                handler: None,
+                ..Default::default()
+            },
+        );
+        endpoints.insert(
+            "archive".to_string(),
+            EndpointSpec {
+                method: Some(HttpMethod::Post),
+                path: Some("/items/:id/archive".to_string()),
+                handler: Some("archive_item".to_string()),
+                ..Default::default()
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema: indexmap::IndexMap::new(),
+            endpoints: Some(endpoints),
+            relations: None,
+            indexes: None,
+        };
+        let resources = [resource];
+        let result = collect_custom_handlers(&resources);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "items");
+        assert_eq!(result[0].1, vec![("archive", "archive_item")]);
+    }
+
+    #[test]
+    fn collect_custom_handlers_ignores_convention_endpoints() {
+        let mut endpoints = indexmap::IndexMap::new();
+        for action in &["list", "get", "create", "update", "delete"] {
+            endpoints.insert(
+                action.to_string(),
+                EndpointSpec {
+                    method: Some(HttpMethod::Get),
+                    handler: Some("some_fn".to_string()),
+                    ..Default::default()
+                },
+            );
+        }
+        let resource = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema: indexmap::IndexMap::new(),
+            endpoints: Some(endpoints),
+            relations: None,
+            indexes: None,
+        };
+        let resources = [resource];
+        let result = collect_custom_handlers(&resources);
+        assert!(
+            result.is_empty(),
+            "convention endpoints should not be collected"
+        );
+    }
+
+    #[test]
+    fn generate_handler_map_fn_empty_returns_new() {
+        let resources: Vec<ResourceDefinition> = vec![];
+        let output = generate_handler_map_fn(&resources);
+        assert!(output.contains("CustomHandlerMap::new()"));
+        assert!(!output.contains("map.insert"));
+    }
+
+    #[test]
+    fn generate_handler_map_fn_with_handler_contains_insert() {
+        let mut endpoints = indexmap::IndexMap::new();
+        endpoints.insert(
+            "archive".to_string(),
+            EndpointSpec {
+                method: Some(HttpMethod::Post),
+                path: Some("/items/:id/archive".to_string()),
+                handler: Some("archive_item".to_string()),
+                ..Default::default()
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema: indexmap::IndexMap::new(),
+            endpoints: Some(endpoints),
+            relations: None,
+            indexes: None,
+        };
+        let resources = [resource];
+        let output = generate_handler_map_fn(&resources);
+        assert!(output.contains("items_handlers::archive_item"));
+        assert!(output.contains(r#"handler_key("items", "archive")"#));
     }
 }

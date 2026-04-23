@@ -246,7 +246,9 @@ async fn main() -> std::io::Result<()> {
         event_emitter: event_emitter.clone(),
         job_queue,
         rate_limiter,
+        custom_handlers: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        saga_executor: None,
         #[cfg(feature = "wasm-plugins")]
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(256).0,

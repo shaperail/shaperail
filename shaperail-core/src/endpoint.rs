@@ -248,6 +248,22 @@ impl ControllerSpec {
     }
 }
 
+/// A subscriber declaration within an endpoint — auto-registered at startup.
+///
+/// ```yaml
+/// subscribers:
+///   - event: user.created
+///     handler: send_welcome_email
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubscriberSpec {
+    /// Event name pattern (e.g., "user.created", "*.deleted").
+    pub event: String,
+    /// Handler function name in `resources/<resource>.controller.rs`.
+    pub handler: String,
+}
+
 /// Specification for a single endpoint in a resource.
 ///
 /// Matches the YAML format:
@@ -314,6 +330,16 @@ pub struct EndpointSpec {
     /// Background jobs to enqueue after successful execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jobs: Option<Vec<String>>,
+
+    /// Event subscribers auto-registered at startup; each entry maps an event pattern to a handler function.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscribers: Option<Vec<SubscriberSpec>>,
+
+    /// Handler function name for non-convention endpoints.
+    /// Required when the endpoint action name is not list/get/create/update/delete.
+    /// The function must be defined in `resources/<resource>.controller.rs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handler: Option<String>,
 
     /// File upload configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -553,5 +579,57 @@ rate_limit:
         let yaml = "auth: [member]\n";
         let spec: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
         assert!(spec.rate_limit.is_none());
+    }
+
+    #[test]
+    fn endpoint_spec_subscribers_parse() {
+        let yaml = r#"
+auth: [admin]
+events: [user.created]
+subscribers:
+  - event: user.created
+    handler: send_welcome_email
+  - event: "*.deleted"
+    handler: cleanup_resources
+"#;
+        let spec: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
+        let subs = spec.subscribers.as_ref().unwrap();
+        assert_eq!(subs.len(), 2);
+        assert_eq!(subs[0].event, "user.created");
+        assert_eq!(subs[0].handler, "send_welcome_email");
+        assert_eq!(subs[1].event, "*.deleted");
+    }
+
+    #[test]
+    fn subscriber_spec_unknown_field_rejected() {
+        let yaml = r#"
+subscribers:
+  - event: user.created
+    handler: send_welcome_email
+    extra: bad_field
+"#;
+        let result = serde_yaml::from_str::<EndpointSpec>(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn custom_endpoint_handler_field_parses() {
+        let yaml = r#"
+method: POST
+path: /invite
+auth: [admin]
+input: [email, role]
+handler: invite_user
+"#;
+        let ep: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(ep.handler.as_deref(), Some("invite_user"));
+        assert_eq!(ep.input.as_ref().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn endpoint_without_handler_has_none() {
+        let yaml = "auth: [member]\n";
+        let ep: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
+        assert!(ep.handler.is_none());
     }
 }

@@ -54,7 +54,9 @@ fn make_state(pool: sqlx::PgPool, jwt: Option<JwtConfig>) -> Arc<AppState> {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     })
@@ -266,6 +268,8 @@ fn test_asset_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: Some(shaperail_core::UploadSpec {
                 field: "attachment".to_string(),
                 storage: "local".to_string(),
@@ -291,6 +295,8 @@ fn test_asset_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -539,6 +545,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -560,6 +568,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -586,6 +596,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -607,6 +619,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -628,6 +642,8 @@ fn full_crud_endpoints() -> IndexMap<String, EndpointSpec> {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: true,
@@ -669,7 +685,9 @@ async fn test_graphql_list_query(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -713,7 +731,9 @@ async fn test_graphql_create_mutation(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -767,7 +787,9 @@ async fn test_graphql_auth_rejects_unauthorized_mutation(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -824,7 +846,9 @@ async fn test_graphql_dataloader_caches_relation_lookups(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -902,7 +926,9 @@ async fn test_graphql_schema_includes_subscription_type(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -954,7 +980,9 @@ async fn test_graphql_depth_limit_rejects_deep_queries(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1006,7 +1034,9 @@ async fn test_graphql_default_limits_accept_normal_queries(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1436,6 +1466,8 @@ async fn test_bulk_create(pool: sqlx::PgPool) {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -1619,7 +1651,9 @@ async fn test_metrics_capture_requests_errors_and_cache(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1712,7 +1746,9 @@ async fn test_list_cache_hit_serves_stale_data_after_db_delete(pool: sqlx::PgPoo
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(metrics_state.get_ref().clone()),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1790,7 +1826,9 @@ async fn test_write_invalidates_cached_list(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -1869,7 +1907,9 @@ async fn test_nocache_bypasses_cached_response(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -2194,6 +2234,8 @@ fn org_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -2214,6 +2256,8 @@ fn org_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -2234,6 +2278,8 @@ fn org_resource() -> ResourceDefinition {
             controller: None,
             events: None,
             jobs: None,
+            subscribers: None,
+            handler: None,
             upload: None,
             rate_limit: None,
             soft_delete: false,
@@ -2284,6 +2330,106 @@ fn build_test_store_registry(
     Arc::new(map)
 }
 
+// ---------------------------------------------------------------------------
+// Custom endpoint dispatch
+// ---------------------------------------------------------------------------
+
+#[sqlx::test]
+async fn custom_endpoint_dispatches_to_registered_handler(pool: sqlx::PgPool) {
+    use shaperail_runtime::handlers::custom::{handler_key, CustomHandlerFn, CustomHandlerMap};
+    use std::sync::Arc;
+
+    let resource = ResourceDefinition {
+        resource: "items".to_string(),
+        version: 1,
+        db: None,
+        tenant_key: None,
+        schema: {
+            let mut s = IndexMap::new();
+            s.insert(
+                "id".to_string(),
+                FieldSchema {
+                    field_type: FieldType::Uuid,
+                    primary: true,
+                    generated: true,
+                    required: true,
+                    unique: true,
+                    nullable: false,
+                    reference: None,
+                    min: None,
+                    max: None,
+                    format: None,
+                    values: None,
+                    default: None,
+                    sensitive: false,
+                    search: false,
+                    items: None,
+                },
+            );
+            s
+        },
+        endpoints: Some({
+            let mut eps = IndexMap::new();
+            eps.insert(
+                "archive".to_string(),
+                EndpointSpec {
+                    method: Some(HttpMethod::Post),
+                    path: Some("/items/:id/archive".to_string()),
+                    auth: None,
+                    handler: Some("archive_item".to_string()),
+                    ..Default::default()
+                },
+            );
+            eps
+        }),
+        relations: None,
+        indexes: None,
+    };
+
+    let mut custom_handlers: CustomHandlerMap = std::collections::HashMap::new();
+    custom_handlers.insert(
+        handler_key("items", "archive"),
+        Arc::new(|_req, _state, _res, _ep| {
+            Box::pin(async {
+                actix_web::HttpResponse::Ok().json(serde_json::json!({"status": "archived"}))
+            })
+        }),
+    );
+
+    let state = Arc::new(AppState {
+        pool,
+        resources: vec![],
+        stores: None,
+        controllers: None,
+        jwt_config: None,
+        cache: None,
+        event_emitter: None,
+        job_queue: None,
+        rate_limiter: None,
+        custom_handlers: Some(custom_handlers),
+        metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
+        wasm_runtime: None,
+        event_bus: tokio::sync::broadcast::channel(16).0,
+    });
+
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .configure(|cfg| register_resource(cfg, &resource, state.clone())),
+    )
+    .await;
+
+    let req = actix_test::TestRequest::post()
+        .uri("/v1/items/some-id/archive")
+        .to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    assert_eq!(body["status"], "archived");
+}
+
 #[sqlx::test(migrations = "tests/fixtures/migrations")]
 async fn test_list_with_include_uses_store(pool: sqlx::PgPool) {
     let org_res = org_resource();
@@ -2301,7 +2447,9 @@ async fn test_list_with_include_uses_store(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
+        saga_executor: None,
         wasm_runtime: None,
         event_bus: tokio::sync::broadcast::channel(16).0,
     });
@@ -2355,4 +2503,159 @@ async fn test_list_with_include_uses_store(pool: sqlx::PgPool) {
         "User should have embedded organization from ?include=organization"
     );
     assert_eq!(user["organization"]["name"], "Acme Corp");
+}
+
+// ---------------------------------------------------------------------------
+// Cross-protocol auth consistency (REST + GraphQL)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "graphql")]
+#[sqlx::test]
+async fn cross_protocol_auth_member_gets_same_result_via_rest_and_graphql(pool: sqlx::PgPool) {
+    let jwt = test_jwt();
+
+    // Minimal resource with a single list endpoint that requires admin
+    let mut schema_map = IndexMap::new();
+    schema_map.insert(
+        "id".to_string(),
+        FieldSchema {
+            field_type: FieldType::Uuid,
+            primary: true,
+            generated: true,
+            required: true,
+            unique: true,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+        },
+    );
+    schema_map.insert(
+        "name".to_string(),
+        FieldSchema {
+            field_type: FieldType::String,
+            primary: false,
+            generated: false,
+            required: true,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+        },
+    );
+
+    let mut eps = IndexMap::new();
+    eps.insert(
+        "list".to_string(),
+        EndpointSpec {
+            method: Some(HttpMethod::Get),
+            path: Some("/auth_items".to_string()),
+            auth: Some(AuthRule::Roles(vec!["admin".to_string()])),
+            input: None,
+            filters: None,
+            search: None,
+            pagination: None,
+            sort: None,
+            cache: None,
+            controller: None,
+            events: None,
+            jobs: None,
+            subscribers: None,
+            handler: None,
+            upload: None,
+            rate_limit: None,
+            soft_delete: false,
+        },
+    );
+
+    let resource = ResourceDefinition {
+        resource: "auth_items".to_string(),
+        version: 1,
+        db: None,
+        tenant_key: None,
+        schema: schema_map,
+        endpoints: Some(eps),
+        relations: None,
+        indexes: None,
+    };
+
+    sqlx::query(
+        "CREATE TABLE auth_items (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let state = Arc::new(AppState {
+        pool: pool.clone(),
+        resources: vec![resource.clone()],
+        stores: None,
+        controllers: None,
+        jwt_config: Some(Arc::new(jwt.clone())),
+        cache: None,
+        event_emitter: None,
+        job_queue: None,
+        rate_limiter: None,
+        custom_handlers: None,
+        saga_executor: None,
+        metrics: Some(MetricsState::new().expect("metrics")),
+        wasm_runtime: None,
+        event_bus: tokio::sync::broadcast::channel(16).0,
+    });
+
+    let gql_schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .app_data(web::Data::new(Arc::new(jwt.clone())))
+            .app_data(web::Data::new(gql_schema))
+            .route("/graphql", web::post().to(graphql_handler))
+            .configure(|cfg| register_resource(cfg, &resource, state.clone())),
+    )
+    .await;
+
+    // Member token (not admin)
+    let member_token = jwt.encode_access("user-1", "member").unwrap();
+
+    // REST: GET /v1/auth_items with member token → 403
+    let rest_req = actix_test::TestRequest::get()
+        .uri("/v1/auth_items")
+        .insert_header(("Authorization", format!("Bearer {member_token}")))
+        .to_request();
+    let rest_resp = actix_test::call_service(&app, rest_req).await;
+    assert_eq!(
+        rest_resp.status(),
+        403,
+        "REST: member should get 403 on admin-only endpoint"
+    );
+
+    // GraphQL: query list_auth_items with member token → should get errors
+    let gql_body = serde_json::json!({ "query": "{ list_auth_items { id } }" });
+    let gql_req = actix_test::TestRequest::post()
+        .uri("/graphql")
+        .insert_header(("Authorization", format!("Bearer {member_token}")))
+        .insert_header(("Content-Type", "application/json"))
+        .set_json(&gql_body)
+        .to_request();
+    let gql_resp = tokio::task::LocalSet::new()
+        .run_until(actix_test::call_service(&app, gql_req))
+        .await;
+    let gql_body: serde_json::Value = actix_test::read_body_json(gql_resp).await;
+    assert!(
+        gql_body.get("errors").is_some(),
+        "GraphQL: member should get errors on admin-only query, got: {gql_body}"
+    );
 }

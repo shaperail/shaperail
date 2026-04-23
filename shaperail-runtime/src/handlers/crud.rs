@@ -34,7 +34,11 @@ pub struct AppState {
     pub job_queue: Option<JobQueue>,
     /// Per-endpoint Redis-backed rate limiter. `None` if Redis is not configured.
     pub rate_limiter: Option<Arc<crate::auth::RateLimiter>>,
+    /// Custom endpoint handler registry. Keys are "{resource}:{action}".
+    pub custom_handlers: Option<super::custom::CustomHandlerMap>,
     pub metrics: Option<MetricsState>,
+    /// Saga execution engine. Present when sagas are defined in sagas/ directory.
+    pub saga_executor: Option<Arc<crate::sagas::SagaExecutor>>,
     /// WASM plugin runtime (M19). Requires `wasm-plugins` feature.
     #[cfg(feature = "wasm-plugins")]
     pub wasm_runtime: Option<crate::plugins::WasmRuntime>,
