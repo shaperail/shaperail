@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use hmac::{Hmac, Mac};
+use hmac::{digest::KeyInit, Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use shaperail_core::ShaperailError;
