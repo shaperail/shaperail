@@ -56,7 +56,7 @@ impl SagaExecutor {
     }
 
     pub async fn start(
-        &self,
+        self: &Arc<Self>,
         saga: &SagaDefinition,
         input: serde_json::Value,
     ) -> Result<uuid::Uuid, shaperail_core::ShaperailError> {
@@ -70,11 +70,7 @@ impl SagaExecutor {
         .map_err(|e| shaperail_core::ShaperailError::Internal(e.to_string()))?;
 
         let execution_id = row.0;
-        let executor = Arc::new(Self {
-            pool: self.pool.clone(),
-            service_urls: self.service_urls.clone(),
-            http_client: reqwest::Client::new(),
-        });
+        let executor = Arc::clone(self);
         let saga_clone = saga.clone();
         tokio::spawn(async move {
             if let Err(e) = executor.advance(&execution_id, &saga_clone).await {
@@ -171,6 +167,14 @@ impl SagaExecutor {
                         Some(&error_msg),
                     )
                     .await?;
+                    let executor = Arc::clone(self);
+                    let exec_id = *execution_id;
+                    let saga_clone = saga.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = executor.compensate(&exec_id, &saga_clone).await {
+                            tracing::error!(execution_id = %exec_id, error = %e, "Saga compensation failed");
+                        }
+                    });
                     return Ok(SagaExecutionStatus::Compensating);
                 }
             }
