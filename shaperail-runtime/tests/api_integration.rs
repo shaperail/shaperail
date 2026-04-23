@@ -915,7 +915,11 @@ async fn test_graphql_dataloader_caches_relation_lookups(pool: sqlx::PgPool) {
 #[sqlx::test(migrations = "tests/fixtures/migrations")]
 async fn test_graphql_schema_includes_subscription_type(pool: sqlx::PgPool) {
     let mut resource = test_resource();
-    resource.endpoints = Some(full_crud_endpoints());
+    let mut eps = full_crud_endpoints();
+    if let Some(ep) = eps.get_mut("create") {
+        ep.events = Some(vec!["test_user.created".to_string()]);
+    }
+    resource.endpoints = Some(eps);
     let state = Arc::new(AppState {
         pool: pool.clone(),
         resources: vec![resource.clone()],
