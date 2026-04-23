@@ -331,6 +331,10 @@ pub struct EndpointSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jobs: Option<Vec<String>>,
 
+    /// Event subscribers auto-registered at startup; each entry maps an event pattern to a handler function.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscribers: Option<Vec<SubscriberSpec>>,
+
     /// File upload configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upload: Option<UploadSpec>,
@@ -338,10 +342,6 @@ pub struct EndpointSpec {
     /// Per-endpoint rate limiting. Requires Redis. Skipped if Redis is not configured.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<RateLimitSpec>,
-
-    /// Event subscribers auto-registered at startup from this endpoint's events.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subscribers: Option<Vec<SubscriberSpec>>,
 
     /// Whether this endpoint performs a soft delete.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
