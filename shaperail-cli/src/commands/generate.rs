@@ -221,7 +221,7 @@ pub(crate) fn write_handler_stubs(
     resources: &[ResourceDefinition],
     resources_dir: &Path,
 ) -> Result<(), String> {
-    const CONVENTIONS: &[&str] = &["list", "get", "create", "update", "delete"];
+    let conventions = shaperail_codegen::rust::HANDLER_CONVENTIONS;
 
     fs::create_dir_all(resources_dir)
         .map_err(|e| format!("Failed to create {}: {e}", resources_dir.display()))?;
@@ -233,7 +233,7 @@ pub(crate) fn write_handler_stubs(
 
         let handlers: Vec<(&str, &str)> = endpoints
             .iter()
-            .filter(|(action, _)| !CONVENTIONS.contains(&action.as_str()))
+            .filter(|(action, _)| !conventions.contains(&action.as_str()))
             .filter_map(|(action, ep)| ep.handler.as_deref().map(|h| (action.as_str(), h)))
             .collect();
 

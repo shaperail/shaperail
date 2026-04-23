@@ -201,7 +201,8 @@ fn collect_controller_hooks(resources: &[ResourceDefinition]) -> Vec<(&str, Vec<
         .collect()
 }
 
-const HANDLER_CONVENTIONS: &[&str] = &["list", "get", "create", "update", "delete"];
+/// The five built-in convention endpoint actions. Used by codegen and CLI to filter custom endpoints.
+pub const HANDLER_CONVENTIONS: &[&str] = &["list", "get", "create", "update", "delete"];
 
 /// Returns (resource_name, [(action, handler_fn)]) for resources with custom endpoints.
 /// Only includes non-convention endpoints that have `handler:` declared.
