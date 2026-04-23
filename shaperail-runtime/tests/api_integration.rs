@@ -2504,3 +2504,158 @@ async fn test_list_with_include_uses_store(pool: sqlx::PgPool) {
     );
     assert_eq!(user["organization"]["name"], "Acme Corp");
 }
+
+// ---------------------------------------------------------------------------
+// Cross-protocol auth consistency (REST + GraphQL)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "graphql")]
+#[sqlx::test]
+async fn cross_protocol_auth_member_gets_same_result_via_rest_and_graphql(pool: sqlx::PgPool) {
+    let jwt = test_jwt();
+
+    // Minimal resource with a single list endpoint that requires admin
+    let mut schema_map = IndexMap::new();
+    schema_map.insert(
+        "id".to_string(),
+        FieldSchema {
+            field_type: FieldType::Uuid,
+            primary: true,
+            generated: true,
+            required: true,
+            unique: true,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+        },
+    );
+    schema_map.insert(
+        "name".to_string(),
+        FieldSchema {
+            field_type: FieldType::String,
+            primary: false,
+            generated: false,
+            required: true,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+        },
+    );
+
+    let mut eps = IndexMap::new();
+    eps.insert(
+        "list".to_string(),
+        EndpointSpec {
+            method: Some(HttpMethod::Get),
+            path: Some("/auth_items".to_string()),
+            auth: Some(AuthRule::Roles(vec!["admin".to_string()])),
+            input: None,
+            filters: None,
+            search: None,
+            pagination: None,
+            sort: None,
+            cache: None,
+            controller: None,
+            events: None,
+            jobs: None,
+            subscribers: None,
+            handler: None,
+            upload: None,
+            rate_limit: None,
+            soft_delete: false,
+        },
+    );
+
+    let resource = ResourceDefinition {
+        resource: "auth_items".to_string(),
+        version: 1,
+        db: None,
+        tenant_key: None,
+        schema: schema_map,
+        endpoints: Some(eps),
+        relations: None,
+        indexes: None,
+    };
+
+    sqlx::query(
+        "CREATE TABLE auth_items (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let state = Arc::new(AppState {
+        pool: pool.clone(),
+        resources: vec![resource.clone()],
+        stores: None,
+        controllers: None,
+        jwt_config: Some(Arc::new(jwt.clone())),
+        cache: None,
+        event_emitter: None,
+        job_queue: None,
+        rate_limiter: None,
+        custom_handlers: None,
+        saga_executor: None,
+        metrics: Some(MetricsState::new().expect("metrics")),
+        wasm_runtime: None,
+        event_bus: tokio::sync::broadcast::channel(16).0,
+    });
+
+    let gql_schema = build_schema(&[resource.clone()], state.clone()).expect("build_schema");
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .app_data(web::Data::new(Arc::new(jwt.clone())))
+            .app_data(web::Data::new(gql_schema))
+            .route("/graphql", web::post().to(graphql_handler))
+            .configure(|cfg| register_resource(cfg, &resource, state.clone())),
+    )
+    .await;
+
+    // Member token (not admin)
+    let member_token = jwt.encode_access("user-1", "member").unwrap();
+
+    // REST: GET /v1/auth_items with member token → 403
+    let rest_req = actix_test::TestRequest::get()
+        .uri("/v1/auth_items")
+        .insert_header(("Authorization", format!("Bearer {member_token}")))
+        .to_request();
+    let rest_resp = actix_test::call_service(&app, rest_req).await;
+    assert_eq!(
+        rest_resp.status(),
+        403,
+        "REST: member should get 403 on admin-only endpoint"
+    );
+
+    // GraphQL: query list_auth_items with member token → should get errors
+    let gql_body = serde_json::json!({ "query": "{ list_auth_items { id } }" });
+    let gql_req = actix_test::TestRequest::post()
+        .uri("/graphql")
+        .insert_header(("Authorization", format!("Bearer {member_token}")))
+        .insert_header(("Content-Type", "application/json"))
+        .set_json(&gql_body)
+        .to_request();
+    let gql_resp = tokio::task::LocalSet::new()
+        .run_until(actix_test::call_service(&app, gql_req))
+        .await;
+    let gql_body: serde_json::Value = actix_test::read_body_json(gql_resp).await;
+    assert!(
+        gql_body["errors"].is_array() && !gql_body["errors"].as_array().unwrap().is_empty(),
+        "GraphQL: member should get errors on admin-only query, got: {gql_body}"
+    );
+}
