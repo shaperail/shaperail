@@ -335,6 +335,12 @@ pub struct EndpointSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscribers: Option<Vec<SubscriberSpec>>,
 
+    /// Handler function name for non-convention endpoints.
+    /// Required when the endpoint action name is not list/get/create/update/delete.
+    /// The function must be defined in `resources/<resource>.controller.rs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handler: Option<String>,
+
     /// File upload configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upload: Option<UploadSpec>,
@@ -604,5 +610,26 @@ subscribers:
 "#;
         let result = serde_yaml::from_str::<EndpointSpec>(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn custom_endpoint_handler_field_parses() {
+        let yaml = r#"
+method: POST
+path: /invite
+auth: [admin]
+input: [email, role]
+handler: invite_user
+"#;
+        let ep: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(ep.handler.as_deref(), Some("invite_user"));
+        assert_eq!(ep.input.as_ref().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn endpoint_without_handler_has_none() {
+        let yaml = "auth: [member]\n";
+        let ep: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
+        assert!(ep.handler.is_none());
     }
 }
