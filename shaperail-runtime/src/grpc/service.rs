@@ -270,6 +270,12 @@ pub async fn handle_update(
         .cloned()
         .unwrap_or_default();
 
+    if input_fields.is_empty() {
+        return Err(Status::invalid_argument(
+            "Update endpoint has no input fields declared",
+        ));
+    }
+
     // Build combined decode schema: id first, then input fields
     let mut update_schema = indexmap::IndexMap::new();
     update_schema.insert(
@@ -303,12 +309,6 @@ pub async fn handle_update(
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| Status::invalid_argument("Missing 'id' field"))?;
-
-    if input_fields.is_empty() {
-        return Err(Status::invalid_argument(
-            "Update endpoint has no input fields declared",
-        ));
-    }
 
     let table = &resource.resource;
     let set_clauses: Vec<String> = input_fields
