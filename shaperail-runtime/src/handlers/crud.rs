@@ -710,6 +710,8 @@ async fn run_before_controller(
         headers,
         response_headers: vec![],
         tenant_id,
+        session: serde_json::Map::new(),
+        response_extras: serde_json::Map::new(),
     };
     #[cfg(feature = "wasm-plugins")]
     let wasm_rt = state.wasm_runtime.as_ref();
@@ -760,6 +762,8 @@ async fn run_after_controller(
         headers,
         response_headers: vec![],
         tenant_id,
+        session: serde_json::Map::new(),
+        response_extras: serde_json::Map::new(),
     };
     #[cfg(feature = "wasm-plugins")]
     let wasm_rt = state.wasm_runtime.as_ref();
