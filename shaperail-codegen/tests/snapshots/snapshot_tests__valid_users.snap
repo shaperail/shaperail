@@ -45,6 +45,9 @@ schema:
   updated_at:
     type: timestamp
     generated: true
+  deleted_at:
+    type: timestamp
+    nullable: true
 endpoints:
   list:
     method: GET

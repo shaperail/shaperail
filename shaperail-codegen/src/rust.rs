@@ -31,7 +31,15 @@ pub fn generate_resource_module(resource: &ResourceDefinition) -> Result<String,
     let model_fields = resource
         .schema
         .iter()
-        .map(|(name, field)| format!("    pub {name}: {},", model_field_type(field)))
+        .filter(|(_, field)| field.is_persisted())
+        .map(|(name, field)| {
+            let attr = if field.sensitive {
+                "    #[serde(skip_serializing)]\n"
+            } else {
+                ""
+            };
+            format!("{attr}    pub {name}: {},", model_field_type(field))
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -465,6 +473,7 @@ impl<'a> ResourceContext<'a> {
         let select_columns = resource
             .schema
             .iter()
+            .filter(|(_, field)| field.is_persisted())
             .map(|(name, field)| select_column_sql(name, field))
             .collect::<Vec<_>>()
             .join(",\n                ");
@@ -916,15 +925,21 @@ fn generate_insert_body(context: &ResourceContext<'_>) -> Result<String, String>
     let mut values = Vec::new();
     let mut args = Vec::new();
 
-    for (index, (field_name, field)) in context.resource.schema.iter().enumerate() {
+    for (field_name, field) in context
+        .resource
+        .schema
+        .iter()
+        .filter(|(_, f)| f.is_persisted())
+    {
         let variable_name = sanitize_identifier(field_name);
         declarations.push(generate_insert_declaration(
             field_name,
             field,
             &variable_name,
         )?);
+        let index = columns.len() + 1;
         columns.push(format!("\"{field_name}\""));
-        values.push(format!("${}", index + 1));
+        values.push(format!("${index}"));
         args.push(variable_name);
     }
 
@@ -962,7 +977,7 @@ fn generate_update_body(context: &ResourceContext<'_>) -> Result<String, String>
     let mut index = 2usize;
 
     for (field_name, field) in &context.resource.schema {
-        if field.primary || field.generated {
+        if field.primary || field.generated || field.transient {
             continue;
         }
 
@@ -1429,6 +1444,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1449,6 +1465,7 @@ mod tests {
                 sensitive: false,
                 search: true,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1469,6 +1486,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
 
@@ -1507,6 +1525,33 @@ mod tests {
         assert!(code.contains("impl ResourceStore for UsersStore"));
         assert!(code.contains("sqlx::query_as!"));
         assert!(code.contains("find_all_list"));
+    }
+
+    #[test]
+    fn sensitive_field_emits_skip_serializing() {
+        let mut resource = sample_resource();
+        resource.schema.get_mut("email").unwrap().sensitive = true;
+        let code = generate_resource_module(&resource).unwrap();
+
+        let lines: Vec<&str> = code.lines().collect();
+        let email_idx = lines
+            .iter()
+            .position(|l| l.contains("pub email:"))
+            .expect("generated module should contain `pub email:`");
+        assert!(
+            lines[email_idx - 1].contains("#[serde(skip_serializing)]"),
+            "expected #[serde(skip_serializing)] above sensitive field, got: {:?}",
+            lines[email_idx - 1]
+        );
+
+        let id_idx = lines
+            .iter()
+            .position(|l| l.contains("pub id:"))
+            .expect("generated module should contain `pub id:`");
+        assert!(
+            !lines[id_idx - 1].contains("skip_serializing"),
+            "non-sensitive id field should not carry skip_serializing"
+        );
     }
 
     #[test]

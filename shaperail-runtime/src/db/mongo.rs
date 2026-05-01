@@ -103,6 +103,9 @@ fn build_json_schema(resource: &ResourceDefinition) -> Document {
     let mut required = Vec::new();
 
     for (name, field) in &resource.schema {
+        if field.transient {
+            continue;
+        }
         let bson_type = field_type_to_bson_type(&field.field_type);
         let mut prop = doc! { "bsonType": bson_type };
 
@@ -218,6 +221,9 @@ fn bson_to_json(bson: &Bson, _field: &FieldSchema) -> Value {
 fn doc_to_json(doc: &Document, resource: &ResourceDefinition) -> Value {
     let mut obj = Map::new();
     for (name, field) in &resource.schema {
+        if field.transient {
+            continue;
+        }
         let bson_val = doc.get(name).unwrap_or(&Bson::Null);
         obj.insert(name.clone(), bson_to_json(bson_val, field));
     }
@@ -415,6 +421,9 @@ impl ResourceStore for MongoBackedStore {
         let mut generated_id: Option<String> = None;
 
         for (name, field) in &self.resource.schema {
+            if field.transient {
+                continue;
+            }
             if field.generated {
                 match field.field_type {
                     FieldType::Uuid => {

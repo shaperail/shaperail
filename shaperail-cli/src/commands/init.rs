@@ -1554,23 +1554,18 @@ async fn main() -> std::io::Result<()> {
     let controllers = generated::build_controller_map();
     let handler_map = generated::build_handler_map();
 
-    let state = Arc::new(AppState {
-        pool: pool.clone(),
-        resources: resources.clone(),
-        stores: Some(stores),
-        controllers: Some(controllers),
-        jwt_config: jwt_config.clone(),
-        cache,
-        event_emitter,
-        job_queue,
-        rate_limiter,
-        custom_handlers: if handler_map.is_empty() { None } else { Some(handler_map) },
-        metrics: Some(metrics_state.get_ref().clone()),
-        saga_executor: saga_executor.clone(),
-        #[cfg(feature = "wasm-plugins")]
-        wasm_runtime: None,
-        event_bus: tokio::sync::broadcast::channel(256).0,
-    });
+    let mut state = AppState::new(pool.clone(), resources.clone());
+    state.stores = Some(stores);
+    state.controllers = Some(controllers);
+    state.jwt_config = jwt_config.clone();
+    state.cache = cache;
+    state.event_emitter = event_emitter;
+    state.job_queue = job_queue;
+    state.rate_limiter = rate_limiter;
+    state.custom_handlers = if handler_map.is_empty() { None } else { Some(handler_map) };
+    state.metrics = Some(metrics_state.get_ref().clone());
+    state.saga_executor = saga_executor.clone();
+    let state = Arc::new(state);
     let health_state = web::Data::new(HealthState::new(Some(pool), redis_pool));
 
     // Warn if any endpoint declares rate_limit but Redis is not configured
@@ -1793,6 +1788,7 @@ schema:
   published:  { type: boolean, default: false }
   created_at: { type: timestamp, generated: true }
   updated_at: { type: timestamp, generated: true }
+  deleted_at: { type: timestamp, nullable: true }
 
 # Convention-based defaults: for list/get/create/update/delete,
 # method and path are inferred automatically from the resource name.

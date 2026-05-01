@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS "users" (
   "email" TEXT NOT NULL UNIQUE,
   "name" VARCHAR(200) NOT NULL,
   "role" TEXT DEFAULT 'viewer',
-  "password" VARCHAR(255),
   "password_hash" VARCHAR(255) NOT NULL,
   "deleted_at" TIMESTAMPTZ,
   "created_at" TIMESTAMPTZ DEFAULT NOW(),

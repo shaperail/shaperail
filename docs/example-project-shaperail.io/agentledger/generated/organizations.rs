@@ -20,6 +20,7 @@ pub struct OrganizationsRecord {
     pub gl_provider: Option<String>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub struct OrganizationsStore {
@@ -67,7 +68,8 @@ impl OrganizationsStore {
                                 "base_currency" as "base_currency!: String",
                                 "gl_provider" as "gl_provider?: String",
                                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>",
+                                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
                                     FROM "organizations"
                                     WHERE TRUE
                                         AND "deleted_at" IS NULL
@@ -146,7 +148,8 @@ impl OrganizationsStore {
                                 "base_currency" as "base_currency!: String",
                                 "gl_provider" as "gl_provider?: String",
                                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>",
+                                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
                                     FROM "organizations"
                                     WHERE TRUE
                                         AND "deleted_at" IS NULL
@@ -210,7 +213,8 @@ impl ResourceStore for OrganizationsStore {
                 "base_currency" as "base_currency!: String",
                 "gl_provider" as "gl_provider?: String",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             FROM "organizations"
             WHERE "id" = $1 AND "deleted_at" IS NULL
             "#,
@@ -245,11 +249,12 @@ impl ResourceStore for OrganizationsStore {
         let gl_provider = match shaperail_runtime::db::parse_optional_json::<String>(data, "gl_provider")? { Some(value) => Some(value), None => Some("none".to_string()) };
         let created_at = Some(chrono::Utc::now());
         let updated_at = Some(chrono::Utc::now());
+        let deleted_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(data, "deleted_at")?;
         let row = sqlx::query_as!(
             OrganizationsRecord,
             r#"
-            INSERT INTO "organizations" ("id", "name", "plan", "base_currency", "gl_provider", "created_at", "updated_at")
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO "organizations" ("id", "name", "plan", "base_currency", "gl_provider", "created_at", "updated_at", "deleted_at")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING
                 "id" as "id!: uuid::Uuid",
                 "name" as "name!: String",
@@ -257,7 +262,8 @@ impl ResourceStore for OrganizationsStore {
                 "base_currency" as "base_currency!: String",
                 "gl_provider" as "gl_provider?: String",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             name,
@@ -265,7 +271,8 @@ impl ResourceStore for OrganizationsStore {
             base_currency,
             gl_provider,
             created_at,
-            updated_at
+            updated_at,
+            deleted_at
         )
         .fetch_one(&self.pool)
         .await?;
@@ -286,8 +293,10 @@ impl ResourceStore for OrganizationsStore {
         let base_currency = shaperail_runtime::db::parse_optional_json::<String>(data, "base_currency")?;
         let gl_provider_present = data.contains_key("gl_provider");
         let gl_provider = shaperail_runtime::db::parse_optional_json::<String>(data, "gl_provider")?;
+        let deleted_at_present = data.contains_key("deleted_at");
+        let deleted_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(data, "deleted_at")?;
         let updated_at = chrono::Utc::now();
-        if !(name_present || plan_present || base_currency_present || gl_provider_present) {
+        if !(name_present || plan_present || base_currency_present || gl_provider_present || deleted_at_present) {
             return Err(shaperail_core::ShaperailError::Validation(vec![shaperail_core::FieldError {
                 field: "body".to_string(),
                 message: "No valid fields to update".to_string(),
@@ -298,7 +307,7 @@ impl ResourceStore for OrganizationsStore {
             OrganizationsRecord,
             r#"
             UPDATE "organizations"
-            SET "name" = CASE WHEN $2 THEN $3 ELSE "name" END, "plan" = CASE WHEN $4 THEN $5 ELSE "plan" END, "base_currency" = CASE WHEN $6 THEN $7 ELSE "base_currency" END, "gl_provider" = CASE WHEN $8 THEN $9 ELSE "gl_provider" END, "updated_at" = $10
+            SET "name" = CASE WHEN $2 THEN $3 ELSE "name" END, "plan" = CASE WHEN $4 THEN $5 ELSE "plan" END, "base_currency" = CASE WHEN $6 THEN $7 ELSE "base_currency" END, "gl_provider" = CASE WHEN $8 THEN $9 ELSE "gl_provider" END, "deleted_at" = CASE WHEN $10 THEN $11 ELSE "deleted_at" END, "updated_at" = $12
             WHERE "id" = $1 AND "deleted_at" IS NULL
             RETURNING
                 "id" as "id!: uuid::Uuid",
@@ -307,7 +316,8 @@ impl ResourceStore for OrganizationsStore {
                 "base_currency" as "base_currency!: String",
                 "gl_provider" as "gl_provider?: String",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             name_present,
@@ -318,6 +328,8 @@ impl ResourceStore for OrganizationsStore {
             base_currency,
             gl_provider_present,
             gl_provider,
+            deleted_at_present,
+            deleted_at,
             updated_at
         )
         .fetch_optional(&self.pool)
@@ -342,7 +354,8 @@ impl ResourceStore for OrganizationsStore {
                 "base_currency" as "base_currency!: String",
                 "gl_provider" as "gl_provider?: String",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             deleted_at
@@ -367,7 +380,8 @@ impl ResourceStore for OrganizationsStore {
                 "base_currency" as "base_currency!: String",
                 "gl_provider" as "gl_provider?: String",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id
         )

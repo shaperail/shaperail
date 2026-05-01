@@ -42,6 +42,7 @@ fn user_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -62,6 +63,7 @@ fn user_resource() -> ResourceDefinition {
             sensitive: false,
             search: true,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -82,6 +84,7 @@ fn user_resource() -> ResourceDefinition {
             sensitive: false,
             search: true,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -106,6 +109,7 @@ fn user_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -126,6 +130,7 @@ fn user_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -146,6 +151,7 @@ fn user_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -166,6 +172,7 @@ fn user_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
 

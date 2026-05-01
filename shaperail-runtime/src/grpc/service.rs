@@ -74,6 +74,7 @@ pub async fn handle_get(
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     let req_json = decode_resource_message(&id_schema, request_data);
@@ -296,6 +297,7 @@ pub async fn handle_update(
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     for field_name in &input_fields {
@@ -397,6 +399,7 @@ pub async fn handle_delete(
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     let req_json = decode_resource_message(&id_schema, request_data);

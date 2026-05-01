@@ -18,8 +18,8 @@ pub struct UsersRecord {
     pub email: String,
     pub name: String,
     pub role: Option<String>,
-    pub password: Option<String>,
-    pub password_hash: Option<String>,
+    #[serde(skip_serializing)]
+    pub password_hash: String,
     pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -70,8 +70,7 @@ impl UsersStore {
                                 "email" as "email!: String",
                                 "name" as "name!: String",
                                 "role" as "role?: String",
-                                "password" as "password?: String",
-                                "password_hash" as "password_hash?: String",
+                                "password_hash" as "password_hash!: String",
                                 "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>",
                                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
                                 "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
@@ -164,8 +163,7 @@ impl UsersStore {
                                 "email" as "email!: String",
                                 "name" as "name!: String",
                                 "role" as "role?: String",
-                                "password" as "password?: String",
-                                "password_hash" as "password_hash?: String",
+                                "password_hash" as "password_hash!: String",
                                 "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>",
                                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
                                 "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
@@ -237,8 +235,7 @@ impl ResourceStore for UsersStore {
                 "email" as "email!: String",
                 "name" as "name!: String",
                 "role" as "role?: String",
-                "password" as "password?: String",
-                "password_hash" as "password_hash?: String",
+                "password_hash" as "password_hash!: String",
                 "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
                 "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
@@ -274,24 +271,22 @@ impl ResourceStore for UsersStore {
         let email = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "email")?, "email")?;
         let name = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "name")?, "name")?;
         let role = match shaperail_runtime::db::parse_optional_json::<String>(data, "role")? { Some(value) => Some(value), None => Some("viewer".to_string()) };
-        let password = shaperail_runtime::db::parse_optional_json::<String>(data, "password")?;
-        let password_hash = shaperail_runtime::db::parse_optional_json::<String>(data, "password_hash")?;
+        let password_hash = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "password_hash")?, "password_hash")?;
         let deleted_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(data, "deleted_at")?;
         let created_at = Some(chrono::Utc::now());
         let updated_at = Some(chrono::Utc::now());
         let row = sqlx::query_as!(
             UsersRecord,
             r#"
-            INSERT INTO "users" ("id", "org_id", "email", "name", "role", "password", "password_hash", "deleted_at", "created_at", "updated_at")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO "users" ("id", "org_id", "email", "name", "role", "password_hash", "deleted_at", "created_at", "updated_at")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING
                 "id" as "id!: uuid::Uuid",
                 "org_id" as "org_id!: uuid::Uuid",
                 "email" as "email!: String",
                 "name" as "name!: String",
                 "role" as "role?: String",
-                "password" as "password?: String",
-                "password_hash" as "password_hash?: String",
+                "password_hash" as "password_hash!: String",
                 "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
                 "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
@@ -301,7 +296,6 @@ impl ResourceStore for UsersStore {
             email,
             name,
             role,
-            password,
             password_hash,
             deleted_at,
             created_at,
@@ -326,14 +320,12 @@ impl ResourceStore for UsersStore {
         let name = shaperail_runtime::db::parse_optional_json::<String>(data, "name")?;
         let role_present = data.contains_key("role");
         let role = shaperail_runtime::db::parse_optional_json::<String>(data, "role")?;
-        let password_present = data.contains_key("password");
-        let password = shaperail_runtime::db::parse_optional_json::<String>(data, "password")?;
         let password_hash_present = data.contains_key("password_hash");
         let password_hash = shaperail_runtime::db::parse_optional_json::<String>(data, "password_hash")?;
         let deleted_at_present = data.contains_key("deleted_at");
         let deleted_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(data, "deleted_at")?;
         let updated_at = chrono::Utc::now();
-        if !(org_id_present || email_present || name_present || role_present || password_present || password_hash_present || deleted_at_present) {
+        if !(org_id_present || email_present || name_present || role_present || password_hash_present || deleted_at_present) {
             return Err(shaperail_core::ShaperailError::Validation(vec![shaperail_core::FieldError {
                 field: "body".to_string(),
                 message: "No valid fields to update".to_string(),
@@ -344,7 +336,7 @@ impl ResourceStore for UsersStore {
             UsersRecord,
             r#"
             UPDATE "users"
-            SET "org_id" = CASE WHEN $2 THEN $3 ELSE "org_id" END, "email" = CASE WHEN $4 THEN $5 ELSE "email" END, "name" = CASE WHEN $6 THEN $7 ELSE "name" END, "role" = CASE WHEN $8 THEN $9 ELSE "role" END, "password" = CASE WHEN $10 THEN $11 ELSE "password" END, "password_hash" = CASE WHEN $12 THEN $13 ELSE "password_hash" END, "deleted_at" = CASE WHEN $14 THEN $15 ELSE "deleted_at" END, "updated_at" = $16
+            SET "org_id" = CASE WHEN $2 THEN $3 ELSE "org_id" END, "email" = CASE WHEN $4 THEN $5 ELSE "email" END, "name" = CASE WHEN $6 THEN $7 ELSE "name" END, "role" = CASE WHEN $8 THEN $9 ELSE "role" END, "password_hash" = CASE WHEN $10 THEN $11 ELSE "password_hash" END, "deleted_at" = CASE WHEN $12 THEN $13 ELSE "deleted_at" END, "updated_at" = $14
             WHERE "id" = $1 AND "deleted_at" IS NULL
             RETURNING
                 "id" as "id!: uuid::Uuid",
@@ -352,8 +344,7 @@ impl ResourceStore for UsersStore {
                 "email" as "email!: String",
                 "name" as "name!: String",
                 "role" as "role?: String",
-                "password" as "password?: String",
-                "password_hash" as "password_hash?: String",
+                "password_hash" as "password_hash!: String",
                 "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
                 "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
@@ -367,8 +358,6 @@ impl ResourceStore for UsersStore {
             name,
             role_present,
             role,
-            password_present,
-            password,
             password_hash_present,
             password_hash,
             deleted_at_present,
@@ -396,8 +385,7 @@ impl ResourceStore for UsersStore {
                 "email" as "email!: String",
                 "name" as "name!: String",
                 "role" as "role?: String",
-                "password" as "password?: String",
-                "password_hash" as "password_hash?: String",
+                "password_hash" as "password_hash!: String",
                 "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
                 "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
@@ -424,8 +412,7 @@ impl ResourceStore for UsersStore {
                 "email" as "email!: String",
                 "name" as "name!: String",
                 "role" as "role?: String",
-                "password" as "password?: String",
-                "password_hash" as "password_hash?: String",
+                "password_hash" as "password_hash!: String",
                 "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>",
                 "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
                 "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"

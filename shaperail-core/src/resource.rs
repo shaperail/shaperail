@@ -76,6 +76,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -96,6 +97,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
 

@@ -63,7 +63,8 @@ indexes: ...          # list of index definitions (optional)
 | default   | any     | enum, bool, int      | Default value. For enum must be one of `values`                 |
 | ref       | string  | uuid only            | Foreign key reference in `resource.field` format                |
 | items     | string  | array only           | Element type — required when `type: array`                      |
-| sensitive | bool    | uuid, string         | Redacted in logs, omitted from list responses                   |
+| sensitive | bool    | uuid, string         | Omitted from all responses; redacted in logs and error messages |
+| transient | bool    | string, json         | Input-only: validated and visible to before-controller, never persisted, never returned. Must appear in some endpoint's `input:`. Mutually exclusive with primary, generated, ref, unique, default. |
 
 ---
 

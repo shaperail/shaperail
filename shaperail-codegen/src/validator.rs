@@ -101,6 +101,64 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
                 "resource '{res}': primary key field '{name}' must be generated or required"
             )));
         }
+
+        // Transient field constraints — `transient: true` means input-only, never persisted.
+        // Combinations that imply persistence are nonsensical and rejected loudly.
+        if field.transient {
+            if field.primary {
+                errors.push(err(&format!(
+                    "resource '{res}': field '{name}' cannot be both transient and primary"
+                )));
+            }
+            if field.generated {
+                errors.push(err(&format!(
+                    "resource '{res}': field '{name}' cannot be both transient and generated"
+                )));
+            }
+            if field.reference.is_some() {
+                errors.push(err(&format!(
+                    "resource '{res}': field '{name}' cannot be both transient and have a ref (foreign keys imply persistence)"
+                )));
+            }
+            if field.unique {
+                errors.push(err(&format!(
+                    "resource '{res}': field '{name}' cannot be both transient and unique (unique constraints require persistence)"
+                )));
+            }
+            if field.default.is_some() {
+                errors.push(err(&format!(
+                    "resource '{res}': field '{name}' cannot be both transient and have a default (defaults apply to stored columns)"
+                )));
+            }
+        }
+    }
+
+    // Transient fields must appear in at least one endpoint's `input:` list — otherwise
+    // they're unreachable: never populated, never validated, never seen anywhere.
+    let transient_fields: Vec<&String> = rd
+        .schema
+        .iter()
+        .filter(|(_, f)| f.transient)
+        .map(|(name, _)| name)
+        .collect();
+    if !transient_fields.is_empty() {
+        let referenced: std::collections::HashSet<&str> = rd
+            .endpoints
+            .as_ref()
+            .map(|eps| {
+                eps.values()
+                    .filter_map(|ep| ep.input.as_ref())
+                    .flat_map(|inputs| inputs.iter().map(|s| s.as_str()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for name in transient_fields {
+            if !referenced.contains(name.as_str()) {
+                errors.push(err(&format!(
+                    "resource '{res}': transient field '{name}' is not declared in any endpoint's input: list (the field would be unreachable)"
+                )));
+            }
+        }
     }
 
     // Tenant key validation (M18)
@@ -220,10 +278,10 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
                 }
             }
 
-            // soft_delete requires updated_at field in schema
-            if ep.soft_delete && !rd.schema.contains_key("updated_at") {
+            // soft_delete requires deleted_at field in schema
+            if ep.soft_delete && !rd.schema.contains_key("deleted_at") {
                 errors.push(err(&format!(
-                    "resource '{res}': endpoint '{action}' has soft_delete but schema has no 'updated_at' field"
+                    "resource '{res}': endpoint '{action}' has soft_delete but schema has no 'deleted_at' field"
                 )));
             }
 
@@ -438,7 +496,7 @@ schema:
     }
 
     #[test]
-    fn soft_delete_without_updated_at() {
+    fn soft_delete_without_deleted_at() {
         let yaml = r#"
 resource: items
 version: 1
@@ -456,7 +514,7 @@ endpoints:
         let errors = validate_resource(&rd);
         assert!(errors.iter().any(|e| e
             .message
-            .contains("soft_delete but schema has no 'updated_at'")));
+            .contains("soft_delete but schema has no 'deleted_at'")));
     }
 
     #[test]
@@ -702,6 +760,147 @@ schema:
         assert!(errors.iter().any(|e| e
             .message
             .contains("tenant_key 'org_id' not found in schema")));
+    }
+
+    #[test]
+    fn transient_field_valid() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id:            { type: uuid, primary: true, generated: true }
+  password:      { type: string, transient: true, min: 12, required: true }
+  password_hash: { type: string, required: true }
+endpoints:
+  create:
+    method: POST
+    path: /users
+    input: [password]
+    controller: { before: hash_password }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors.is_empty(), "Expected no errors, got: {errors:?}");
+    }
+
+    #[test]
+    fn transient_field_dead_when_not_in_input() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id:       { type: uuid, primary: true, generated: true }
+  password: { type: string, transient: true, min: 12 }
+endpoints:
+  create:
+    method: POST
+    path: /users
+    input: []
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors.iter().any(|e| e
+            .message
+            .contains("transient field 'password' is not declared in any endpoint's input")));
+    }
+
+    #[test]
+    fn transient_field_rejects_primary() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  bad: { type: uuid, transient: true, primary: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("cannot be both transient and primary")));
+    }
+
+    #[test]
+    fn transient_field_rejects_generated() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id:  { type: uuid, primary: true, generated: true }
+  bad: { type: timestamp, transient: true, generated: true }
+endpoints:
+  create:
+    method: POST
+    path: /users
+    input: [bad]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("cannot be both transient and generated")));
+    }
+
+    #[test]
+    fn transient_field_rejects_ref() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id:  { type: uuid, primary: true, generated: true }
+  bad: { type: uuid, transient: true, ref: orgs.id }
+endpoints:
+  create:
+    method: POST
+    path: /users
+    input: [bad]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors.iter().any(|e| e
+            .message
+            .contains("cannot be both transient and have a ref")));
+    }
+
+    #[test]
+    fn transient_field_rejects_unique() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id:  { type: uuid, primary: true, generated: true }
+  bad: { type: string, transient: true, unique: true }
+endpoints:
+  create:
+    method: POST
+    path: /users
+    input: [bad]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("cannot be both transient and unique")));
+    }
+
+    #[test]
+    fn transient_field_rejects_default() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id:  { type: uuid, primary: true, generated: true }
+  bad: { type: string, transient: true, default: "x" }
+endpoints:
+  create:
+    method: POST
+    path: /users
+    input: [bad]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(errors.iter().any(|e| e
+            .message
+            .contains("cannot be both transient and have a default")));
     }
 
     #[test]

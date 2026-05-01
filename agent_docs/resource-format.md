@@ -57,8 +57,42 @@ max: N             # maximum value or length
 format: email|url|uuid  # string format validation
 values: [...]      # required for enum type
 default: value     # default value
-sensitive: true    # redacted in logs and error messages
+sensitive: true    # omitted from all responses; redacted in logs and error messages
+transient: true    # input-only — validated, visible to before-controller, never persisted, never returned
 ```
+
+## Validation Lifecycle (writes)
+
+For `create`, `update`, and `bulk_create` endpoints the runtime runs validation in
+two phases around the `before:` controller. This lets controllers populate
+fields like `password_hash` even when those fields are declared `required: true`.
+
+```
+extract_input         (request body → ctx.input, filtered by endpoints.<action>.input)
+inject_tenant         (when tenant_key is set, auto-injects tenant_id)
+PHASE 1 validate      (rule check on every present field: type, format, min, max, enum)
+run before-controller (controller can modify ctx.input — populate computed fields)
+PHASE 2 validate      (required-presence + rule check on controller-injected keys; partial updates skip the required check)
+strip transient       (drop transient fields from ctx.input — runtime never persists them)
+INSERT / UPDATE
+```
+
+**Pairing with `transient: true`:**
+
+```yaml
+schema:
+  password:      { type: string, transient: true, min: 12, required: true }
+  password_hash: { type: string, required: true }
+endpoints:
+  create:
+    input: [password]
+    controller: { before: hash_password }
+```
+
+- `password` is validated for length in phase 1.
+- The controller hashes `password` and writes `password_hash` to `ctx.input`.
+- Phase 2 verifies `password_hash` is present.
+- `password` is stripped from `ctx.input` before the `INSERT`.
 
 ## Route Prefixing
 The `version` field at the top of each resource YAML drives automatic route

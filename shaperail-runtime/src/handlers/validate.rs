@@ -1,28 +1,46 @@
-use shaperail_core::{FieldError, FieldType, ResourceDefinition, ShaperailError};
+use shaperail_core::{FieldError, FieldSchema, FieldType, ResourceDefinition, ShaperailError};
 
-/// Validates input data against the resource schema.
+/// Phase 1 validation — runs BEFORE the `before:` controller.
 ///
-/// Checks required fields, type correctness, min/max constraints,
-/// enum values, and string format.
-pub fn validate_input(
+/// Checks type / format / min / max / enum rules on every field PRESENT in `data`.
+/// Does not check `required: true` — that's deferred to phase 2 so a controller can
+/// populate fields after this runs.
+pub fn validate_input_shape(
     data: &serde_json::Map<String, serde_json::Value>,
     resource: &ResourceDefinition,
 ) -> Result<(), ShaperailError> {
     let mut errors = Vec::new();
-
     for (name, field) in &resource.schema {
-        // Skip generated and primary fields — they're auto-populated
+        if field.generated || field.primary {
+            continue;
+        }
+        if let Some(value) = data.get(name) {
+            if !value.is_null() {
+                check_field_rules(name, field, value, &mut errors);
+            }
+        }
+    }
+    finalize(errors)
+}
+
+/// Phase 2 validation — runs AFTER the `before:` controller, before persistence.
+///
+/// Checks every required, non-primary, non-generated field without a default is
+/// present in `data`. Includes transient fields — they must come from the request
+/// body even though they won't be persisted. Re-runs rule checks on any keys
+/// the controller injected (i.e. keys not present pre-controller).
+pub fn validate_required_present(
+    data: &serde_json::Map<String, serde_json::Value>,
+    resource: &ResourceDefinition,
+    pre_controller_keys: &std::collections::HashSet<String>,
+) -> Result<(), ShaperailError> {
+    let mut errors = Vec::new();
+    for (name, field) in &resource.schema {
         if field.generated || field.primary {
             continue;
         }
 
-        let value = data.get(name);
-
-        // Check required fields
-        if field.required
-            && field.default.is_none()
-            && (value.is_none() || value.is_some_and(|v| v.is_null()))
-        {
+        if field.required && field.default.is_none() && data.get(name).is_none_or(|v| v.is_null()) {
             errors.push(FieldError {
                 field: name.clone(),
                 message: format!("{name} is required"),
@@ -31,129 +49,161 @@ pub fn validate_input(
             continue;
         }
 
-        let Some(value) = value else { continue };
-        if value.is_null() {
-            continue;
-        }
-
-        // Validate enum values
-        if field.field_type == FieldType::Enum {
-            if let Some(allowed) = &field.values {
-                if let Some(s) = value.as_str() {
-                    if !allowed.contains(&s.to_string()) {
-                        errors.push(FieldError {
-                            field: name.clone(),
-                            message: format!("{name} must be one of: {}", allowed.join(", ")),
-                            code: "invalid_enum".to_string(),
-                        });
-                    }
+        if !pre_controller_keys.contains(name) {
+            if let Some(value) = data.get(name) {
+                if !value.is_null() {
+                    check_field_rules(name, field, value, &mut errors);
                 }
             }
         }
+    }
+    finalize(errors)
+}
 
-        // Validate string min/max length
-        if field.field_type == FieldType::String || field.field_type == FieldType::Enum {
+/// Removes every transient field from `data` in-place. Call AFTER phase 2 and
+/// BEFORE `INSERT`/`UPDATE` so the SQL generator never references a non-column.
+pub fn strip_transient_fields(
+    data: &mut serde_json::Map<String, serde_json::Value>,
+    resource: &ResourceDefinition,
+) {
+    for (name, field) in &resource.schema {
+        if field.transient {
+            data.remove(name);
+        }
+    }
+}
+
+/// Combined validation for paths without a `before:` controller (and tests).
+/// Equivalent to `validate_input_shape` followed by `validate_required_present`
+/// with no controller-injected keys.
+pub fn validate_input(
+    data: &serde_json::Map<String, serde_json::Value>,
+    resource: &ResourceDefinition,
+) -> Result<(), ShaperailError> {
+    validate_input_shape(data, resource)?;
+    let keys: std::collections::HashSet<String> = data.keys().cloned().collect();
+    validate_required_present(data, resource, &keys)
+}
+
+fn finalize(errors: Vec<FieldError>) -> Result<(), ShaperailError> {
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ShaperailError::Validation(errors))
+    }
+}
+
+fn check_field_rules(
+    name: &str,
+    field: &FieldSchema,
+    value: &serde_json::Value,
+    errors: &mut Vec<FieldError>,
+) {
+    if field.field_type == FieldType::Enum {
+        if let Some(allowed) = &field.values {
             if let Some(s) = value.as_str() {
-                if let Some(min) = &field.min {
-                    if let Some(min_len) = min.as_u64() {
-                        if (s.len() as u64) < min_len {
-                            errors.push(FieldError {
-                                field: name.clone(),
-                                message: format!("{name} must be at least {min_len} characters"),
-                                code: "too_short".to_string(),
-                            });
-                        }
-                    }
-                }
-                if let Some(max) = &field.max {
-                    if let Some(max_len) = max.as_u64() {
-                        if s.len() as u64 > max_len {
-                            errors.push(FieldError {
-                                field: name.clone(),
-                                message: format!("{name} must be at most {max_len} characters"),
-                                code: "too_long".to_string(),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        // Validate numeric min/max
-        if field.field_type == FieldType::Integer
-            || field.field_type == FieldType::Bigint
-            || field.field_type == FieldType::Number
-        {
-            if let Some(n) = value.as_f64() {
-                if let Some(min) = &field.min {
-                    if let Some(min_val) = min.as_f64() {
-                        if n < min_val {
-                            errors.push(FieldError {
-                                field: name.clone(),
-                                message: format!("{name} must be at least {min_val}"),
-                                code: "too_small".to_string(),
-                            });
-                        }
-                    }
-                }
-                if let Some(max) = &field.max {
-                    if let Some(max_val) = max.as_f64() {
-                        if n > max_val {
-                            errors.push(FieldError {
-                                field: name.clone(),
-                                message: format!("{name} must be at most {max_val}"),
-                                code: "too_large".to_string(),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        // Validate email format (basic check)
-        if field.format.as_deref() == Some("email") {
-            if let Some(s) = value.as_str() {
-                if !s.contains('@') || !s.contains('.') {
+                if !allowed.contains(&s.to_string()) {
                     errors.push(FieldError {
-                        field: name.clone(),
-                        message: format!("{name} must be a valid email address"),
-                        code: "invalid_format".to_string(),
-                    });
-                }
-            }
-        }
-
-        // Validate URL format (basic check)
-        if field.format.as_deref() == Some("url") {
-            if let Some(s) = value.as_str() {
-                if !s.starts_with("http://") && !s.starts_with("https://") {
-                    errors.push(FieldError {
-                        field: name.clone(),
-                        message: format!("{name} must be a valid URL"),
-                        code: "invalid_format".to_string(),
-                    });
-                }
-            }
-        }
-
-        // Validate UUID format
-        if field.field_type == FieldType::Uuid {
-            if let Some(s) = value.as_str() {
-                if uuid::Uuid::parse_str(s).is_err() {
-                    errors.push(FieldError {
-                        field: name.clone(),
-                        message: format!("{name} must be a valid UUID"),
-                        code: "invalid_uuid".to_string(),
+                        field: name.to_string(),
+                        message: format!("{name} must be one of: {}", allowed.join(", ")),
+                        code: "invalid_enum".to_string(),
                     });
                 }
             }
         }
     }
 
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(ShaperailError::Validation(errors))
+    if field.field_type == FieldType::String || field.field_type == FieldType::Enum {
+        if let Some(s) = value.as_str() {
+            if let Some(min) = &field.min {
+                if let Some(min_len) = min.as_u64() {
+                    if (s.len() as u64) < min_len {
+                        errors.push(FieldError {
+                            field: name.to_string(),
+                            message: format!("{name} must be at least {min_len} characters"),
+                            code: "too_short".to_string(),
+                        });
+                    }
+                }
+            }
+            if let Some(max) = &field.max {
+                if let Some(max_len) = max.as_u64() {
+                    if s.len() as u64 > max_len {
+                        errors.push(FieldError {
+                            field: name.to_string(),
+                            message: format!("{name} must be at most {max_len} characters"),
+                            code: "too_long".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    if field.field_type == FieldType::Integer
+        || field.field_type == FieldType::Bigint
+        || field.field_type == FieldType::Number
+    {
+        if let Some(n) = value.as_f64() {
+            if let Some(min) = &field.min {
+                if let Some(min_val) = min.as_f64() {
+                    if n < min_val {
+                        errors.push(FieldError {
+                            field: name.to_string(),
+                            message: format!("{name} must be at least {min_val}"),
+                            code: "too_small".to_string(),
+                        });
+                    }
+                }
+            }
+            if let Some(max) = &field.max {
+                if let Some(max_val) = max.as_f64() {
+                    if n > max_val {
+                        errors.push(FieldError {
+                            field: name.to_string(),
+                            message: format!("{name} must be at most {max_val}"),
+                            code: "too_large".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    if field.format.as_deref() == Some("email") {
+        if let Some(s) = value.as_str() {
+            if !s.contains('@') || !s.contains('.') {
+                errors.push(FieldError {
+                    field: name.to_string(),
+                    message: format!("{name} must be a valid email address"),
+                    code: "invalid_format".to_string(),
+                });
+            }
+        }
+    }
+
+    if field.format.as_deref() == Some("url") {
+        if let Some(s) = value.as_str() {
+            if !s.starts_with("http://") && !s.starts_with("https://") {
+                errors.push(FieldError {
+                    field: name.to_string(),
+                    message: format!("{name} must be a valid URL"),
+                    code: "invalid_format".to_string(),
+                });
+            }
+        }
+    }
+
+    if field.field_type == FieldType::Uuid {
+        if let Some(s) = value.as_str() {
+            if uuid::Uuid::parse_str(s).is_err() {
+                errors.push(FieldError {
+                    field: name.to_string(),
+                    message: format!("{name} must be a valid UUID"),
+                    code: "invalid_uuid".to_string(),
+                });
+            }
+        }
     }
 }
 
@@ -183,6 +233,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -203,6 +254,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -223,6 +275,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -247,6 +300,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
 

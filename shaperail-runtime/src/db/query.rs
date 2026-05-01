@@ -68,6 +68,9 @@ impl<'a> ResourceQuery<'a> {
     fn row_to_json(&self, row: &PgRow) -> Result<serde_json::Value, ShaperailError> {
         let mut obj = serde_json::Map::new();
         for (name, field) in &self.resource.schema {
+            if field.transient {
+                continue;
+            }
             let value = extract_column_value(row, name, field)?;
             obj.insert(name.clone(), value);
         }
@@ -262,6 +265,9 @@ impl<'a> ResourceQuery<'a> {
 
         // Add generated fields
         for (name, field) in &self.resource.schema {
+            if field.transient {
+                continue;
+            }
             if field.generated {
                 match field.field_type {
                     FieldType::Uuid => {
@@ -674,6 +680,9 @@ fn build_create_table_sql_postgres(resource: &ResourceDefinition) -> String {
         .unwrap_or(false);
 
     for (name, field) in &resource.schema {
+        if field.transient {
+            continue;
+        }
         let mut col = format!(
             "\"{}\" {}",
             name,
@@ -782,6 +791,9 @@ fn build_create_table_sql_mysql(resource: &ResourceDefinition) -> String {
         .unwrap_or(false);
 
     for (name, field) in &resource.schema {
+        if field.transient {
+            continue;
+        }
         let mut col = format!(
             "{} {}",
             q(name),
@@ -889,6 +901,9 @@ fn build_create_table_sql_sqlite(resource: &ResourceDefinition) -> String {
         .unwrap_or(false);
 
     for (name, field) in &resource.schema {
+        if field.transient {
+            continue;
+        }
         let mut col = format!(
             "{} {}",
             q(name),
@@ -1107,6 +1122,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1127,6 +1143,7 @@ mod tests {
                 sensitive: false,
                 search: true,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1147,6 +1164,7 @@ mod tests {
                 sensitive: false,
                 search: true,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1171,6 +1189,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1191,6 +1210,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1211,6 +1231,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1231,6 +1252,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
 
@@ -1349,6 +1371,7 @@ mod tests {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         };
 
         assert_eq!(field_type_to_sql(&FieldType::Uuid, &default_field), "UUID");
@@ -1400,6 +1423,7 @@ mod tests {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         };
         assert_eq!(
             field_type_to_sql(&FieldType::String, &field),
@@ -1425,6 +1449,7 @@ mod tests {
             sensitive: false,
             search: false,
             items: Some("string".to_string()),
+            transient: false,
         };
         assert_eq!(field_type_to_sql(&FieldType::Array, &field), "TEXT[]");
     }
@@ -1447,6 +1472,7 @@ mod tests {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         };
 
         let bind = json_to_bind(&serde_json::json!("hello"), &str_field);
