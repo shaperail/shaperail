@@ -132,4 +132,63 @@ mod tests {
         );
         assert_eq!(FieldType::String.to_rust_type(true, false, false), "String");
     }
+
+    #[test]
+    fn to_rust_type_all_required_variants() {
+        let cases: &[(&FieldType, &str)] = &[
+            (&FieldType::Uuid, "uuid::Uuid"),
+            (&FieldType::String, "String"),
+            (&FieldType::Integer, "i32"),
+            (&FieldType::Bigint, "i64"),
+            (&FieldType::Number, "f64"),
+            (&FieldType::Boolean, "bool"),
+            (&FieldType::Timestamp, "chrono::DateTime<chrono::Utc>"),
+            (&FieldType::Date, "chrono::NaiveDate"),
+            (&FieldType::Json, "serde_json::Value"),
+            (&FieldType::Array, "Vec<serde_json::Value>"),
+            (&FieldType::Enum, "String"),
+            (&FieldType::File, "String"),
+        ];
+        for (ft, expected) in cases {
+            assert_eq!(
+                ft.to_rust_type(true, false, false),
+                *expected,
+                "required=true for {ft}"
+            );
+        }
+    }
+
+    #[test]
+    fn to_rust_type_wrapped_when_nullable() {
+        assert_eq!(
+            FieldType::Integer.to_rust_type(true, true, false),
+            "Option<i32>"
+        );
+        assert_eq!(
+            FieldType::Uuid.to_rust_type(true, true, false),
+            "Option<uuid::Uuid>"
+        );
+    }
+
+    #[test]
+    fn to_rust_type_wrapped_when_generated() {
+        assert_eq!(
+            FieldType::Timestamp.to_rust_type(false, false, true),
+            "Option<chrono::DateTime<chrono::Utc>>"
+        );
+        assert_eq!(
+            FieldType::Uuid.to_rust_type(true, false, true),
+            "Option<uuid::Uuid>"
+        );
+    }
+
+    #[test]
+    fn to_rust_type_not_optional_when_required_not_nullable_not_generated() {
+        assert_eq!(FieldType::Boolean.to_rust_type(true, false, false), "bool");
+        assert_eq!(FieldType::Number.to_rust_type(true, false, false), "f64");
+        assert_eq!(
+            FieldType::Date.to_rust_type(true, false, false),
+            "chrono::NaiveDate"
+        );
+    }
 }

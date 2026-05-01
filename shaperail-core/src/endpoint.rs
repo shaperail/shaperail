@@ -632,4 +632,259 @@ handler: invite_user
         let ep: EndpointSpec = serde_yaml::from_str(yaml).unwrap();
         assert!(ep.handler.is_none());
     }
+
+    // -- endpoint_convention tests --
+
+    #[test]
+    fn endpoint_convention_known_actions() {
+        assert_eq!(
+            endpoint_convention("list", "users"),
+            Some((HttpMethod::Get, "/users".to_string()))
+        );
+        assert_eq!(
+            endpoint_convention("get", "users"),
+            Some((HttpMethod::Get, "/users/:id".to_string()))
+        );
+        assert_eq!(
+            endpoint_convention("create", "users"),
+            Some((HttpMethod::Post, "/users".to_string()))
+        );
+        assert_eq!(
+            endpoint_convention("update", "users"),
+            Some((HttpMethod::Patch, "/users/:id".to_string()))
+        );
+        assert_eq!(
+            endpoint_convention("delete", "users"),
+            Some((HttpMethod::Delete, "/users/:id".to_string()))
+        );
+    }
+
+    #[test]
+    fn endpoint_convention_unknown_action_returns_none() {
+        assert_eq!(endpoint_convention("archive", "users"), None);
+        assert_eq!(endpoint_convention("custom_action", "orders"), None);
+        assert_eq!(endpoint_convention("", "users"), None);
+    }
+
+    #[test]
+    fn endpoint_convention_uses_resource_name() {
+        let (method, path) = endpoint_convention("list", "orders").unwrap();
+        assert_eq!(method, HttpMethod::Get);
+        assert_eq!(path, "/orders");
+        let (_, path) = endpoint_convention("get", "blog_posts").unwrap();
+        assert_eq!(path, "/blog_posts/:id");
+    }
+
+    // -- apply_endpoint_defaults tests --
+
+    #[test]
+    fn apply_endpoint_defaults_fills_missing_method_and_path() {
+        use crate::ResourceDefinition;
+        use indexmap::IndexMap;
+
+        let mut endpoints = IndexMap::new();
+        endpoints.insert(
+            "list".to_string(),
+            EndpointSpec {
+                method: None,
+                path: None,
+                auth: None,
+                ..Default::default()
+            },
+        );
+        endpoints.insert(
+            "create".to_string(),
+            EndpointSpec {
+                method: None,
+                path: None,
+                auth: None,
+                ..Default::default()
+            },
+        );
+
+        let mut rd = ResourceDefinition {
+            resource: "posts".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema: IndexMap::new(),
+            endpoints: Some(endpoints),
+            relations: None,
+            indexes: None,
+        };
+
+        crate::apply_endpoint_defaults(&mut rd);
+
+        let eps = rd.endpoints.as_ref().unwrap();
+        assert_eq!(*eps["list"].method.as_ref().unwrap(), HttpMethod::Get);
+        assert_eq!(eps["list"].path.as_deref(), Some("/posts"));
+        assert_eq!(*eps["create"].method.as_ref().unwrap(), HttpMethod::Post);
+        assert_eq!(eps["create"].path.as_deref(), Some("/posts"));
+    }
+
+    #[test]
+    fn apply_endpoint_defaults_does_not_overwrite_explicit_values() {
+        use crate::ResourceDefinition;
+        use indexmap::IndexMap;
+
+        let mut endpoints = IndexMap::new();
+        endpoints.insert(
+            "list".to_string(),
+            EndpointSpec {
+                method: Some(HttpMethod::Post),         // overridden
+                path: Some("/custom/path".to_string()), // overridden
+                auth: None,
+                ..Default::default()
+            },
+        );
+
+        let mut rd = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema: IndexMap::new(),
+            endpoints: Some(endpoints),
+            relations: None,
+            indexes: None,
+        };
+
+        crate::apply_endpoint_defaults(&mut rd);
+
+        let eps = rd.endpoints.as_ref().unwrap();
+        // Explicitly set values must not be overwritten
+        assert_eq!(*eps["list"].method.as_ref().unwrap(), HttpMethod::Post);
+        assert_eq!(eps["list"].path.as_deref(), Some("/custom/path"));
+    }
+
+    #[test]
+    fn apply_endpoint_defaults_unknown_action_not_filled() {
+        use crate::ResourceDefinition;
+        use indexmap::IndexMap;
+
+        let mut endpoints = IndexMap::new();
+        endpoints.insert(
+            "archive".to_string(),
+            EndpointSpec {
+                method: None,
+                path: None,
+                auth: None,
+                ..Default::default()
+            },
+        );
+
+        let mut rd = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema: IndexMap::new(),
+            endpoints: Some(endpoints),
+            relations: None,
+            indexes: None,
+        };
+
+        crate::apply_endpoint_defaults(&mut rd);
+
+        // Unknown actions must not get defaults
+        let eps = rd.endpoints.as_ref().unwrap();
+        assert!(eps["archive"].method.is_none());
+        assert!(eps["archive"].path.is_none());
+    }
+
+    #[test]
+    fn apply_endpoint_defaults_no_endpoints_is_noop() {
+        use crate::ResourceDefinition;
+        use indexmap::IndexMap;
+
+        let mut rd = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema: IndexMap::new(),
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        // Must not panic
+        crate::apply_endpoint_defaults(&mut rd);
+        assert!(rd.endpoints.is_none());
+    }
+
+    // -- AuthRule::Display tests --
+
+    #[test]
+    fn auth_rule_display() {
+        assert_eq!(AuthRule::Public.to_string(), "public");
+        assert_eq!(AuthRule::Owner.to_string(), "owner");
+        assert_eq!(
+            AuthRule::Roles(vec!["admin".to_string(), "member".to_string()]).to_string(),
+            "admin, member"
+        );
+        assert_eq!(
+            AuthRule::Roles(vec!["viewer".to_string()]).to_string(),
+            "viewer"
+        );
+    }
+
+    // -- AuthRule serialization roundtrip --
+
+    #[test]
+    fn auth_rule_serde_roundtrip_public() {
+        let rule = AuthRule::Public;
+        let json = serde_json::to_string(&rule).unwrap();
+        assert_eq!(json, r#""public""#);
+        let back: AuthRule = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, AuthRule::Public);
+    }
+
+    #[test]
+    fn auth_rule_serde_roundtrip_owner() {
+        let rule = AuthRule::Owner;
+        let json = serde_json::to_string(&rule).unwrap();
+        assert_eq!(json, r#""owner""#);
+        let back: AuthRule = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, AuthRule::Owner);
+    }
+
+    #[test]
+    fn auth_rule_serde_roundtrip_roles() {
+        let rule = AuthRule::Roles(vec!["admin".to_string(), "member".to_string()]);
+        let json = serde_json::to_string(&rule).unwrap();
+        let back: AuthRule = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, rule);
+    }
+
+    #[test]
+    fn auth_rule_deserialize_invalid_type_fails() {
+        // A number is neither a string nor an array — must fail
+        let result = serde_json::from_str::<AuthRule>("42");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn auth_rule_deserialize_unknown_string_fails() {
+        // "superadmin" is not "public" or "owner"
+        let result = serde_json::from_str::<AuthRule>(r#""superadmin""#);
+        assert!(result.is_err());
+    }
+
+    // -- HttpMethod serde --
+
+    #[test]
+    fn http_method_serde_roundtrip() {
+        for m in [
+            HttpMethod::Get,
+            HttpMethod::Post,
+            HttpMethod::Patch,
+            HttpMethod::Put,
+            HttpMethod::Delete,
+        ] {
+            let json = serde_json::to_string(&m).unwrap();
+            let back: HttpMethod = serde_json::from_str(&json).unwrap();
+            assert_eq!(m, back);
+        }
+    }
 }

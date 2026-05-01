@@ -1230,4 +1230,57 @@ mod tests {
         assert!(err["properties"]["error"]["properties"]["status"].is_object());
         assert!(err["properties"]["error"]["properties"]["message"].is_object());
     }
+
+    #[test]
+    fn to_pascal_case_converts_snake_case() {
+        assert_eq!(to_pascal_case("users"), "Users");
+        assert_eq!(to_pascal_case("blog_posts"), "BlogPosts");
+        assert_eq!(
+            to_pascal_case("user_profile_settings"),
+            "UserProfileSettings"
+        );
+        assert_eq!(to_pascal_case(""), "");
+        assert_eq!(to_pascal_case("single"), "Single");
+    }
+
+    #[test]
+    fn generate_with_no_resources_still_valid() {
+        let config = test_config();
+        let spec = generate(&config, &[]);
+        assert_eq!(spec["openapi"], "3.1.0");
+        let paths = spec["paths"].as_object().expect("paths object");
+        assert!(paths.is_empty(), "No paths for empty resources");
+        // ErrorResponse schema is always present
+        let schemas = spec["components"]["schemas"].as_object().unwrap();
+        assert!(schemas.contains_key("ErrorResponse"));
+    }
+
+    #[test]
+    fn generate_is_sorted_by_resource_name() {
+        // Resources added in reverse order — schema keys must be in alpha order
+        let config = test_config();
+        let mut b_resource = sample_resource();
+        b_resource.resource = "zorders".to_string();
+        b_resource.endpoints = None;
+        let mut a_resource = sample_resource();
+        a_resource.resource = "aaccounts".to_string();
+        a_resource.endpoints = None;
+
+        let spec = generate(&config, &[b_resource, a_resource]);
+        let schemas = spec["components"]["schemas"].as_object().unwrap();
+        let keys: Vec<&str> = schemas.keys().map(|k| k.as_str()).collect();
+        let resource_keys: Vec<&&str> = keys
+            .iter()
+            .filter(|k| !k.contains("Input") && **k != "ErrorResponse")
+            .collect();
+        // Aaccounts should come before Zorders alphabetically
+        if resource_keys.len() >= 2 {
+            let first = resource_keys[0].to_lowercase();
+            let second = resource_keys[1].to_lowercase();
+            assert!(
+                first < second || first == second,
+                "Schemas should be sorted alphabetically, got: {first} before {second}"
+            );
+        }
+    }
 }

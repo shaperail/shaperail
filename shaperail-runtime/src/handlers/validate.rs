@@ -403,4 +403,577 @@ mod tests {
         let result = validate_input(&data, &resource);
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn string_max_length_violation() {
+        let resource = test_resource();
+        let long_name = "A".repeat(201); // max is 200
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!(long_name));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+
+        let result = validate_input(&data, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "name" && e.code == "too_long"),
+                "Expected too_long for name, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn url_format_valid() {
+        use shaperail_core::FieldSchema;
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldType, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        schema.insert(
+            "website".to_string(),
+            FieldSchema {
+                field_type: FieldType::String,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: Some("url".to_string()),
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "orgs".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        let mut ok_data = serde_json::Map::new();
+        ok_data.insert(
+            "website".to_string(),
+            serde_json::json!("https://example.com"),
+        );
+        assert!(validate_input(&ok_data, &resource).is_ok());
+
+        let mut ok_http = serde_json::Map::new();
+        ok_http.insert(
+            "website".to_string(),
+            serde_json::json!("http://example.com"),
+        );
+        assert!(validate_input(&ok_http, &resource).is_ok());
+    }
+
+    #[test]
+    fn url_format_invalid() {
+        use shaperail_core::FieldSchema;
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldType, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        schema.insert(
+            "website".to_string(),
+            FieldSchema {
+                field_type: FieldType::String,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: Some("url".to_string()),
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "orgs".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        let mut bad_data = serde_json::Map::new();
+        bad_data.insert("website".to_string(), serde_json::json!("not-a-url"));
+
+        let result = validate_input(&bad_data, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "website" && e.code == "invalid_format"),
+                "Expected invalid_format for website, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn uuid_field_invalid_value_rejected() {
+        use shaperail_core::FieldSchema;
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldType, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        schema.insert(
+            "ref_id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: Some("orgs.id".to_string()),
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        let mut bad_data = serde_json::Map::new();
+        bad_data.insert("ref_id".to_string(), serde_json::json!("not-a-uuid"));
+
+        let result = validate_input(&bad_data, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "ref_id" && e.code == "invalid_uuid"),
+                "Expected invalid_uuid for ref_id, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn uuid_field_valid_value_accepted() {
+        use shaperail_core::FieldSchema;
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldType, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        schema.insert(
+            "ref_id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: Some("orgs.id".to_string()),
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        let mut ok_data = serde_json::Map::new();
+        ok_data.insert(
+            "ref_id".to_string(),
+            serde_json::json!("550e8400-e29b-41d4-a716-446655440000"),
+        );
+        assert!(validate_input(&ok_data, &resource).is_ok());
+    }
+
+    #[test]
+    fn number_min_violation() {
+        use shaperail_core::FieldSchema;
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldType, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        schema.insert(
+            "age".to_string(),
+            FieldSchema {
+                field_type: FieldType::Integer,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: Some(serde_json::json!(18)),
+                max: Some(serde_json::json!(120)),
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "users".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        let mut too_low = serde_json::Map::new();
+        too_low.insert("age".to_string(), serde_json::json!(10));
+        let result = validate_input(&too_low, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "age" && e.code == "too_small"),
+                "Expected too_small, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn number_max_violation() {
+        use shaperail_core::FieldSchema;
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldType, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        schema.insert(
+            "age".to_string(),
+            FieldSchema {
+                field_type: FieldType::Integer,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: Some(serde_json::json!(18)),
+                max: Some(serde_json::json!(120)),
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "users".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        let mut too_high = serde_json::Map::new();
+        too_high.insert("age".to_string(), serde_json::json!(200));
+        let result = validate_input(&too_high, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "age" && e.code == "too_large"),
+                "Expected too_large, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn strip_transient_fields_removes_transient_only() {
+        use shaperail_core::FieldSchema;
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldType, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        schema.insert(
+            "name".to_string(),
+            FieldSchema {
+                field_type: FieldType::String,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        schema.insert(
+            "password".to_string(),
+            FieldSchema {
+                field_type: FieldType::String,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: true,
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "users".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("Alice"));
+        data.insert("password".to_string(), serde_json::json!("secret123"));
+
+        strip_transient_fields(&mut data, &resource);
+
+        assert!(
+            data.contains_key("name"),
+            "name should remain after stripping"
+        );
+        assert!(
+            !data.contains_key("password"),
+            "password (transient) should be removed"
+        );
+    }
+
+    #[test]
+    fn validate_input_shape_only_checks_present_fields() {
+        // Phase-1 must not flag absent fields as required — only shape errors
+        let resource = test_resource();
+        let mut data = serde_json::Map::new();
+        // name and email both absent — shape check must not fail
+        let result = validate_input_shape(&data, &resource);
+        assert!(result.is_ok(), "Phase-1 should not check required-ness");
+
+        // If an invalid email is present, phase-1 must catch it
+        data.insert("email".to_string(), serde_json::json!("notanemail"));
+        let result = validate_input_shape(&data, &resource);
+        assert!(result.is_err(), "Phase-1 should catch invalid format");
+    }
 }

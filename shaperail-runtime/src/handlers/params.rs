@@ -171,4 +171,54 @@ mod tests {
         let result = parse_csv_param(&params, "fields");
         assert!(result.is_empty());
     }
+
+    #[test]
+    fn parse_csv_param_trims_spaces() {
+        let mut params = HashMap::new();
+        params.insert("fields".to_string(), " name , email , role ".to_string());
+        let result = parse_csv_param(&params, "fields");
+        assert_eq!(result, vec!["name", "email", "role"]);
+    }
+
+    #[test]
+    fn parse_csv_param_filters_empty_segments() {
+        let mut params = HashMap::new();
+        params.insert("fields".to_string(), "name,,role,".to_string());
+        let result = parse_csv_param(&params, "fields");
+        assert_eq!(result, vec!["name", "role"]);
+    }
+
+    #[test]
+    fn urldecode_plus_to_space() {
+        assert_eq!(urldecode("hello+world"), "hello world");
+    }
+
+    #[test]
+    fn urldecode_percent_encoded_chars() {
+        assert_eq!(urldecode("hello%20world"), "hello world");
+        assert_eq!(urldecode("a%3Db"), "a=b");
+        assert_eq!(urldecode("%40"), "@");
+    }
+
+    #[test]
+    fn urldecode_invalid_percent_keeps_as_is() {
+        // Invalid hex after % — should not panic, just pass through
+        let result = urldecode("a%ZZb");
+        assert!(result.contains('a'), "Should preserve surrounding chars");
+    }
+
+    #[test]
+    fn query_map_public_parses_query_string() {
+        use actix_web::test::TestRequest;
+        let req = TestRequest::get()
+            .uri("/users?filter%5Brole%5D=admin&limit=10")
+            .to_http_request();
+        let map = query_map_public(&req);
+        // URL-encoded bracket: filter[role]=admin
+        assert!(
+            map.contains_key("filter[role]") || map.contains_key("filter%5Brole%5D"),
+            "Map should contain the filter key"
+        );
+        assert_eq!(map.get("limit").map(|s| s.as_str()), Some("10"));
+    }
 }

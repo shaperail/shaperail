@@ -669,4 +669,555 @@ endpoints:
         let has_sr075 = diags.iter().any(|d| d.code == "SR075");
         assert!(!has_sr075, "SR075 should not fire when handler is present");
     }
+
+    // -- Diagnostic::Display --
+
+    #[test]
+    fn diagnostic_display_format() {
+        let d = Diagnostic {
+            code: "SR010",
+            error: "field 'role' is type enum but has no values".into(),
+            fix: "add values".into(),
+            example: "role: { type: enum, values: [a, b] }".into(),
+        };
+        let s = d.to_string();
+        assert!(s.contains("SR010"), "Expected code in display");
+        assert!(s.contains("enum"), "Expected error text in display");
+    }
+
+    // -- format_feature_warnings --
+
+    #[test]
+    fn format_feature_warnings_empty_returns_empty_string() {
+        use crate::feature_check::{format_feature_warnings, RequiredFeature};
+        let s = format_feature_warnings(&[]);
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn format_feature_warnings_nonempty_includes_feature_name() {
+        use crate::feature_check::{format_feature_warnings, RequiredFeature};
+        let feats = vec![RequiredFeature {
+            feature: "wasm-plugins",
+            reason: "resource 'items' uses WASM".into(),
+            enable_hint: "Add to Cargo.toml: shaperail-runtime = { features = [\"wasm-plugins\"] }"
+                .into(),
+        }];
+        let s = format_feature_warnings(&feats);
+        assert!(s.contains("wasm-plugins"));
+        assert!(s.contains("WASM"));
+    }
+
+    // -- SR002: version 0 --
+
+    #[test]
+    fn sr002_version_zero() {
+        let yaml = r#"
+resource: items
+version: 0
+schema:
+  id: { type: uuid, primary: true, generated: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR002"),
+            "Expected SR002, got: {diags:?}"
+        );
+        let d = diags.iter().find(|d| d.code == "SR002").unwrap();
+        assert!(d.fix.contains("version"));
+    }
+
+    // -- SR003: empty schema --
+
+    #[test]
+    fn sr003_empty_schema() {
+        use indexmap::IndexMap;
+        use shaperail_core::ResourceDefinition;
+        let rd = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema: IndexMap::new(),
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR003"),
+            "Expected SR003, got: {diags:?}"
+        );
+    }
+
+    // -- SR005: multiple primary keys --
+
+    #[test]
+    fn sr005_multiple_primary_keys() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:  { type: uuid, primary: true, generated: true }
+  alt: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR005"),
+            "Expected SR005, got: {diags:?}"
+        );
+    }
+
+    // -- SR011: non-enum with values --
+
+    #[test]
+    fn sr011_non_enum_with_values() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true, values: ["a", "b"] }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR011"),
+            "Expected SR011, got: {diags:?}"
+        );
+        let d = diags.iter().find(|d| d.code == "SR011").unwrap();
+        assert!(d.fix.contains("enum") || d.fix.contains("values"));
+    }
+
+    // -- SR012: ref on non-uuid field --
+
+    #[test]
+    fn sr012_ref_on_non_uuid() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:     { type: uuid, primary: true, generated: true }
+  org_id: { type: string, ref: organizations.id }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR012"),
+            "Expected SR012, got: {diags:?}"
+        );
+    }
+
+    // -- SR013: ref missing dot --
+
+    #[test]
+    fn sr013_ref_bad_format() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:     { type: uuid, primary: true, generated: true }
+  org_id: { type: uuid, ref: organizations }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR013"),
+            "Expected SR013, got: {diags:?}"
+        );
+        let d = diags.iter().find(|d| d.code == "SR013").unwrap();
+        assert!(d.fix.contains("resource_name.field_name") || d.fix.contains("format"));
+    }
+
+    // -- SR014: array without items --
+
+    #[test]
+    fn sr014_array_without_items() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  tags: { type: array }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR014"),
+            "Expected SR014, got: {diags:?}"
+        );
+    }
+
+    // -- SR015: format on non-string --
+
+    #[test]
+    fn sr015_format_on_non_string() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:  { type: uuid, primary: true, generated: true }
+  age: { type: integer, required: true, format: email }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR015"),
+            "Expected SR015, got: {diags:?}"
+        );
+    }
+
+    // -- SR016: primary not generated/required --
+
+    #[test]
+    fn sr016_primary_not_generated_or_required() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR016"),
+            "Expected SR016, got: {diags:?}"
+        );
+        let d = diags.iter().find(|d| d.code == "SR016").unwrap();
+        assert!(d.fix.contains("generated: true") || d.fix.contains("required: true"));
+    }
+
+    // -- SR020: tenant_key not uuid --
+
+    #[test]
+    fn sr020_tenant_key_not_uuid() {
+        let yaml = r#"
+resource: items
+version: 1
+tenant_key: org_name
+schema:
+  id:       { type: uuid, primary: true, generated: true }
+  org_name: { type: string, required: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR020"),
+            "Expected SR020, got: {diags:?}"
+        );
+    }
+
+    // -- SR021: tenant_key not in schema --
+
+    #[test]
+    fn sr021_tenant_key_not_in_schema() {
+        let yaml = r#"
+resource: items
+version: 1
+tenant_key: missing_field
+schema:
+  id: { type: uuid, primary: true, generated: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR021"),
+            "Expected SR021, got: {diags:?}"
+        );
+        let d = diags.iter().find(|d| d.code == "SR021").unwrap();
+        assert!(d.fix.contains("missing_field") || d.fix.contains("add"));
+    }
+
+    // -- SR035: wasm: prefix but empty path --
+
+    #[test]
+    fn sr035_wasm_empty_path() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    input: [name]
+    controller: { before: "wasm:" }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR035"),
+            "Expected SR035, got: {diags:?}"
+        );
+    }
+
+    // -- SR036: wasm path does not end with .wasm --
+
+    #[test]
+    fn sr036_wasm_path_no_extension() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    input: [name]
+    controller: { after: "wasm:./plugins/my_plugin" }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR036"),
+            "Expected SR036, got: {diags:?}"
+        );
+    }
+
+    // -- SR040: input/filter/search/sort field not in schema --
+
+    #[test]
+    fn sr040_input_field_not_in_schema() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    input: [name, ghost_field]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR040"),
+            "Expected SR040, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr040_filter_field_not_in_schema() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  list:
+    auth: public
+    filters: [name, missing_filter]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR040"),
+            "Expected SR040, got: {diags:?}"
+        );
+    }
+
+    // -- SR041: soft_delete without deleted_at --
+
+    #[test]
+    fn sr041_soft_delete_without_deleted_at() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  delete:
+    auth: [admin]
+    soft_delete: true
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR041"),
+            "Expected SR041, got: {diags:?}"
+        );
+        let d = diags.iter().find(|d| d.code == "SR041").unwrap();
+        assert!(d.fix.contains("deleted_at"));
+    }
+
+    // -- SR060: belongs_to without key --
+
+    #[test]
+    fn sr060_belongs_to_without_key() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+relations:
+  org: { resource: organizations, type: belongs_to }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR060"),
+            "Expected SR060, got: {diags:?}"
+        );
+        let d = diags.iter().find(|d| d.code == "SR060").unwrap();
+        assert!(d.fix.contains("key"));
+    }
+
+    // -- SR061: has_many without foreign_key --
+
+    #[test]
+    fn sr061_has_many_without_foreign_key() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+relations:
+  orders: { resource: orders, type: has_many }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR061"),
+            "Expected SR061, got: {diags:?}"
+        );
+        let d = diags.iter().find(|d| d.code == "SR061").unwrap();
+        assert!(d.fix.contains("foreign_key"));
+    }
+
+    #[test]
+    fn sr061_has_one_without_foreign_key() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+relations:
+  profile: { resource: profiles, type: has_one }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR061"),
+            "Expected SR061 for has_one, got: {diags:?}"
+        );
+    }
+
+    // -- SR062: relation key not in schema --
+
+    #[test]
+    fn sr062_relation_key_not_in_schema() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+relations:
+  org: { resource: organizations, type: belongs_to, key: missing_fk }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR062"),
+            "Expected SR062, got: {diags:?}"
+        );
+    }
+
+    // -- SR070: index with no fields --
+
+    #[test]
+    fn sr070_index_no_fields() {
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldSchema, FieldType, IndexSpec, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let rd = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: Some(vec![IndexSpec {
+                fields: vec![],
+                unique: false,
+                order: None,
+            }]),
+        };
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR070"),
+            "Expected SR070, got: {diags:?}"
+        );
+    }
+
+    // -- SR071: index field not in schema --
+
+    #[test]
+    fn sr071_index_field_not_in_schema() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+indexes:
+  - fields: [missing_field]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR071"),
+            "Expected SR071, got: {diags:?}"
+        );
+    }
+
+    // -- SR072: index with invalid order --
+
+    #[test]
+    fn sr072_index_invalid_order() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  created_at: { type: timestamp, generated: true }
+indexes:
+  - fields: [created_at]
+    order: INVALID
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR072"),
+            "Expected SR072, got: {diags:?}"
+        );
+        let d = diags.iter().find(|d| d.code == "SR072").unwrap();
+        assert!(d.fix.contains("asc") || d.fix.contains("desc"));
+    }
 }
