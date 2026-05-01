@@ -8,12 +8,10 @@ use crate::DatabaseEngine;
 /// project: my-api
 /// port: 3000
 /// workers: auto
-/// database:
-///   type: postgresql
-///   host: localhost
-///   port: 5432
-///   name: my_api_db
-///   pool_size: 20
+/// databases:
+///   default:
+///     engine: postgres
+///     url: ${DATABASE_URL}
 /// ```
 ///
 /// Multi-database (M14):
@@ -42,10 +40,6 @@ pub struct ProjectConfig {
     /// Number of worker threads ("auto" or a number).
     #[serde(default = "default_workers")]
     pub workers: WorkerCount,
-
-    /// Single database configuration (legacy). Ignored if `databases` is set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub database: Option<DatabaseConfig>,
 
     /// Named database connections (M14). When set, resources use `db: <name>` to select connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -184,30 +178,6 @@ impl<'de> Deserialize<'de> for WorkerCount {
     }
 }
 
-/// Database connection configuration (legacy single-DB).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DatabaseConfig {
-    /// Database type (e.g., "postgresql").
-    #[serde(rename = "type")]
-    pub db_type: String,
-
-    /// Database host.
-    #[serde(default = "default_host")]
-    pub host: String,
-
-    /// Database port.
-    #[serde(default = "default_db_port")]
-    pub port: u16,
-
-    /// Database name.
-    pub name: String,
-
-    /// Connection pool size.
-    #[serde(default = "default_pool_size")]
-    pub pool_size: u32,
-}
-
 /// Named database connection (M14 multi-database). Used in `databases: <name>: <config>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -221,14 +191,6 @@ pub struct NamedDatabaseConfig {
     /// Connection pool size (SQL only). Default 20.
     #[serde(default = "default_pool_size")]
     pub pool_size: u32,
-}
-
-fn default_host() -> String {
-    "localhost".to_string()
-}
-
-fn default_db_port() -> u16 {
-    5432
 }
 
 fn default_pool_size() -> u32 {
@@ -438,7 +400,6 @@ mod tests {
         assert_eq!(cfg.project, "my-app");
         assert_eq!(cfg.port, 3000);
         assert_eq!(cfg.workers, WorkerCount::Auto);
-        assert!(cfg.database.is_none());
         assert_eq!(cfg.protocols, vec!["rest"]);
     }
 
@@ -448,13 +409,6 @@ mod tests {
             "project": "my-api",
             "port": 8080,
             "workers": 4,
-            "database": {
-                "type": "postgresql",
-                "host": "db.example.com",
-                "port": 5433,
-                "name": "my_db",
-                "pool_size": 10
-            },
             "cache": {
                 "type": "redis",
                 "url": "redis://localhost:6379"
@@ -479,11 +433,6 @@ mod tests {
         let cfg: ProjectConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.port, 8080);
         assert_eq!(cfg.workers, WorkerCount::Fixed(4));
-        let db = cfg.database.unwrap();
-        assert_eq!(db.db_type, "postgresql");
-        assert_eq!(db.host, "db.example.com");
-        assert_eq!(db.port, 5433);
-        assert_eq!(db.pool_size, 10);
         let cache = cfg.cache.unwrap();
         assert_eq!(cache.cache_type, "redis");
         let auth = cfg.auth.unwrap();
@@ -512,15 +461,6 @@ mod tests {
     }
 
     #[test]
-    fn database_config_defaults() {
-        let json = r#"{"type": "postgresql", "name": "test_db"}"#;
-        let db: DatabaseConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(db.host, "localhost");
-        assert_eq!(db.port, 5432);
-        assert_eq!(db.pool_size, 20);
-    }
-
-    #[test]
     fn logging_config_defaults() {
         let json = r#"{}"#;
         let log: LoggingConfig = serde_json::from_str(json).unwrap();
@@ -535,13 +475,6 @@ mod tests {
             project: "roundtrip-test".to_string(),
             port: 3000,
             workers: WorkerCount::Auto,
-            database: Some(DatabaseConfig {
-                db_type: "postgresql".to_string(),
-                host: "localhost".to_string(),
-                port: 5432,
-                name: "test".to_string(),
-                pool_size: 20,
-            }),
             databases: None,
             cache: None,
             auth: None,
