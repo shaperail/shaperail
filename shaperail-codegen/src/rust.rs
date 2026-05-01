@@ -519,19 +519,23 @@ fn generate_list_helper(
     let search_fields = endpoint.spec.search.clone().unwrap_or_default();
     let sort_fields = endpoint.spec.sort.clone().unwrap_or_default();
 
-    let filter_decls = filters
-        .iter()
-        .map(|field_name| {
-            let field = context.resource.schema.get(field_name).ok_or_else(|| {
-                format!(
-                    "Unknown filter field '{field_name}' on resource '{}'",
-                    context.resource.resource
-                )
-            })?;
-            Ok(generate_filter_declaration(field_name, field))
-        })
-        .collect::<Result<Vec<_>, String>>()?
-        .join("\n");
+    let filter_decls = if filters.is_empty() {
+        "        let _ = filters;".to_string()
+    } else {
+        filters
+            .iter()
+            .map(|field_name| {
+                let field = context.resource.schema.get(field_name).ok_or_else(|| {
+                    format!(
+                        "Unknown filter field '{field_name}' on resource '{}'",
+                        context.resource.resource
+                    )
+                })?;
+                Ok(generate_filter_declaration(field_name, field))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+            .join("\n")
+    };
 
     let filter_args = filters
         .iter()
@@ -564,14 +568,18 @@ fn generate_list_helper(
         search_expression(&search_fields)
     };
 
-    let sort_decls = (0..sort_fields.len())
-        .map(|index| {
-            format!(
-                "        let sort_field_{index} = sort_field_at(sort, {index});\n        let sort_direction_{index} = sort_direction_at(sort, {index});"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let sort_decls = if sort_fields.is_empty() {
+        "        let _ = sort;".to_string()
+    } else {
+        (0..sort_fields.len())
+            .map(|index| {
+                format!(
+                    "        let sort_field_{index} = sort_field_at(sort, {index});\n        let sort_direction_{index} = sort_direction_at(sort, {index});"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
 
     let filter_positions = filters
         .iter()
