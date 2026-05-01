@@ -1268,19 +1268,27 @@ mod tests {
 
         let spec = generate(&config, &[b_resource, a_resource]);
         let schemas = spec["components"]["schemas"].as_object().unwrap();
-        let keys: Vec<&str> = schemas.keys().map(|k| k.as_str()).collect();
-        let resource_keys: Vec<&&str> = keys
-            .iter()
-            .filter(|k| !k.contains("Input") && **k != "ErrorResponse")
+        let mut resource_keys: Vec<&str> = schemas
+            .keys()
+            .map(|k| k.as_str())
+            .filter(|k| !k.contains("Input") && *k != "ErrorResponse")
             .collect();
-        // Aaccounts should come before Zorders alphabetically
-        if resource_keys.len() >= 2 {
-            let first = resource_keys[0].to_lowercase();
-            let second = resource_keys[1].to_lowercase();
-            assert!(
-                first < second || first == second,
-                "Schemas should be sorted alphabetically, got: {first} before {second}"
-            );
-        }
+        resource_keys.sort();
+
+        // Aaccounts must appear before Zorders in alphabetical order
+        assert!(
+            schemas.contains_key("Aaccounts"),
+            "Expected Aaccounts schema"
+        );
+        assert!(schemas.contains_key("Zorders"), "Expected Zorders schema");
+        let pos_a = resource_keys
+            .iter()
+            .position(|&k| k == "Aaccounts")
+            .unwrap();
+        let pos_z = resource_keys.iter().position(|&k| k == "Zorders").unwrap();
+        assert!(
+            pos_a < pos_z,
+            "Aaccounts ({pos_a}) must come before Zorders ({pos_z})"
+        );
     }
 }

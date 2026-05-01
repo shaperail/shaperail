@@ -202,9 +202,11 @@ mod tests {
 
     #[test]
     fn urldecode_invalid_percent_keeps_as_is() {
-        // Invalid hex after % — should not panic, just pass through
+        // Invalid hex after % — should not panic, and surrounding chars are preserved
         let result = urldecode("a%ZZb");
-        assert!(result.contains('a'), "Should preserve surrounding chars");
+        // The 'a' prefix and 'b' suffix must survive regardless of how %ZZ is handled
+        assert!(result.starts_with('a'), "prefix 'a' must be preserved");
+        assert!(result.ends_with('b'), "suffix 'b' must be preserved");
     }
 
     #[test]

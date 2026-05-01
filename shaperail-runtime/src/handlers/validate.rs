@@ -316,6 +316,73 @@ mod tests {
         }
     }
 
+    /// Returns a minimal primary-key FieldSchema (UUID, generated, primary).
+    fn id_field() -> FieldSchema {
+        FieldSchema {
+            field_type: FieldType::Uuid,
+            primary: true,
+            generated: true,
+            required: false,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient: false,
+        }
+    }
+
+    /// Returns a minimal non-primary FieldSchema with the given type and optional extra
+    /// settings as a closure applied after construction.
+    fn make_field(
+        field_type: FieldType,
+        required: bool,
+        format: Option<&str>,
+        min: Option<serde_json::Value>,
+        max: Option<serde_json::Value>,
+        reference: Option<&str>,
+        transient: bool,
+    ) -> FieldSchema {
+        FieldSchema {
+            field_type,
+            primary: false,
+            generated: false,
+            required,
+            unique: false,
+            nullable: false,
+            reference: reference.map(ToString::to_string),
+            min,
+            max,
+            format: format.map(ToString::to_string),
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient,
+        }
+    }
+
+    /// Wraps a schema map in a minimal ResourceDefinition.
+    fn simple_resource(name: &str, schema: IndexMap<String, FieldSchema>) -> ResourceDefinition {
+        ResourceDefinition {
+            resource: name.to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        }
+    }
+
     #[test]
     fn valid_input_passes() {
         let resource = test_resource();
@@ -426,63 +493,21 @@ mod tests {
 
     #[test]
     fn url_format_valid() {
-        use shaperail_core::FieldSchema;
-        use indexmap::IndexMap;
-        use shaperail_core::{FieldType, ResourceDefinition};
-
         let mut schema = IndexMap::new();
-        schema.insert(
-            "id".to_string(),
-            FieldSchema {
-                field_type: FieldType::Uuid,
-                primary: true,
-                generated: true,
-                required: false,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
-        );
+        schema.insert("id".to_string(), id_field());
         schema.insert(
             "website".to_string(),
-            FieldSchema {
-                field_type: FieldType::String,
-                primary: false,
-                generated: false,
-                required: true,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: Some("url".to_string()),
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
+            make_field(
+                FieldType::String,
+                true,
+                Some("url"),
+                None,
+                None,
+                None,
+                false,
+            ),
         );
-        let resource = ResourceDefinition {
-            resource: "orgs".to_string(),
-            version: 1,
-            db: None,
-            tenant_key: None,
-            schema,
-            endpoints: None,
-            relations: None,
-            indexes: None,
-        };
+        let resource = simple_resource("orgs", schema);
 
         let mut ok_data = serde_json::Map::new();
         ok_data.insert(
@@ -501,63 +526,21 @@ mod tests {
 
     #[test]
     fn url_format_invalid() {
-        use shaperail_core::FieldSchema;
-        use indexmap::IndexMap;
-        use shaperail_core::{FieldType, ResourceDefinition};
-
         let mut schema = IndexMap::new();
-        schema.insert(
-            "id".to_string(),
-            FieldSchema {
-                field_type: FieldType::Uuid,
-                primary: true,
-                generated: true,
-                required: false,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
-        );
+        schema.insert("id".to_string(), id_field());
         schema.insert(
             "website".to_string(),
-            FieldSchema {
-                field_type: FieldType::String,
-                primary: false,
-                generated: false,
-                required: true,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: Some("url".to_string()),
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
+            make_field(
+                FieldType::String,
+                true,
+                Some("url"),
+                None,
+                None,
+                None,
+                false,
+            ),
         );
-        let resource = ResourceDefinition {
-            resource: "orgs".to_string(),
-            version: 1,
-            db: None,
-            tenant_key: None,
-            schema,
-            endpoints: None,
-            relations: None,
-            indexes: None,
-        };
+        let resource = simple_resource("orgs", schema);
 
         let mut bad_data = serde_json::Map::new();
         bad_data.insert("website".to_string(), serde_json::json!("not-a-url"));
@@ -576,63 +559,21 @@ mod tests {
 
     #[test]
     fn uuid_field_invalid_value_rejected() {
-        use shaperail_core::FieldSchema;
-        use indexmap::IndexMap;
-        use shaperail_core::{FieldType, ResourceDefinition};
-
         let mut schema = IndexMap::new();
-        schema.insert(
-            "id".to_string(),
-            FieldSchema {
-                field_type: FieldType::Uuid,
-                primary: true,
-                generated: true,
-                required: false,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
-        );
+        schema.insert("id".to_string(), id_field());
         schema.insert(
             "ref_id".to_string(),
-            FieldSchema {
-                field_type: FieldType::Uuid,
-                primary: false,
-                generated: false,
-                required: true,
-                unique: false,
-                nullable: false,
-                reference: Some("orgs.id".to_string()),
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
+            make_field(
+                FieldType::Uuid,
+                true,
+                None,
+                None,
+                None,
+                Some("orgs.id"),
+                false,
+            ),
         );
-        let resource = ResourceDefinition {
-            resource: "items".to_string(),
-            version: 1,
-            db: None,
-            tenant_key: None,
-            schema,
-            endpoints: None,
-            relations: None,
-            indexes: None,
-        };
+        let resource = simple_resource("items", schema);
 
         let mut bad_data = serde_json::Map::new();
         bad_data.insert("ref_id".to_string(), serde_json::json!("not-a-uuid"));
@@ -651,63 +592,21 @@ mod tests {
 
     #[test]
     fn uuid_field_valid_value_accepted() {
-        use shaperail_core::FieldSchema;
-        use indexmap::IndexMap;
-        use shaperail_core::{FieldType, ResourceDefinition};
-
         let mut schema = IndexMap::new();
-        schema.insert(
-            "id".to_string(),
-            FieldSchema {
-                field_type: FieldType::Uuid,
-                primary: true,
-                generated: true,
-                required: false,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
-        );
+        schema.insert("id".to_string(), id_field());
         schema.insert(
             "ref_id".to_string(),
-            FieldSchema {
-                field_type: FieldType::Uuid,
-                primary: false,
-                generated: false,
-                required: true,
-                unique: false,
-                nullable: false,
-                reference: Some("orgs.id".to_string()),
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
+            make_field(
+                FieldType::Uuid,
+                true,
+                None,
+                None,
+                None,
+                Some("orgs.id"),
+                false,
+            ),
         );
-        let resource = ResourceDefinition {
-            resource: "items".to_string(),
-            version: 1,
-            db: None,
-            tenant_key: None,
-            schema,
-            endpoints: None,
-            relations: None,
-            indexes: None,
-        };
+        let resource = simple_resource("items", schema);
 
         let mut ok_data = serde_json::Map::new();
         ok_data.insert(
@@ -719,63 +618,21 @@ mod tests {
 
     #[test]
     fn number_min_violation() {
-        use shaperail_core::FieldSchema;
-        use indexmap::IndexMap;
-        use shaperail_core::{FieldType, ResourceDefinition};
-
         let mut schema = IndexMap::new();
-        schema.insert(
-            "id".to_string(),
-            FieldSchema {
-                field_type: FieldType::Uuid,
-                primary: true,
-                generated: true,
-                required: false,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
-        );
+        schema.insert("id".to_string(), id_field());
         schema.insert(
             "age".to_string(),
-            FieldSchema {
-                field_type: FieldType::Integer,
-                primary: false,
-                generated: false,
-                required: true,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: Some(serde_json::json!(18)),
-                max: Some(serde_json::json!(120)),
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
+            make_field(
+                FieldType::Integer,
+                true,
+                None,
+                Some(serde_json::json!(18)),
+                Some(serde_json::json!(120)),
+                None,
+                false,
+            ),
         );
-        let resource = ResourceDefinition {
-            resource: "users".to_string(),
-            version: 1,
-            db: None,
-            tenant_key: None,
-            schema,
-            endpoints: None,
-            relations: None,
-            indexes: None,
-        };
+        let resource = simple_resource("users", schema);
 
         let mut too_low = serde_json::Map::new();
         too_low.insert("age".to_string(), serde_json::json!(10));
@@ -793,63 +650,21 @@ mod tests {
 
     #[test]
     fn number_max_violation() {
-        use shaperail_core::FieldSchema;
-        use indexmap::IndexMap;
-        use shaperail_core::{FieldType, ResourceDefinition};
-
         let mut schema = IndexMap::new();
-        schema.insert(
-            "id".to_string(),
-            FieldSchema {
-                field_type: FieldType::Uuid,
-                primary: true,
-                generated: true,
-                required: false,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
-        );
+        schema.insert("id".to_string(), id_field());
         schema.insert(
             "age".to_string(),
-            FieldSchema {
-                field_type: FieldType::Integer,
-                primary: false,
-                generated: false,
-                required: true,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: Some(serde_json::json!(18)),
-                max: Some(serde_json::json!(120)),
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
+            make_field(
+                FieldType::Integer,
+                true,
+                None,
+                Some(serde_json::json!(18)),
+                Some(serde_json::json!(120)),
+                None,
+                false,
+            ),
         );
-        let resource = ResourceDefinition {
-            resource: "users".to_string(),
-            version: 1,
-            db: None,
-            tenant_key: None,
-            schema,
-            endpoints: None,
-            relations: None,
-            indexes: None,
-        };
+        let resource = simple_resource("users", schema);
 
         let mut too_high = serde_json::Map::new();
         too_high.insert("age".to_string(), serde_json::json!(200));
@@ -867,84 +682,17 @@ mod tests {
 
     #[test]
     fn strip_transient_fields_removes_transient_only() {
-        use shaperail_core::FieldSchema;
-        use indexmap::IndexMap;
-        use shaperail_core::{FieldType, ResourceDefinition};
-
         let mut schema = IndexMap::new();
-        schema.insert(
-            "id".to_string(),
-            FieldSchema {
-                field_type: FieldType::Uuid,
-                primary: true,
-                generated: true,
-                required: false,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
-        );
+        schema.insert("id".to_string(), id_field());
         schema.insert(
             "name".to_string(),
-            FieldSchema {
-                field_type: FieldType::String,
-                primary: false,
-                generated: false,
-                required: true,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: false,
-            },
+            make_field(FieldType::String, true, None, None, None, None, false),
         );
         schema.insert(
             "password".to_string(),
-            FieldSchema {
-                field_type: FieldType::String,
-                primary: false,
-                generated: false,
-                required: true,
-                unique: false,
-                nullable: false,
-                reference: None,
-                min: None,
-                max: None,
-                format: None,
-                values: None,
-                default: None,
-                sensitive: false,
-                search: false,
-                items: None,
-                transient: true,
-            },
+            make_field(FieldType::String, true, None, None, None, None, true),
         );
-        let resource = ResourceDefinition {
-            resource: "users".to_string(),
-            version: 1,
-            db: None,
-            tenant_key: None,
-            schema,
-            endpoints: None,
-            relations: None,
-            indexes: None,
-        };
+        let resource = simple_resource("users", schema);
 
         let mut data = serde_json::Map::new();
         data.insert("name".to_string(), serde_json::json!("Alice"));
