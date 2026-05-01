@@ -140,6 +140,38 @@ To rotate the JWT secret without downtime:
 For zero-downtime rotation, implement a controller that accepts tokens signed
 with either the old or new secret during the transition window.
 
+### JWT Claims
+
+Shaperail mints HS256 JWTs with this claim shape (`shaperail_runtime::auth::Claims`,
+re-exported from the auth module):
+
+| Claim | Required for | Notes |
+| --- | --- | --- |
+| `sub` | always | User ID, typically a UUID. |
+| `role` | always | Must match a role in any endpoint's `auth:` list, or be `super_admin` for unrestricted access. |
+| `iat` / `exp` | always | Unix seconds. |
+| `token_type` | always | `"access"` for protected requests; `"refresh"` is only valid against the refresh endpoint. |
+| `tenant_id` | non-`super_admin` accessing tenant-scoped resources | Missing/null → 401. |
+
+**Minting a token for tests:**
+
+```rust
+use shaperail_runtime::auth::JwtConfig;
+
+let config = JwtConfig::new("test-secret-at-least-32-bytes-long!", 3600, 86400);
+let token = config
+    .encode_access_with_tenant("user-uuid", "admin", Some("org-uuid"))
+    .unwrap();
+```
+
+**Diagnosing 401s:** the runtime emits `tracing::warn!` lines when JWTs are
+rejected. Set `RUST_LOG=shaperail_runtime::auth=warn` to surface them. Two
+common messages:
+
+- `JWT rejected: decode failed` — signature mismatch, expired, or malformed.
+- `JWT rejected: token_type must be "access"` — typically a refresh token sent
+  against a protected endpoint.
+
 ### Refresh token handling
 
 - The JWT payload includes a `token_type` field (`access` or `refresh`). Only

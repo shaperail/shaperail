@@ -26,12 +26,13 @@ project: my-api
 port: 8080
 workers: 4
 
-database:
-  type: postgresql
-  host: ${DB_HOST:localhost}
-  port: 5432
-  name: my_api_db
-  pool_size: 20
+databases:
+  default:
+    engine: postgres
+    # `.env` sets DATABASE_URL, which overrides the fallback below.
+    # Edit `.env` (not this file) for local connection strings.
+    url: ${DATABASE_URL:postgresql://localhost/my_api_db}
+    pool_size: 20
 
 cache:
   type: redis
@@ -145,21 +146,46 @@ grpc:
 | `port` | integer | `50051` | Port for the gRPC server. Separate from the HTTP `port`. |
 | `reflection` | boolean | `true` | Enable gRPC server reflection for tools like `grpcurl`. |
 
-### `database`
+### `databases`
 
-Optional. Single-database (legacy) mode. When omitted, no database pool is
-created. **Ignored when `databases` is set** — use `databases` for
-multi-database or to name your primary connection explicitly.
+> **Migrating from v0.10:** The legacy singular `database:` block was removed in
+> v0.11. Configs containing it now fail to parse with `unknown field 'database'`.
+> Replace the block with `databases.default:` as shown below.
 
-| Field | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| `type` | string | yes | -- | Database engine. Use `postgresql`. |
-| `host` | string | no | `localhost` | Database server hostname. |
-| `port` | integer | no | `5432` | Database server port. |
-| `name` | string | yes | -- | Database name. |
-| `pool_size` | integer | no | `20` | Maximum connections in the sqlx pool. |
+Optional. Named database connections. Every new project scaffolded by
+`shaperail init` uses this form. When omitted, no database pool is created.
 
-### `databases` (multi-database)
+The recommended form (also what `shaperail init` now generates):
+
+```yaml
+databases:
+  default:
+    engine: postgres
+    # `.env` sets DATABASE_URL, which overrides the fallback below.
+    # Edit `.env` (not this file) for local connection strings.
+    url: ${DATABASE_URL:postgresql://localhost/<project>}
+    pool_size: 20
+```
+
+You must include a connection named **`default`**; migrations run against the
+`default` connection. Use `${VAR}` or `${VAR:default}` in URLs for environment
+variable interpolation.
+
+For multi-database setups, add additional named connections:
+
+```yaml
+databases:
+  default:
+    engine: postgres
+    url: ${DATABASE_URL}
+    pool_size: 20
+  analytics:
+    engine: postgres
+    url: postgres://user:pass@analytics-db.example.com/analytics
+    pool_size: 10
+```
+
+### `databases` — connection options
 
 Optional. Named database connections for multi-database projects. When set,
 the server uses an ORM-backed store and routes each resource to the connection
@@ -326,10 +352,11 @@ Use `${VAR}` to inject an environment variable at parse time. Use
 
 ```yaml
 project: ${APP_NAME:my-app}
-database:
-  type: postgresql
-  host: ${DB_HOST:localhost}
-  name: ${DB_NAME}
+databases:
+  default:
+    engine: postgres
+    url: ${DATABASE_URL:postgresql://localhost/${DB_NAME}}
+    pool_size: 20
 ```
 
 Rules:
@@ -356,7 +383,7 @@ Shaperail rejects invalid configuration at startup with a clear error message.
 
 - **`project` is required.** Omitting it produces a "missing field" error.
 - **Unknown fields are rejected.** Every section uses `deny_unknown_fields`. A
-  typo like `databse:` instead of `database:` produces an "unknown field" error
+  typo like `databse:` instead of `databases:` produces an "unknown field" error
   listing the valid alternatives.
 - **Type mismatches fail.** Setting `port: "not-a-number"` or `workers: []`
   produces a deserialization error.
