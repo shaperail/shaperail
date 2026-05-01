@@ -1,0 +1,24 @@
+project: agentledger
+port: 3000
+workers: auto
+
+database:
+  type: postgresql
+  host: localhost
+  port: 5432
+  name: agentledger
+  pool_size: 20
+
+cache:
+  type: redis
+  url: redis://localhost:6379
+
+auth:
+  provider: jwt
+  secret_env: JWT_SECRET
+  expiry: 24h
+  refresh_expiry: 30d
+
+logging:
+  level: info
+  format: json
