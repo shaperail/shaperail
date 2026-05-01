@@ -5,6 +5,29 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-05-01
+
+### Added
+
+- **`transient: true` field flag** — input-only fields validated, exposed to the before-controller via `ctx.input`, never persisted (no migration column, no SQL reference), never returned in responses. Stripped from `ctx.input` automatically before INSERT/UPDATE.
+- **Two-phase validation around the before-controller** for `create`, `update`, and `bulk_create`. `validate_input_shape()` runs before the controller (rule check on present fields); `validate_required_present()` runs after (required-presence check + rule check on injected keys). Lets `required: true` columns be populated by a `before:` controller without failing input validation.
+- **`AppState::new(pool, resources)`** in `shaperail-runtime::handlers::crud` — defaults every optional subsystem to `None` and creates the broadcast bus. Scaffolds and tests no longer drift when `AppState` gains a field.
+- **`strip_transient_fields()`** in `shaperail-runtime::handlers::validate` — removes transient keys from input data before persistence.
+- Validator: rejects `transient: true` combined with `primary` / `generated` / `ref` / `unique` / `default`, and rejects transient fields not declared in any endpoint's `input:` (dead-field check).
+
+### Fixed
+
+- **`sensitive: true` is now honored at every codegen surface.** Previously parsed but ignored — sensitive fields leaked into JSON responses, OpenAPI response schemas, and TypeScript response types. The Rust response struct now emits `#[serde(skip_serializing)]`; OpenAPI and TypeScript response shapes omit them entirely. Request schemas keep them (a sensitive field can legitimately be an `input:`).
+- **Validator typo: `soft_delete` checks for `deleted_at`** instead of the wrong column `updated_at`.
+- **`handle_update` now runs validation.** Previously skipped validation entirely — partial updates with malformed input could reach the database. The full two-phase pipeline now runs.
+- **`shaperail init` scaffold drift fixed** via `AppState::new(...)`. Adding a future field to `AppState` only requires updating the constructor; scaffolded projects keep compiling.
+- **`wasmtime` upgraded to 44** to address [RUSTSEC-2026-0114](https://rustsec.org/advisories/RUSTSEC-2026-0114) (medium severity — panic when allocating a table exceeding host address space).
+
+### Changed
+
+- **`sensitive` documentation reconciled** across `docs/llm-guide.md`, `docs/resource-guide.md`, and `agent_docs/resource-format.md`. Three different definitions before; now consistent on "Omitted from all responses; redacted in logs and error messages".
+- `agent_docs/resource-format.md` documents the new validation lifecycle and a `password` / `password_hash` worked example.
+
 ## [0.9.0] - 2026-04-21
 
 ### Added
