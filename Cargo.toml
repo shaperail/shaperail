@@ -3,7 +3,7 @@ members = ["shaperail-core", "shaperail-codegen", "shaperail-runtime", "shaperai
 resolver = "2"
 
 [workspace.package]
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -94,7 +94,7 @@ tonic-health = "0.14"
 tokio-stream = { version = "0.1", features = ["net"] }
 
 # WASM Plugins (M19)
-wasmtime = "42"
+wasmtime = "44"
 
 # Testing
 insta = { version = "1", features = ["yaml", "json"] }
