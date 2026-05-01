@@ -4819,7 +4819,7 @@ dependencies = [
 
 [[package]]
 name = "shaperail-cli"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4841,7 +4841,7 @@ dependencies = [
 
 [[package]]
 name = "shaperail-codegen"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "indexmap",
  "insta",
@@ -4855,7 +4855,7 @@ dependencies = [
 
 [[package]]
 name = "shaperail-core"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "actix-web",
  "chrono",
@@ -4870,7 +4870,7 @@ dependencies = [
 
 [[package]]
 name = "shaperail-runtime"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "actix-multipart",
  "actix-rt",
