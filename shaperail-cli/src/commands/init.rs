@@ -500,6 +500,8 @@ workers: auto
 databases:
   default:
     engine: postgres
+    # `.env` sets DATABASE_URL, which overrides the fallback below.
+    # Edit `.env` (not this file) for local connection strings.
     url: ${{DATABASE_URL:postgresql://localhost/{db_name}}}
     pool_size: 20
 
