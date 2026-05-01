@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use shaperail_core::{
-    EndpointSpec, FieldSchema, FieldType, HttpMethod, PaginationStyle, ProjectConfig,
+    AuthRule, EndpointSpec, FieldSchema, FieldType, HttpMethod, PaginationStyle, ProjectConfig,
     ResourceDefinition,
 };
 
@@ -585,6 +585,11 @@ fn build_operation(
                 ]),
             );
         }
+        if let AuthRule::Roles(roles) = auth {
+            if !roles.is_empty() {
+                operation.insert("x-shaperail-auth".to_string(), serde_json::json!(roles));
+            }
+        }
     }
 
     // Vendor extensions
@@ -1096,6 +1101,45 @@ mod tests {
         assert_eq!(
             create_op["x-shaperail-events"],
             serde_json::json!(["user.created"])
+        );
+    }
+
+    #[test]
+    fn x_shaperail_auth_emitted_for_role_endpoints() {
+        let config = test_config();
+        let resources = vec![sample_resource()];
+        let spec = generate(&config, &resources);
+
+        // delete endpoint has auth: [admin]
+        let delete_op = &spec["paths"]["/v1/users/{id}"]["delete"];
+        assert_eq!(
+            delete_op["x-shaperail-auth"],
+            serde_json::json!(["admin"]),
+            "delete op must carry x-shaperail-auth"
+        );
+
+        // list endpoint has auth: [member, admin]
+        let list_op = &spec["paths"]["/v1/users"]["get"];
+        assert_eq!(
+            list_op["x-shaperail-auth"],
+            serde_json::json!(["member", "admin"]),
+            "list op must carry x-shaperail-auth"
+        );
+    }
+
+    #[test]
+    fn x_shaperail_auth_omitted_for_public_endpoints() {
+        let config = test_config();
+        // tags resource has list: auth: public
+        let yaml = "resource: agents\nversion: 1\nschema:\n  id: {type: uuid, primary: true, generated: true}\n  name: {type: string, required: true}\nendpoints:\n  list:\n    auth: public\n";
+        let rd = crate::parser::parse_resource(yaml).unwrap();
+        let spec = generate(&config, &[rd]);
+
+        let list_op = &spec["paths"]["/v1/agents"]["get"];
+        assert!(
+            list_op.get("x-shaperail-auth").is_none()
+                || list_op["x-shaperail-auth"] == serde_json::Value::Null,
+            "public endpoints must NOT carry x-shaperail-auth"
         );
     }
 
