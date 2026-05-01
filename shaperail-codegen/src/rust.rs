@@ -25,6 +25,40 @@ pub fn generate_project(resources: &[ResourceDefinition]) -> Result<GeneratedRus
     })
 }
 
+/// Run `rustfmt --edition 2021` against the Rust source file at `path`, formatting it in place.
+///
+/// Logs to stderr and continues on any failure — never panics or returns `Err` — so that
+/// codegen keeps working in environments without `rustfmt` on `PATH`.
+/// Call only for `.rs` files; it is a no-op for other extensions.
+pub fn rustfmt_in_place(path: &std::path::Path) {
+    if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+        return;
+    }
+    let result = std::process::Command::new("rustfmt")
+        .arg("--edition")
+        .arg("2021")
+        .arg(path)
+        .status();
+    match result {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            eprintln!(
+                "warning: rustfmt exited with {:?} for {}; leaving generated file unformatted",
+                status.code(),
+                path.display()
+            );
+        }
+        Err(err) => {
+            eprintln!(
+                "warning: rustfmt not found on PATH ({}); skipping format pass for {}. \
+                 Install with `rustup component add rustfmt`.",
+                err,
+                path.display()
+            );
+        }
+    }
+}
+
 pub fn generate_resource_module(resource: &ResourceDefinition) -> Result<String, String> {
     let context = ResourceContext::new(resource)?;
 
