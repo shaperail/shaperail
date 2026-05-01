@@ -145,7 +145,8 @@ Schema fields use compact inline objects. Every attribute:
 | `format` | Validation hint: `email`, `url`, or `uuid` |
 | `values` | Allowed values for `type: enum` fields (required when type is enum) |
 | `default` | Default value applied when the field is omitted |
-| `sensitive` | Redacted in all log output and error payloads |
+| `sensitive` | Omitted from all responses; redacted in logs and error messages |
+| `transient` | Input-only field. Validated and exposed to the `before:` controller via `ctx.input`, but never persisted (no migration column, no SQL reference) and never returned in responses. Stripped from `ctx.input` after the before-controller runs. Must appear in some endpoint's `input:` list. |
 | `search` | Enables PostgreSQL full-text search via `to_tsvector` on this field |
 | `items` | Element type for `type: array` fields (required when type is array) |
 

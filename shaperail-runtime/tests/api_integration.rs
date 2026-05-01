@@ -109,6 +109,7 @@ fn test_asset_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -129,6 +130,7 @@ fn test_asset_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -149,6 +151,7 @@ fn test_asset_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -169,6 +172,7 @@ fn test_asset_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -189,6 +193,7 @@ fn test_asset_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -209,6 +214,7 @@ fn test_asset_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -229,6 +235,7 @@ fn test_asset_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -249,6 +256,7 @@ fn test_asset_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
 
@@ -367,6 +375,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -387,6 +396,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: true,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -407,6 +417,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: true,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -431,6 +442,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -451,6 +463,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -471,6 +484,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -491,6 +505,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -511,6 +526,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
 
@@ -2199,6 +2215,7 @@ fn org_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -2219,6 +2236,7 @@ fn org_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
 
@@ -2368,6 +2386,7 @@ async fn custom_endpoint_dispatches_to_registered_handler(pool: sqlx::PgPool) {
                     sensitive: false,
                     search: false,
                     items: None,
+                    transient: false,
                 },
             );
             s
@@ -2538,6 +2557,7 @@ async fn cross_protocol_auth_member_gets_same_result_via_rest_and_graphql(pool: 
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema_map.insert(
@@ -2558,6 +2578,7 @@ async fn cross_protocol_auth_member_gets_same_result_via_rest_and_graphql(pool: 
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
 

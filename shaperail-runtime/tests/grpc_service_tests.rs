@@ -30,6 +30,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -50,6 +51,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     let mut endpoints = IndexMap::new();

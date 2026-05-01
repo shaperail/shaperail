@@ -205,6 +205,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -225,6 +226,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -245,6 +247,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
 
@@ -340,6 +343,39 @@ mod tests {
 
         let index = &files["index.ts"];
         assert!(index.contains("export * from './items';"));
+    }
+
+    #[test]
+    fn sensitive_field_omitted_from_ts_response_interface() {
+        let config = test_config();
+        let mut resource = sample_resource();
+        resource.schema.get_mut("active").unwrap().sensitive = true;
+        let spec = crate::openapi::generate(&config, &[resource]);
+        let files = generate_from_spec(&spec);
+
+        let items_ts = &files["items.ts"];
+
+        // Response interface (Items) drops the sensitive field
+        let response_block = items_ts
+            .split("export interface Items {")
+            .nth(1)
+            .and_then(|s| s.split('}').next())
+            .expect("Items interface body");
+        assert!(
+            !response_block.contains("active"),
+            "sensitive `active` must be absent from Items response interface, got: {response_block:?}"
+        );
+
+        // Input interface still includes it (declared in `input:`)
+        let input_block = items_ts
+            .split("export interface ItemsCreateInput {")
+            .nth(1)
+            .and_then(|s| s.split('}').next())
+            .expect("ItemsCreateInput interface body");
+        assert!(
+            input_block.contains("active"),
+            "sensitive fields declared in input: must remain in request interface, got: {input_block:?}"
+        );
     }
 
     #[test]

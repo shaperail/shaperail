@@ -28,6 +28,7 @@ mod handler_unit_tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -48,6 +49,7 @@ mod handler_unit_tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -68,6 +70,7 @@ mod handler_unit_tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -92,6 +95,7 @@ mod handler_unit_tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -112,6 +116,7 @@ mod handler_unit_tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -132,6 +137,7 @@ mod handler_unit_tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -152,6 +158,7 @@ mod handler_unit_tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
 

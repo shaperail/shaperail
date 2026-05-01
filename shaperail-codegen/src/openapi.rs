@@ -135,6 +135,9 @@ fn build_resource_schema(resource: &ResourceDefinition) -> serde_json::Value {
     let mut required_fields = Vec::new();
 
     for (name, schema) in &resource.schema {
+        if schema.sensitive || schema.transient {
+            continue;
+        }
         properties.insert(name.clone(), field_schema_to_openapi(schema));
         if schema.required && !schema.generated {
             required_fields.push(serde_json::Value::String(name.clone()));
@@ -668,6 +671,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -688,6 +692,7 @@ mod tests {
                 sensitive: false,
                 search: true,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -708,6 +713,7 @@ mod tests {
                 sensitive: false,
                 search: true,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -732,6 +738,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -752,6 +759,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
 
@@ -851,6 +859,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -871,6 +880,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -891,6 +901,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
 
@@ -935,6 +946,35 @@ mod tests {
         assert!(spec["paths"].is_object());
         assert!(spec["components"]["schemas"].is_object());
         assert!(spec["components"]["securitySchemes"].is_object());
+    }
+
+    #[test]
+    fn sensitive_field_omitted_from_response_schema() {
+        let config = test_config();
+        let mut resource = sample_resource();
+        resource.schema.get_mut("email").unwrap().sensitive = true;
+        let spec = generate(&config, &[resource]);
+
+        let users_props = spec["components"]["schemas"]["Users"]["properties"]
+            .as_object()
+            .expect("Users response schema should have properties");
+        assert!(
+            !users_props.contains_key("email"),
+            "sensitive `email` must be omitted from response schema, got: {users_props:?}"
+        );
+        assert!(
+            users_props.contains_key("name"),
+            "non-sensitive fields must remain in response schema"
+        );
+
+        // Input schemas still include sensitive fields (the API may legitimately accept them).
+        let input_props = spec["components"]["schemas"]["UsersCreateInput"]["properties"]
+            .as_object()
+            .expect("UsersCreateInput should exist");
+        assert!(
+            input_props.contains_key("email"),
+            "sensitive fields must remain in request schemas when declared in input:"
+        );
     }
 
     #[test]

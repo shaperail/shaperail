@@ -3,4 +3,4 @@ source: shaperail-codegen/tests/snapshot_tests.rs
 assertion_line: 107
 expression: messages
 ---
-- "resource 'items': endpoint 'delete' has soft_delete but schema has no 'updated_at' field"
+- "resource 'items': endpoint 'delete' has soft_delete but schema has no 'deleted_at' field"

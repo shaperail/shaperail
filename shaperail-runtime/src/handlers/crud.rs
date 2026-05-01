@@ -20,7 +20,9 @@ use crate::storage::{parse_max_size, FileMetadata, StorageBackend, UploadHandler
 use super::params::{parse_item_params, parse_list_params, query_map_public};
 use super::relations::load_relations;
 use super::response;
-use super::validate::validate_input;
+use super::validate::{
+    strip_transient_fields, validate_input, validate_input_shape, validate_required_present,
+};
 
 /// Shared application state holding the database pool, resource definitions, and auth config.
 pub struct AppState {
@@ -47,6 +49,30 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Construct an `AppState` with only the required wiring (DB pool + resource definitions).
+    /// All optional subsystems (cache, jobs, JWT, etc.) start as `None`; populate the fields
+    /// you need via direct mutation before wrapping in `Arc`. This keeps the scaffold template
+    /// stable when new optional fields are added to `AppState` in future milestones.
+    pub fn new(pool: sqlx::PgPool, resources: Vec<ResourceDefinition>) -> Self {
+        Self {
+            pool,
+            resources,
+            stores: None,
+            controllers: None,
+            jwt_config: None,
+            cache: None,
+            event_emitter: None,
+            job_queue: None,
+            rate_limiter: None,
+            custom_handlers: None,
+            metrics: None,
+            saga_executor: None,
+            #[cfg(feature = "wasm-plugins")]
+            wasm_runtime: None,
+            event_bus: tokio::sync::broadcast::channel(256).0,
+        }
+    }
+
     /// Subscribe to events on the broadcast bus (for GraphQL subscriptions).
     /// Returns a receiver that gets all events matching the given event name.
     pub fn event_bus_subscribe(
@@ -770,10 +796,13 @@ pub async fn handle_create(
     let mut input_data = extract_input(&body, &resource, &endpoint)?;
     // M18: Auto-inject tenant_id into create input
     inject_tenant_into_input(&resource, user.as_ref(), &mut input_data);
-    validate_input(&input_data, &resource)?;
+    // PHASE 1: rule check on user-supplied fields (no required check yet)
+    validate_input_shape(&input_data, &resource)?;
+    let pre_controller_keys: std::collections::HashSet<String> =
+        input_data.keys().cloned().collect();
 
-    // Before-controller: can modify input
-    let input_data = run_before_controller(
+    // Before-controller: can populate computed fields (e.g. password_hash from password)
+    let mut input_data = run_before_controller(
         &state,
         &resource,
         &endpoint,
@@ -782,6 +811,11 @@ pub async fn handle_create(
         &req,
     )
     .await?;
+
+    // PHASE 2: required-presence check + rule check on controller-injected keys
+    validate_required_present(&input_data, &resource, &pre_controller_keys)?;
+    // Drop transient input-only fields before persistence
+    strip_transient_fields(&mut input_data, &resource);
 
     let store_opt = store_for_or_error(&state, &resource)?;
     let row = if let Some(store) = store_opt {
@@ -826,6 +860,7 @@ pub async fn handle_create_upload(
     // M18: Auto-inject tenant_id into create input (mirrors handle_create)
     inject_tenant_into_input(&resource, user.as_ref(), &mut input_data);
     validate_input(&input_data, &resource)?;
+    strip_transient_fields(&mut input_data, &resource);
 
     let store_opt = store_for_or_error(&state, &resource)?;
     let row = if let Some(store) = store_opt {
@@ -886,8 +921,13 @@ pub async fn handle_update(
         }
     }
 
-    // Before-controller: can modify input
-    let input_data = run_before_controller(
+    // PHASE 1: rule check on user-supplied fields (update is partial — no required check)
+    validate_input_shape(&input_data, &resource)?;
+    let pre_controller_keys: std::collections::HashSet<String> =
+        input_data.keys().cloned().collect();
+
+    // Before-controller: can populate computed fields
+    let mut input_data = run_before_controller(
         &state,
         &resource,
         &endpoint,
@@ -896,6 +936,12 @@ pub async fn handle_update(
         &req,
     )
     .await?;
+
+    // POST-CONTROLLER shape check: re-run rules on any keys the controller injected
+    validate_input_shape(&input_data, &resource)?;
+    // Drop transient input-only fields before persistence
+    strip_transient_fields(&mut input_data, &resource);
+    let _ = pre_controller_keys; // reserved for future use (e.g. partial-update audit logging)
 
     let row = if let Some(store) = store_opt {
         store.update_by_id(&id, &input_data).await?
@@ -937,7 +983,7 @@ pub async fn handle_update_upload(
     )
     .await?;
     let id = parse_uuid(&path)?;
-    let input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
+    let mut input_data = extract_input_from_multipart(payload, &resource, &endpoint).await?;
     let store_opt = store_for_or_error(&state, &resource)?;
 
     // M18 tenant check + owner check
@@ -959,6 +1005,7 @@ pub async fn handle_update_upload(
     }
 
     validate_input(&input_data, &resource)?;
+    strip_transient_fields(&mut input_data, &resource);
 
     let row = if let Some(store) = store_opt {
         store.update_by_id(&id, &input_data).await?
@@ -1091,8 +1138,9 @@ pub async fn handle_bulk_create(
     let mut results = Vec::with_capacity(items.len());
 
     for item in items {
-        let input_data = extract_input_from_value(item, &resource, &endpoint)?;
+        let mut input_data = extract_input_from_value(item, &resource, &endpoint)?;
         validate_input(&input_data, &resource)?;
+        strip_transient_fields(&mut input_data, &resource);
         let row = if let Some(ref store) = store_opt {
             store.insert(&input_data).await?
         } else {
@@ -1446,6 +1494,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1466,6 +1515,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
         schema.insert(
@@ -1486,6 +1536,7 @@ mod tests {
                 sensitive: false,
                 search: false,
                 items: None,
+                transient: false,
             },
         );
 

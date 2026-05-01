@@ -259,6 +259,7 @@ mod tests {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         }
     }
 

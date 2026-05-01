@@ -20,6 +20,9 @@ fn query_result_to_json(
 ) -> Result<serde_json::Value, ShaperailError> {
     let mut obj = serde_json::Map::new();
     for (name, field) in &resource.schema {
+        if field.transient {
+            continue;
+        }
         let value = get_column_value(row, name, field)?;
         obj.insert(name.clone(), value);
     }
@@ -359,6 +362,9 @@ impl<'a> OrmResourceQuery<'a> {
         let mut generated_id: Option<String> = None;
 
         for (name, field) in &self.resource.schema {
+            if field.transient {
+                continue;
+            }
             if field.generated {
                 match field.field_type {
                     FieldType::Uuid => {

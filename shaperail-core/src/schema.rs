@@ -69,6 +69,20 @@ pub struct FieldSchema {
     /// Element type for array fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<String>,
+
+    /// Input-only field: validated and exposed to the before-controller in `ctx.input`,
+    /// but never persisted (no migration column, no SQL reference) and never returned
+    /// in API responses. Stripped from `ctx.input` after the before-controller runs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub transient: bool,
+}
+
+impl FieldSchema {
+    /// Returns true if this field is stored in the database. Transient fields exist only
+    /// at the API boundary and are never persisted.
+    pub fn is_persisted(&self) -> bool {
+        !self.transient
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +108,7 @@ mod tests {
         assert!(!fs.sensitive);
         assert!(!fs.search);
         assert!(fs.items.is_none());
+        assert!(!fs.transient);
     }
 
     #[test]
@@ -140,6 +155,7 @@ mod tests {
             sensitive: false,
             search: true,
             items: None,
+            transient: false,
         };
         let json = serde_json::to_string(&fs).unwrap();
         let back: FieldSchema = serde_json::from_str(&json).unwrap();

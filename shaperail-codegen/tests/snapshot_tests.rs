@@ -99,12 +99,12 @@ fn snapshot_invalid_no_primary_key() {
 }
 
 #[test]
-fn snapshot_invalid_soft_delete_no_updated_at() {
-    let yaml = include_str!("fixtures/invalid/soft_delete_no_updated_at.yaml");
+fn snapshot_invalid_soft_delete_no_deleted_at() {
+    let yaml = include_str!("fixtures/invalid/soft_delete_no_deleted_at.yaml");
     let rd = parse_resource(yaml).unwrap();
     let errors = validate_resource(&rd);
     let messages: Vec<String> = errors.iter().map(|e| e.message.clone()).collect();
-    insta::assert_yaml_snapshot!("invalid_soft_delete_no_updated_at", messages);
+    insta::assert_yaml_snapshot!("invalid_soft_delete_no_deleted_at", messages);
 }
 
 #[test]

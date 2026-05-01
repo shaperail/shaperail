@@ -29,6 +29,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -49,6 +50,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: true,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -73,6 +75,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
     schema.insert(
@@ -93,6 +96,7 @@ fn test_resource() -> ResourceDefinition {
             sensitive: false,
             search: false,
             items: None,
+            transient: false,
         },
     );
 
