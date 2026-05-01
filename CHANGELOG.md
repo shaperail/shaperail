@@ -5,6 +5,17 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking
+
+- **`database:` (singular) config block removed** from `shaperail.config.yaml`. The block was parsed by `ProjectConfig` but never read at runtime — the runtime only ever consumed `databases:` (plural) or `DATABASE_URL`. Configs that retain the legacy block now fail to parse with a clear `unknown field 'database'` error. Migrate by replacing the block with `databases.default:` (preferred — see the new `shaperail init` template) or by relying on `DATABASE_URL` from `.env`. The `DatabaseConfig` type is also removed from `shaperail-core`.
+
+### Fixed
+
+- **`docker-compose.yml` Postgres healthcheck** no longer logs `FATAL: database "shaperail" does not exist` every 5 seconds (#7). The scaffolded healthcheck now reads `POSTGRES_USER` / `POSTGRES_DB` from the compose service environment, so it always probes the database that was actually created.
+- **`shaperail init` scaffolded `shaperail.config.yaml`** now emits a working `databases.default:` block with `${DATABASE_URL:postgresql://localhost/<project>}` interpolation (and an inline comment explaining the override) instead of the old, dead singular `database:` block (#8). Fresh projects connect cleanly without manual `.env` editing.
+
 ## [0.10.1] - 2026-05-01
 
 ### Fixed
