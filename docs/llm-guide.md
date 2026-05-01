@@ -93,7 +93,7 @@ For custom endpoints, provide `method:` and `path:` explicitly.
 | sort        | ✓    |        |     |        |        |        |
 | pagination  | ✓    |        |     |        |        |        |
 | cache       | ✓    | ✓      | ✓   |        |        | ✓      |
-| controller  | ✓    | ✓      | ✓   | ✓      | ✓      | ✓      |
+| controller  | ✓    | ✓      | ✓   | ✓      | ✓      |        |
 | events      |      | ✓      |     | ✓      | ✓      |        |
 | jobs        |      | ✓      |     | ✓      | ✓      |        |
 | soft_delete |      |        |     |        | ✓      |        |
@@ -106,7 +106,7 @@ Key details:
 - `auth`: list of role names from your auth config, or `owner` (matches record creator)
 - `pagination`: `cursor` (default) or `offset` — no other values
 - `cache`: `{ ttl: <seconds> }`
-- `controller`: `{ before: <fn_name> }` and/or `{ after: <fn_name> }` — fn in `resources/<name>.controller.rs`
+- `controller`: `{ before: <fn_name> }` and/or `{ after: <fn_name> }` — fn in `resources/<name>.controller.rs`. Only valid on CRUD endpoints (`list`/`get`/`create`/`update`/`delete`/`bulk_create`/`bulk_delete`). Declaring `controller:` on a custom endpoint (`handler:`) is a validation error.
 - `input`: list of field names from `schema:` — not field definitions
 - `sort`: list of field names that clients can sort by
 - `filters`: list of field names that clients can filter on
@@ -116,7 +116,7 @@ Key details:
 
 ## 5. Controller Pattern
 
-Reference a controller in an endpoint:
+Reference a controller in a CRUD endpoint:
 
 ```yaml
 endpoints:
@@ -130,33 +130,44 @@ The function lives in `resources/<resource_name>.controller.rs` (same directory 
 
 ```rust
 // resources/users.controller.rs
-use shaperail_runtime::ControllerContext;
+use shaperail_runtime::handlers::controller::{Context, ControllerResult};
+use shaperail_core::ShaperailError;
 
-// before hook — return Err("message") to abort with HTTP 422
-pub async fn validate_org(ctx: &mut ControllerContext) -> Result<(), String> {
-    let org_id = ctx.input["org_id"].as_str().ok_or("org_id required")?;
+// before hook — return Err(...) to abort with the corresponding HTTP error
+pub async fn validate_org(ctx: &mut Context) -> ControllerResult {
+    let org_id = ctx.input.get("org_id").and_then(|v| v.as_str()).ok_or(ShaperailError::Unauthorized)?;
     if org_id.is_empty() {
-        return Err("org_id must not be empty".into());
+        return Err(ShaperailError::Unauthorized);
     }
     Ok(())
 }
 
-// after hook — ctx.output has the created/updated record
-pub async fn notify_team(ctx: &ControllerContext) -> Result<(), String> {
-    let _id = &ctx.output["id"];
-    // fire side effects here
+// after hook — ctx.data has the created/updated record
+pub async fn notify_team(ctx: &mut Context) -> ControllerResult {
+    if let Some(data) = &ctx.data {
+        let _id = &data["id"];
+        // fire side effects here
+    }
     Ok(())
 }
 ```
 
-`ControllerContext` fields:
-| Field       | Type                  | Available in   | Description                                   |
-|-------------|-----------------------|----------------|-----------------------------------------------|
-| input       | serde_json::Value     | before + after | Request body (before) / saved record (after)  |
-| output      | serde_json::Value     | after only     | The record returned by the operation          |
-| user_id     | Option<uuid::Uuid>    | before + after | Authenticated user, None if no auth           |
-| tenant_id   | Option<uuid::Uuid>    | before + after | Current tenant, None if no multi-tenancy      |
-| resource    | &str                  | before + after | Resource name (e.g., "users")                 |
+`Context` fields:
+| Field            | Type                              | Available in   | Description                                                                  |
+|------------------|-----------------------------------|----------------|------------------------------------------------------------------------------|
+| `input`          | `serde_json::Map<String, Value>`  | before + after | Mutable request input. The same instance is shared across both phases.       |
+| `data`           | `Option<serde_json::Value>`       | after only     | The database result. `None` in before-controllers, `Some(...)` in after.     |
+| `session`        | `serde_json::Map<String, Value>`  | before + after | Cross-phase scratch space. Write in `before:`, read in `after:`. Never persisted. |
+| `response_extras`| `serde_json::Map<String, Value>`  | before + after | Merged into the response `data:` envelope. Never persisted.                  |
+| `user`           | `Option<AuthenticatedUser>`       | before + after | Authenticated user (`id`, `role`, `tenant_id`). `None` if no auth.           |
+| `tenant_id`      | `Option<String>`                  | before + after | Current tenant, when resource has `tenant_key`. `None` otherwise.            |
+| `pool`           | `sqlx::PgPool`                    | before + after | DB connection pool for custom queries.                                       |
+| `response_headers`| `Vec<(String, String)>`          | before + after | Push `(name, value)` pairs to add response headers.                          |
+
+The same `Context` struct instance is used for both phases. State written to
+`ctx.session` in the before-phase is visible in the after-phase. Use
+`ctx.response_extras` to send one-time values (like minted secrets) that must
+appear in the response but must never be stored.
 
 ---
 

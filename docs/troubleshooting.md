@@ -124,8 +124,11 @@ Too many concurrent requests for the pool size. Increase the pool in
 `shaperail.config.yaml`:
 
 ```yaml
-database:
-  max_connections: 20   # default is 10
+databases:
+  default:
+    engine: postgres
+    url: ${DATABASE_URL}
+    pool_size: 20   # default is 10
 ```
 
 Or reduce the number of Actix workers so each worker gets enough connections.
