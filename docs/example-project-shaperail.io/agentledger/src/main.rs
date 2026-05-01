@@ -883,16 +883,22 @@ async fn main() -> std::io::Result<()> {
     let metrics_state = web::Data::new(
         MetricsState::new().map_err(|e| io_error(format!("Failed to initialize metrics: {e}")))?,
     );
+    let (event_bus_tx, _) = tokio::sync::broadcast::channel(1024);
     let state = Arc::new(AppState {
         pool: pool.clone(),
         resources: resources.clone(),
         stores: Some(stores),
-        controllers: None,
+        controllers: Some(generated::build_controller_map()),
         jwt_config: jwt_config.clone(),
         cache,
         event_emitter,
         job_queue,
+        rate_limiter: None,
+        custom_handlers: Some(generated::build_handler_map()),
         metrics: Some(metrics_state.get_ref().clone()),
+        saga_executor: None,
+        wasm_runtime: None,
+        event_bus: event_bus_tx,
     });
     let health_state = web::Data::new(HealthState::new(Some(pool), redis_pool));
 
