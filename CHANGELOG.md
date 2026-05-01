@@ -11,10 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`database:` (singular) config block removed** from `shaperail.config.yaml`. The block was parsed by `ProjectConfig` but never read at runtime — the runtime only ever consumed `databases:` (plural) or `DATABASE_URL`. Configs that retain the legacy block now fail to parse with a clear `unknown field 'database'` error. Migrate by replacing the block with `databases.default:` (preferred — see the new `shaperail init` template) or by relying on `DATABASE_URL` from `.env`. The `DatabaseConfig` type is also removed from `shaperail-core`.
 
+### Added
+
+- **`shaperail_runtime::test_support`** — new module behind the `test-support` cargo feature, providing `TestServer`, `spawn_with_listener`, and `ensure_migrations_run`. Lets library consumers spin up the actix server in-process on an ephemeral port for integration tests, modeled on the zero2prod `TestApp` pattern (#4). See `agent_docs/testing-strategy.md` for the canonical lib/bin split that consumers should adopt to use it.
+- **`shaperail_runtime::auth::Claims`** is now re-exported from the auth module so consumers minting tokens for tests can use the canonical struct directly. `Claims` rustdoc spells out the required claim shape and includes a test-token recipe (#10).
+
 ### Fixed
 
 - **`docker-compose.yml` Postgres healthcheck** no longer logs `FATAL: database "shaperail" does not exist` every 5 seconds (#7). The scaffolded healthcheck now reads `POSTGRES_USER` / `POSTGRES_DB` from the compose service environment, so it always probes the database that was actually created.
 - **`shaperail init` scaffolded `shaperail.config.yaml`** now emits a working `databases.default:` block with `${DATABASE_URL:postgresql://localhost/<project>}` interpolation (and an inline comment explaining the override) instead of the old, dead singular `database:` block (#8). Fresh projects connect cleanly without manual `.env` editing.
+- **JWT auth middleware logs structured warnings on rejection.** Previously, requests with a malformed/expired JWT or with `token_type != "access"` returned a silent 401 with no log line. The middleware now emits `tracing::warn!` lines with the rejection reason (`decode failed` or `token_type must be "access"`) and the rejected `sub`/`token_type` fields. External response is unchanged (#10).
 
 ## [0.10.1] - 2026-05-01
 
