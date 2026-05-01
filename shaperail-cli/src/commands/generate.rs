@@ -71,12 +71,14 @@ pub(crate) fn write_generated_modules(
         let path = generated_dir.join(module.file_name);
         fs::write(&path, module.contents)
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+        shaperail_codegen::rust::rustfmt_in_place(&path);
         written.push(path);
     }
 
     let mod_path = generated_dir.join("mod.rs");
     fs::write(&mod_path, generated.mod_rs)
         .map_err(|e| format!("Failed to write {}: {e}", mod_path.display()))?;
+    shaperail_codegen::rust::rustfmt_in_place(&mod_path);
     written.push(mod_path);
 
     Ok(written)
