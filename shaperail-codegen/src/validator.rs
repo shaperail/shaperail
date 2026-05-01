@@ -196,6 +196,11 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
             }
 
             if let Some(controller) = &ep.controller {
+                // controller: is only valid on conventional CRUD endpoints.
+                if let Some(e) = validate_controller_only_on_crud(res, action, ep) {
+                    errors.push(e);
+                }
+
                 if let Some(before) = &controller.before {
                     if before.is_empty() {
                         errors.push(err(&format!(
@@ -406,6 +411,37 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
     }
 
     errors
+}
+
+/// Rejects `controller:` declarations on non-CRUD (custom) endpoints.
+///
+/// `controller:` is dispatched exclusively by the CRUD pipeline. Custom endpoints
+/// use `handler:` and own their own request/response flow — declaring a controller
+/// on them was previously a silent no-op. Now it is a hard validation error.
+fn validate_controller_only_on_crud(
+    resource: &str,
+    action: &str,
+    endpoint: &shaperail_core::EndpointSpec,
+) -> Option<ValidationError> {
+    const CRUD_ACTIONS: &[&str] = &[
+        "list",
+        "get",
+        "create",
+        "update",
+        "delete",
+        "bulk_create",
+        "bulk_delete",
+    ];
+    if !CRUD_ACTIONS.contains(&action) && endpoint.controller.is_some() {
+        return Some(err(&format!(
+            "resource '{resource}': endpoint '{action}' declares `controller:` but is a custom \
+             endpoint (dispatched via `handler:`). `controller` is only valid on conventional CRUD \
+             endpoints (list / get / create / update / delete / bulk_create / bulk_delete). For \
+             shared logic on custom handlers, use the typed `Subject` and tenant helpers from \
+             `shaperail_runtime::auth` directly inside your handler."
+        )));
+    }
+    None
 }
 
 /// Validates a controller name — either a Rust function name or a `wasm:` prefixed path.
@@ -918,5 +954,54 @@ schema:
         assert!(errors.iter().any(|e| e
             .message
             .contains("tenant_key 'org_name' must reference a uuid field")));
+    }
+
+    #[test]
+    fn reject_controller_on_custom_endpoint() {
+        let yaml = r#"
+resource: agents
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  regenerate_secret:
+    method: POST
+    path: /agents/:id/regenerate_secret
+    auth: [admin]
+    controller: { before: my_before }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors.iter().any(|e| e
+                .message
+                .contains("declares `controller:` but is a custom endpoint")),
+            "expected a CustomEndpointWithController error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn allow_controller_on_crud_endpoints() {
+        let yaml = r#"
+resource: agents
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    method: POST
+    path: /agents
+    input: [name]
+    controller: { before: my_before }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            !errors.iter().any(|e| e
+                .message
+                .contains("declares `controller:` but is a custom endpoint")),
+            "create endpoint with controller should NOT trip the rule, got: {errors:?}"
+        );
     }
 }

@@ -76,6 +76,76 @@ fn user_fixture() -> CreateUserInput {
 3. The endpoint that calls the changed function
 4. Run: `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`
 
+## Integration tests (`tests/integration.rs`) — `test_support` pattern
+
+`shaperail_runtime::test_support` (behind the `test-support` cargo feature) ships an in-process server-spawn helper modeled on the zero2prod `TestApp` pattern. To use it, expose your project's bootstrap as a `build_server(listener) -> std::io::Result<Server>` from `src/lib.rs`, and call it from `tests/integration.rs`:
+
+**`Cargo.toml`** — add an explicit `[lib]` target alongside the binary, plus dev-deps:
+
+```toml
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "my-app"
+path = "src/main.rs"
+
+[dev-dependencies]
+shaperail-runtime = { workspace = true, features = ["test-support"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+```
+
+**`src/lib.rs`** — extract the existing bootstrap into a function that takes a `TcpListener` and returns the unawaited `actix_web::dev::Server`:
+
+```rust
+use std::net::TcpListener;
+use actix_web::dev::Server;
+
+pub fn build_server(listener: TcpListener) -> std::io::Result<Server> {
+    // ... your existing bootstrap (config, pool, registry, channels, etc.) ...
+    let server = HttpServer::new(move || { /* ... */ })
+        .listen(listener)?
+        .run();
+    Ok(server)
+}
+```
+
+**`src/main.rs`** — collapse to a thin caller:
+
+```rust
+use std::net::TcpListener;
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    let port: u16 = std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(3000);
+    let listener = TcpListener::bind(("0.0.0.0", port))?;
+    my_app::build_server(listener)?.await
+}
+```
+
+**`tests/integration.rs`**:
+
+```rust
+use std::net::TcpListener;
+
+#[tokio::test]
+async fn health_responds_200() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = shaperail_runtime::test_support::spawn_with_listener(
+        listener,
+        my_app::build_server,
+    )
+    .await
+    .unwrap();
+    let resp = reqwest::get(server.url("/health")).await.unwrap();
+    assert_eq!(resp.status(), 200);
+}
+```
+
+`spawn_with_listener` returns a `TestServer` whose `Drop` aborts the spawned task. For database-backed tests, run migrations once per process via `shaperail_runtime::test_support::ensure_migrations_run(&pool).await?` — the helper uses a `tokio::sync::OnceCell` so parallel tests share a single sweep instead of contending on the migration advisory lock.
+
+Future versions of `shaperail init` will generate this lib/bin split for you. Until then, the manual lift above is a one-time edit per project.
+
 ## Current Test Counts (as of v0.2.2)
 | Crate | Tests | Notes |
 |-------|-------|-------|

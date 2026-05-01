@@ -20,9 +20,9 @@ mod workspace;
 
 pub use channel::{ChannelDefinition, ChannelHooks, WsClientMessage, WsServerMessage};
 pub use config::{
-    AuthConfig, CacheConfig, DatabaseConfig, EventSubscriber, EventTarget, EventsConfig,
-    GraphQLConfig, GrpcConfig, InboundWebhookConfig, LoggingConfig, NamedDatabaseConfig,
-    ProjectConfig, StorageConfig, WebhookConfig, WorkerCount,
+    AuthConfig, CacheConfig, EventSubscriber, EventTarget, EventsConfig, GraphQLConfig, GrpcConfig,
+    InboundWebhookConfig, LoggingConfig, NamedDatabaseConfig, ProjectConfig, StorageConfig,
+    WebhookConfig, WorkerCount,
 };
 pub use database::DatabaseEngine;
 pub use endpoint::{

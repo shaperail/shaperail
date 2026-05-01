@@ -17,9 +17,10 @@ grpc = ["dep:tonic", "dep:prost", "dep:prost-types", "dep:tonic-reflection", "de
 wasm-plugins = ["dep:wasmtime"]
 multi-db = ["dep:mongodb"]
 observability-otlp = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
+test-support = []
 
 [dependencies]
-shaperail-core = { version = "0.10.1", path = "../shaperail-core" }
+shaperail-core = { version = "0.11.0", path = "../shaperail-core" }
 actix-web = { workspace = true }
 actix-ws = { workspace = true }
 actix-multipart = { workspace = true }

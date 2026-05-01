@@ -451,7 +451,6 @@ Terse lookup tables. For patterns and examples, see the guide sections above.
 | project    | ✓        | Project name string                            |
 | port       |          | HTTP port (default 3000)                       |
 | workers    |          | `auto` or integer                              |
-| database   |          | Single DB: `type`, `host`, `port`, `name`      |
 | databases  |          | Multi-DB map: `engine`, `url`                  |
 | cache      |          | Redis: `url`                                   |
 | auth       |          | `provider: jwt`, `secret_env: JWT_SECRET`      |
@@ -492,17 +491,19 @@ fn scaffold(project_name: &str, root: &Path) -> Result<(), String> {
     }
 
     // shaperail.config.yaml
+    let db_name = project_name.replace('-', "_");
     let config = format!(
         r#"project: {project_name}
 port: 3000
 workers: auto
 
-database:
-  type: postgresql
-  host: localhost
-  port: 5432
-  name: {db_name}
-  pool_size: 20
+databases:
+  default:
+    engine: postgres
+    # `.env` sets DATABASE_URL, which overrides the fallback below.
+    # Edit `.env` (not this file) for local connection strings.
+    url: ${{DATABASE_URL:postgresql://localhost/{db_name}}}
+    pool_size: 20
 
 cache:
   type: redis
@@ -518,7 +519,6 @@ logging:
   level: info
   format: json
 "#,
-        db_name = project_name.replace('-', "_")
     );
     write_file(&root.join("shaperail.config.yaml"), &config)?;
 
@@ -1898,7 +1898,7 @@ shaperail serve
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shaperail"]
+      test: ["CMD-SHELL", "pg_isready -U $${{POSTGRES_USER}} -d $${{POSTGRES_DB}}"]
       interval: 5s
       timeout: 3s
       retries: 10
