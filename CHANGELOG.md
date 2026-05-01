@@ -5,6 +5,12 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-05-01
+
+### Fixed
+
+- **Cross-compile to `aarch64-unknown-linux-gnu` no longer requires system OpenSSL.** Switched `reqwest` from `native-tls` (default) to `rustls-tls`, dropping the `openssl-sys` dependency entirely. The 0.10.0 release shipped to crates.io but the GitHub Release binary build matrix failed because the cross-compile environment lacked ARM OpenSSL libraries. 0.10.1 is functionally identical to 0.10.0; the only change is the TLS backend.
+
 ## [0.10.0] - 2026-05-01
 
 ### Added
@@ -200,3 +206,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.8.0]: https://github.com/shaperail/shaperail/releases/tag/v0.8.0
 [0.9.0]: https://github.com/shaperail/shaperail/releases/tag/v0.9.0
 [0.10.0]: https://github.com/shaperail/shaperail/releases/tag/v0.10.0
+[0.10.1]: https://github.com/shaperail/shaperail/releases/tag/v0.10.1
