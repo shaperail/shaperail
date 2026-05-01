@@ -2,7 +2,35 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 
-/// JWT claims stored in every access token.
+/// JWT claims stored in every Shaperail-issued access or refresh token.
+///
+/// # Required claims
+///
+/// - `sub`: subject — the user ID, typically a UUID string.
+/// - `role`: must match a role declared in the resource YAML's `auth:` lists
+///   (or be `super_admin` for unrestricted access).
+/// - `iat` / `exp`: issued-at and expiration, both unix seconds.
+/// - `token_type`: `"access"` or `"refresh"`. Only `"access"` tokens authorize
+///   protected requests; `"refresh"` is valid only against the refresh endpoint.
+///
+/// # Optional claims
+///
+/// - `tenant_id`: required for non-`super_admin` roles to access tenant-scoped
+///   resources (M18). Missing or null on a tenant-scoped request → 401.
+///
+/// # Minting tokens for tests
+///
+/// Use [`JwtConfig::encode_access_with_tenant`]:
+///
+/// ```rust,no_run
+/// use shaperail_runtime::auth::JwtConfig;
+///
+/// let config = JwtConfig::new("test-secret-at-least-32-bytes-long!", 3600, 86400);
+/// let token = config
+///     .encode_access_with_tenant("user-123", "admin", Some("org-abc"))
+///     .unwrap();
+/// // Send as `Authorization: Bearer {token}`.
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     /// Subject — the user ID.

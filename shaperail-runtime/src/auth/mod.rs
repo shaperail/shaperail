@@ -6,6 +6,6 @@ pub mod rbac;
 pub mod tokens;
 
 pub use extractor::AuthenticatedUser;
-pub use jwt::JwtConfig;
+pub use jwt::{Claims, JwtConfig};
 pub use rate_limit::{RateLimitConfig, RateLimiter};
 pub use tokens::{RefreshRequest, TokenPair, TokenRequest};

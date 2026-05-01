@@ -54,10 +54,19 @@ fn extract_auth(req: &HttpRequest) -> Result<AuthenticatedUser, ShaperailError> 
             let jwt_config = req
                 .app_data::<web::Data<Arc<JwtConfig>>>()
                 .ok_or(ShaperailError::Internal("JWT not configured".to_string()))?;
-            let claims = jwt_config
-                .decode(token)
-                .map_err(|_| ShaperailError::Unauthorized)?;
+            let claims = jwt_config.decode(token).map_err(|err| {
+                tracing::warn!(
+                    error = %err,
+                    "JWT rejected: decode failed"
+                );
+                ShaperailError::Unauthorized
+            })?;
             if claims.token_type != "access" {
+                tracing::warn!(
+                    token_type = %claims.token_type,
+                    sub = %claims.sub,
+                    "JWT rejected: token_type must be \"access\""
+                );
                 return Err(ShaperailError::Unauthorized);
             }
             return Ok(AuthenticatedUser {
