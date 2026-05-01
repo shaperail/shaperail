@@ -31,7 +31,7 @@ use actix_web::dev::Server;
 /// Drops the underlying spawn handle on drop, terminating the server.
 pub struct TestServer {
     addr: SocketAddr,
-    handle: tokio::task::JoinHandle<std::io::Result<()>>,
+    handle: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
 }
 
 impl TestServer {
@@ -51,13 +51,10 @@ impl TestServer {
     }
 
     /// Aborts the spawned server task and returns its result if it had already finished.
-    pub async fn shutdown(self) -> std::io::Result<()> {
-        // Wrap in ManuallyDrop so we can move the handle out without running Drop.
-        let mut this = std::mem::ManuallyDrop::new(self);
-        // SAFETY: we are consuming `this` and not accessing it afterwards.
-        let handle = unsafe { std::ptr::read(&this.handle) };
-        // Suppress the unused warning from ManuallyDrop.
-        let _ = &mut this;
+    pub async fn shutdown(mut self) -> std::io::Result<()> {
+        let Some(handle) = self.handle.take() else {
+            return Ok(());
+        };
         handle.abort();
         match handle.await {
             Ok(res) => res,
@@ -69,7 +66,9 @@ impl TestServer {
 
 impl Drop for TestServer {
     fn drop(&mut self) {
-        self.handle.abort();
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
     }
 }
 
@@ -89,7 +88,10 @@ where
     let addr = listener.local_addr()?;
     let server = factory(listener)?;
     let handle = tokio::spawn(server);
-    Ok(TestServer { addr, handle })
+    Ok(TestServer {
+        addr,
+        handle: Some(handle),
+    })
 }
 
 /// Runs database migrations exactly once per process, regardless of how many tests
