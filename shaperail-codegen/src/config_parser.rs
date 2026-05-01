@@ -201,6 +201,25 @@ unknown: true
     }
 
     #[test]
+    fn parse_config_legacy_database_field_rejected() {
+        // The singular `database:` block was removed in v0.11. Existing configs
+        // must fail loudly so users migrate to `databases.default:` or DATABASE_URL.
+        let yaml = r#"
+project: legacy-app
+database:
+  type: postgresql
+  name: legacy_db
+"#;
+        let err = parse_config(yaml)
+            .expect_err("legacy `database:` block should be rejected after v0.11");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown field") && msg.contains("database"),
+            "expected error to name the rejected `database` field, got: {msg}"
+        );
+    }
+
+    #[test]
     fn parse_config_missing_env_without_default_fails() {
         std::env::remove_var("SHAPERAIL_TEST_MISSING");
         let yaml = "project: ${SHAPERAIL_TEST_MISSING}";
