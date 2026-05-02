@@ -12,6 +12,16 @@ dependencies_update = true
 release_always = false
 pr_name = "chore(release): {{ version }}"
 
+# Only commits matching this regex count toward "is there anything to release?"
+# Tightens the rule beyond commit_parsers below: even if a `chore(release):`
+# parser misbehaves and the changelog is empty, release-plz won't open a
+# release PR unless at least one user-facing commit exists in the range.
+#
+# Match feat/fix/perf/refactor either unscoped or with a crate scope. The
+# internal scopes (ci/release/deps/build/examples) are deliberately excluded
+# so internal-pipeline fixes never trigger a release on their own.
+release_commits = "^(feat|fix|perf|refactor)(\\(shaperail-(core|codegen|runtime|cli)\\))?[!]?:"
+
 # Use the existing CHANGELOG.md format.
 changelog_update = true
 

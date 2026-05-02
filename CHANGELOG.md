@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-05-02
+
+> **Note on version label.** Both bullet points under **Breaking** below would normally warrant a minor bump under this project's pre-1.0 semver convention (breaking changes go to `0.x+1.0`). They shipped under `0.11.3` due to a release-PR race in the new release-plz pipeline: an empty release PR was created during the pipeline cutover and was merged in parallel with the `feat!:` PR, so the version computation never saw the breaking-change commits. The published `0.11.3` artifacts on crates.io contain the changes described here regardless of the version label. The next user-visible change will trigger a clean `0.12.0`.
+
 ### Breaking
 
 - **`handler:` on convention action keys is now a hard validation error.** Declaring `handler: <fn>` on `list` / `get` / `update` / `create` / `delete` was previously silently dropped at codegen time — `collect_custom_handlers` filtered the entry out, the function was never registered, and the endpoint served the standard CRUD response. The new validator rule (`shaperail-codegen/src/validator.rs::validate_handler_only_on_custom`) rejects this with a clear error and a workaround that renames the endpoint key to a non-convention action (e.g. `post_<resource>`) with explicit `method:` / `path:`. To customize standard CRUD without replacing the runtime path, use `controller: { before: ... }` / `controller: { after: ... }` on the convention key. Closes Issue F.
@@ -285,3 +289,4 @@ In practice, the v0.11.0 versions of both functions were broken-by-design for th
 [0.11.0]: https://github.com/shaperail/shaperail/releases/tag/v0.11.0
 [0.11.1]: https://github.com/shaperail/shaperail/releases/tag/v0.11.1
 [0.11.2]: https://github.com/shaperail/shaperail/releases/tag/v0.11.2
+[0.11.3]: https://github.com/shaperail/shaperail/releases/tag/shaperail-cli-v0.11.3

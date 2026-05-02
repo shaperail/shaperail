@@ -240,6 +240,8 @@ A merge consisting only of bookkeeping commits does not open a release PR. That 
 - The generated CHANGELOG section follows Keep-a-Changelog with `Breaking` / `Added` / `Changed` / `Fixed` subsections. Subsections with no entries are skipped.
 - Hand-edits to the CHANGELOG inside the release PR branch are preserved — release-plz only regenerates if commits are added.
 - Once a release is published, **never edit its CHANGELOG section** — it is frozen historical record.
+- **Never merge a release PR with an empty changelog body.** If release-plz opens a `chore(release): X.Y.Z` PR whose body has no real entries (just `<details>...</details>` with blank lines), close it instead of merging — merging it ships an empty release that mislabels future user-facing changes. The `release_commits` regex in `release-plz.toml` is the primary guard against this, but treat the empty-body case as a final manual check.
+- **If two release PRs are open at once, close the older one.** This can happen during a pipeline transition or when a `feat!:` lands while a patch-only release PR is already open. Keep only the PR with the correct target version; release-plz will re-sync on the next push.
 
 **RUSTSEC advisories** must be either upgraded out (`cargo update -p <crate> --precise <version>`) or ignored in `.cargo/audit.toml` with a comment explaining the upstream block. `cargo audit` runs in `ci.yml` on every PR.
 
