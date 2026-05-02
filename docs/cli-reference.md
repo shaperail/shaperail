@@ -20,7 +20,7 @@ serve, then package.
 | `shaperail test [-- args...]` | Run generated and custom tests (`cargo test` with optional args). |
 | `shaperail migrate [--rollback]` | Generate missing initial create-table migrations and apply SQL migrations through `sqlx-cli`. `--rollback` reverts the last applied batch. |
 | `shaperail seed [path]` | Load fixture YAML from `seeds/` (or given path) into the database. Default path: `seeds`. |
-| `shaperail export openapi [--output FILE]` | Emit OpenAPI 3.1 spec to stdout or to a file. |
+| `shaperail export openapi [--output FILE]` | Emit OpenAPI 3.1 spec to stdout or to a file. Array fields now emit element schemas reflecting `items.type`, `items.min`/`max`, `items.values`, and `items.format`. Previously, array `items` were rendered as an empty schema. |
 | `shaperail export sdk --lang <lang> [--output DIR]` | Generate client SDK (e.g. `--lang ts` for TypeScript). |
 | `shaperail export json-schema [--output FILE]` | Emit JSON Schema for resource YAML files (for IDE/LLM validation). |
 | `shaperail explain <file>` | Dry-run: show what a resource YAML file will produce (routes, table, relations). |

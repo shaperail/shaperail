@@ -23,7 +23,8 @@ use super::params::{
 use super::relations::load_relations;
 use super::response;
 use super::validate::{
-    strip_transient_fields, validate_input, validate_input_shape, validate_required_present,
+    strip_transient_fields, validate_input, validate_input_shape, validate_item_references,
+    validate_required_present,
 };
 
 /// Shared application state holding the database pool, resource definitions, and auth config.
@@ -856,6 +857,7 @@ pub async fn handle_create(
 
     // PHASE 2: required-presence check + rule check on controller-injected keys
     validate_required_present(&ctx.input, &resource, &pre_controller_keys)?;
+    validate_item_references(&ctx.input, &resource, &state.pool).await?;
     // Drop transient input-only fields before persistence
     strip_transient_fields(&mut ctx.input, &resource);
 
@@ -903,6 +905,7 @@ pub async fn handle_create_upload(
     // M18: Auto-inject tenant_id into create input (mirrors handle_create)
     inject_tenant_into_input(&resource, user.as_ref(), &mut input_data);
     validate_input(&input_data, &resource)?;
+    validate_item_references(&input_data, &resource, &state.pool).await?;
     strip_transient_fields(&mut input_data, &resource);
 
     let store_opt = store_for_or_error(&state, &resource)?;
@@ -982,6 +985,7 @@ pub async fn handle_update(
 
     // POST-CONTROLLER shape check: re-run rules on any keys the controller injected
     validate_input_shape(&ctx.input, &resource)?;
+    validate_item_references(&ctx.input, &resource, &state.pool).await?;
     // Drop transient input-only fields before persistence
     strip_transient_fields(&mut ctx.input, &resource);
     let _ = pre_controller_keys; // reserved for future use (e.g. partial-update audit logging)
@@ -1049,6 +1053,7 @@ pub async fn handle_update_upload(
     }
 
     validate_input(&input_data, &resource)?;
+    validate_item_references(&input_data, &resource, &state.pool).await?;
     strip_transient_fields(&mut input_data, &resource);
 
     let row = if let Some(store) = store_opt {
@@ -1184,6 +1189,7 @@ pub async fn handle_bulk_create(
     for item in items {
         let mut input_data = extract_input_from_value(item, &resource, &endpoint)?;
         validate_input(&input_data, &resource)?;
+        validate_item_references(&input_data, &resource, &state.pool).await?;
         strip_transient_fields(&mut input_data, &resource);
         let row = if let Some(ref store) = store_opt {
             store.insert(&input_data).await?

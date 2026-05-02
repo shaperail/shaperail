@@ -1276,12 +1276,14 @@ fn sql_cast_type(field: &FieldSchema) -> String {
         FieldType::Timestamp => "timestamptz".to_string(),
         FieldType::Date => "date".to_string(),
         FieldType::Json => "jsonb".to_string(),
-        FieldType::Array => match field.items.as_deref() {
-            Some("uuid") => "uuid[]".to_string(),
-            Some("integer") => "integer[]".to_string(),
-            Some("bigint") => "bigint[]".to_string(),
-            Some("number") => "double precision[]".to_string(),
-            Some("boolean") => "boolean[]".to_string(),
+        FieldType::Array => match field.items.as_ref().map(|i| &i.field_type) {
+            Some(FieldType::Uuid) => "uuid[]".to_string(),
+            Some(FieldType::Integer) => "integer[]".to_string(),
+            Some(FieldType::Bigint) => "bigint[]".to_string(),
+            Some(FieldType::Number) => "double precision[]".to_string(),
+            Some(FieldType::Boolean) => "boolean[]".to_string(),
+            Some(FieldType::Timestamp) => "timestamptz[]".to_string(),
+            Some(FieldType::Date) => "date[]".to_string(),
             _ => "text[]".to_string(),
         },
     }
@@ -1298,14 +1300,14 @@ fn query_type(field: &FieldSchema) -> String {
         FieldType::Timestamp => "chrono::DateTime<chrono::Utc>".to_string(),
         FieldType::Date => "chrono::NaiveDate".to_string(),
         FieldType::Json => "serde_json::Value".to_string(),
-        FieldType::Array => match field.items.as_deref() {
-            Some("uuid") => "Vec<uuid::Uuid>".to_string(),
-            Some("integer") => "Vec<i32>".to_string(),
-            Some("bigint") => "Vec<i64>".to_string(),
-            Some("number") => "Vec<f64>".to_string(),
-            Some("boolean") => "Vec<bool>".to_string(),
-            Some("timestamp") => "Vec<chrono::DateTime<chrono::Utc>>".to_string(),
-            Some("date") => "Vec<chrono::NaiveDate>".to_string(),
+        FieldType::Array => match field.items.as_ref().map(|i| &i.field_type) {
+            Some(FieldType::Uuid) => "Vec<uuid::Uuid>".to_string(),
+            Some(FieldType::Integer) => "Vec<i32>".to_string(),
+            Some(FieldType::Bigint) => "Vec<i64>".to_string(),
+            Some(FieldType::Number) => "Vec<f64>".to_string(),
+            Some(FieldType::Boolean) => "Vec<bool>".to_string(),
+            Some(FieldType::Timestamp) => "Vec<chrono::DateTime<chrono::Utc>>".to_string(),
+            Some(FieldType::Date) => "Vec<chrono::NaiveDate>".to_string(),
             _ => "Vec<String>".to_string(),
         },
     }

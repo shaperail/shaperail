@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Element-level constraints on array `items:`.** `items:` now accepts a constraint map (`{ type: string, min: 3, max: 3 }`, `{ type: enum, values: [...] }`, `{ type: uuid, ref: organizations.id }`) in addition to the bare-name shorthand. Element validation runs per element with `<field>[<index>]` error paths; `items.ref` performs a runtime existence check on Postgres.
+
+### Fixed
+- **Migration numbering.** `shaperail migrate` now uses `max(numeric_prefix) + 1` instead of `count + 1`, so new migrations no longer collide with hand-written invariants migrations sitting past the highest auto-generated `_create_*` file.
+
 ## [0.12.0] - 2026-05-03
 
 ### Breaking

@@ -148,7 +148,7 @@ Schema fields use compact inline objects. Every attribute:
 | `sensitive` | Omitted from all responses; redacted in logs and error messages |
 | `transient` | Input-only field. Validated and exposed to the `before:` controller via `ctx.input`, but never persisted (no migration column, no SQL reference) and never returned in responses. Stripped from `ctx.input` after the before-controller runs. Must appear in some endpoint's `input:` list. |
 | `search` | Enables PostgreSQL full-text search via `to_tsvector` on this field |
-| `items` | Element type for `type: array` fields (required when type is array) |
+| `items` | Element type for `type: array` fields (required when type is array). Accepts a bare type name (`items: string`) or a constraint map (`{ type: string, min: 3, max: 3 }`) — see [Array element constraints](#array-element-constraints) below. |
 
 ### Supported field types
 
@@ -166,6 +166,32 @@ Schema fields use compact inline objects. Every attribute:
 | `json` | `JSONB` | `serde_json::Value` | Arbitrary JSON |
 | `array` | varies | `Vec<T>` | Requires `items` for element type |
 | `file` | `TEXT` | `String` | Stores file URL. Use with `upload:` on endpoints |
+
+### Array element constraints
+
+The `items:` key on an `array` field accepts either a bare type name (shorthand)
+or a constraint map that applies to every element:
+
+```yaml
+schema:
+  tags:       { type: array, items: string }                              # shorthand
+  currencies: { type: array, items: { type: string, min: 3, max: 3 } }  # element constraints
+  scores:     { type: array, items: { type: integer, min: 0, max: 100 } }
+  flags:      { type: array, items: { type: enum, values: [a, b, c] } }
+  org_ids:    { type: array, items: { type: uuid, ref: organizations.id } }
+```
+
+Constraint rules:
+
+- All element constraints (`min`, `max`, `values`, `format`) are enforced on
+  every write. A violation surfaces as `<field>[<index>]` in the error response
+  — for example, `currencies[0]` if the first currency string is too short.
+- `items.ref` performs a runtime existence check. On Postgres, the runtime runs
+  `SELECT … WHERE id = ANY($1::uuid[])` and rejects the write with code
+  `invalid_reference` if any element ID does not exist. This check is Postgres
+  only; non-Postgres databases do not support it.
+- Nested arrays are not supported. Use `type: json` for nested or hierarchical
+  structure.
 
 ## Endpoints
 

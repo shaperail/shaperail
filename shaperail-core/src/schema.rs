@@ -1,5 +1,103 @@
 use crate::FieldType;
+use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
+use std::fmt;
+
+/// Element specification for `type: array` fields.
+///
+/// Accepts two YAML shapes — both are equivalent for fields that need no element
+/// constraints:
+///
+/// ```yaml
+/// items: string                             # bare-name shorthand
+/// items: { type: string }                   # equivalent map form
+/// items: { type: string, min: 3, max: 3 }   # element-level constraints
+/// items: { type: enum, values: [a, b] }     # element allowlist
+/// items: { type: uuid, ref: organizations.id }  # FK array (Postgres only)
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ItemsSpec {
+    #[serde(rename = "type")]
+    pub field_type: FieldType,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<serde_json::Value>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<serde_json::Value>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<String>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "ref")]
+    pub reference: Option<String>,
+}
+
+impl ItemsSpec {
+    /// Constructs a bare `ItemsSpec` with only `field_type` set.
+    pub fn of(field_type: FieldType) -> Self {
+        Self {
+            field_type,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            reference: None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ItemsSpec {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ItemsSpecVisitor;
+
+        impl<'de> Visitor<'de> for ItemsSpecVisitor {
+            type Value = ItemsSpec;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a type name (e.g. \"string\") or a constraint map with `type:`")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                let field_type = FieldType::deserialize(de::value::StrDeserializer::new(v))?;
+                Ok(ItemsSpec::of(field_type))
+            }
+
+            fn visit_map<M: MapAccess<'de>>(self, map: M) -> Result<Self::Value, M::Error> {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Inner {
+                    #[serde(rename = "type")]
+                    field_type: FieldType,
+                    #[serde(default)]
+                    min: Option<serde_json::Value>,
+                    #[serde(default)]
+                    max: Option<serde_json::Value>,
+                    #[serde(default)]
+                    format: Option<String>,
+                    #[serde(default)]
+                    values: Option<Vec<String>>,
+                    #[serde(default, rename = "ref")]
+                    reference: Option<String>,
+                }
+                let inner = Inner::deserialize(de::value::MapAccessDeserializer::new(map))?;
+                Ok(ItemsSpec {
+                    field_type: inner.field_type,
+                    min: inner.min,
+                    max: inner.max,
+                    format: inner.format,
+                    values: inner.values,
+                    reference: inner.reference,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(ItemsSpecVisitor)
+    }
+}
 
 /// Definition of a single field in a resource schema.
 ///
@@ -68,7 +166,7 @@ pub struct FieldSchema {
 
     /// Element type for array fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub items: Option<String>,
+    pub items: Option<ItemsSpec>,
 
     /// Input-only field: validated and exposed to the before-controller in `ctx.input`,
     /// but never persisted (no migration column, no SQL reference) and never returned
@@ -160,5 +258,64 @@ mod tests {
         let json = serde_json::to_string(&fs).unwrap();
         let back: FieldSchema = serde_json::from_str(&json).unwrap();
         assert_eq!(fs, back);
+    }
+
+    #[test]
+    fn items_spec_bare_string_form() {
+        let yaml = r#"type: array
+items: string"#;
+        let fs: FieldSchema = serde_yaml::from_str(yaml).unwrap();
+        let items = fs.items.expect("items present");
+        assert_eq!(items.field_type, FieldType::String);
+        assert!(items.min.is_none());
+        assert!(items.max.is_none());
+        assert!(items.values.is_none());
+        assert!(items.reference.is_none());
+        assert!(items.format.is_none());
+    }
+
+    #[test]
+    fn items_spec_full_map_form() {
+        let yaml = r#"type: array
+items: { type: string, min: 3, max: 3 }"#;
+        let fs: FieldSchema = serde_yaml::from_str(yaml).unwrap();
+        let items = fs.items.expect("items present");
+        assert_eq!(items.field_type, FieldType::String);
+        assert_eq!(items.min, Some(serde_json::json!(3)));
+        assert_eq!(items.max, Some(serde_json::json!(3)));
+    }
+
+    #[test]
+    fn items_spec_enum_form() {
+        let yaml = r#"type: array
+items: { type: enum, values: [a, b, c] }"#;
+        let fs: FieldSchema = serde_yaml::from_str(yaml).unwrap();
+        let items = fs.items.expect("items present");
+        assert_eq!(items.field_type, FieldType::Enum);
+        assert_eq!(
+            items.values.as_deref(),
+            Some(["a".to_string(), "b".to_string(), "c".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn items_spec_uuid_ref_form() {
+        let yaml = r#"type: array
+items: { type: uuid, ref: organizations.id }"#;
+        let fs: FieldSchema = serde_yaml::from_str(yaml).unwrap();
+        let items = fs.items.expect("items present");
+        assert_eq!(items.field_type, FieldType::Uuid);
+        assert_eq!(items.reference.as_deref(), Some("organizations.id"));
+    }
+
+    #[test]
+    fn items_spec_unknown_field_rejected() {
+        let yaml = r#"type: array
+items: { type: string, unknown_key: 1 }"#;
+        let result: Result<FieldSchema, _> = serde_yaml::from_str(yaml);
+        assert!(
+            result.is_err(),
+            "unknown field on ItemsSpec must be rejected"
+        );
     }
 }
