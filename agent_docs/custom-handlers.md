@@ -9,7 +9,9 @@ Unlike CRUD endpoints, custom handlers do **not** inherit:
 - Automatic input validation against the resource's `schema:` and the endpoint's `input:`.
 - Automatic tenant isolation (`WHERE tenant_key = $tenant`).
 - Automatic event emission (`events:`).
-- The before/after controller pipeline (`controller: { before, after }`). Declaring `controller:` on a custom endpoint is a validation error in v0.11+.
+- The full before/after controller pipeline. Specifically:
+  - `controller: { before: <name> }` IS supported on custom endpoints (see the section below).
+  - `controller: { after: <name> }` is a validation error on custom endpoints — custom handlers own their response shape, so there is no place to merge `ctx.response_extras` after they return.
 
 You write that logic explicitly inside the handler.
 
@@ -61,9 +63,55 @@ pub async fn regenerate_secret(
 
 For post-fetch checks (read-then-validate flows), use `assert_tenant_match(record_tenant_id)` instead.
 
+## Auto-populating tenant context via `controller: { before: ... }`
+
+If you declare a `before:` controller on a custom endpoint, the runtime
+runs the same hook pipeline as CRUD endpoints get and stashes the resulting
+`Context` into the request's actix extensions. Your handler can read
+`tenant_id`, `user`, `session`, and `response_extras` from there:
+
+```yaml
+# resources/agents.yaml
+endpoints:
+  regenerate_secret:
+    method: POST
+    path: /agents/:id/regenerate_secret
+    auth: [super_admin, admin]
+    controller: { before: prepare_secret_rotation }
+    handler: regenerate_secret
+```
+
+```rust
+// resources/agents.controller.rs — runs before the handler
+pub async fn prepare_secret_rotation(ctx: &mut Context) -> ControllerResult {
+    // ctx.tenant_id is already populated; use it for cross-handler logic.
+    // Stash anything you want the handler to see in ctx.session.
+    ctx.session.insert("rotation_started_at".into(), json!(chrono::Utc::now()));
+    Ok(())
+}
+
+// resources/agents.handlers.rs — runs after the before-controller
+pub async fn regenerate_secret(
+    req: HttpRequest,
+    state: Arc<AppState>,
+    _resource: Arc<ResourceDefinition>,
+    _endpoint: Arc<EndpointSpec>,
+) -> HttpResponse {
+    use shaperail_runtime::handlers::controller::Context;
+    let ctx = req.extensions().get::<Context>().cloned();
+    let tenant = ctx.as_ref().and_then(|c| c.tenant_id.as_deref());
+    // ... use tenant for SQL scoping ...
+}
+```
+
+`after:` controllers are NOT supported on custom endpoints because the
+custom handler owns the response shape — there's no `data:` envelope for
+the runtime to merge `response_extras` into. If your logic needs an
+after-pass, factor it into a helper called from the handler.
+
 ## Sharing logic across custom handlers
 
-There is no controller pipeline for custom endpoints — that's why declaring `controller:` on a custom endpoint is rejected. Share logic the normal Rust way: extract a helper function in `resources/<name>.handlers.rs` and call it from each handler. The framework's job is to give you `Subject` and the runtime's `AppState`; your job is to use them.
+For endpoints without a before-controller, share logic the normal Rust way: extract a helper function in `resources/<name>.handlers.rs` and call it from each handler. The framework's job is to give you `Subject` and the runtime's `AppState`; your job is to use them.
 
 ## What if I want CRUD-style hooks?
 
