@@ -34,23 +34,36 @@ publish = true
 publish_features = []
 allow_dirty = false
 
-# Per-crate overrides: explicit publish=true and the dependency-driven
-# publish order is computed automatically by cargo.
+# Per-crate overrides. All four crates share `workspace.package.version`
+# (each declares `version.workspace = true`) and must release together at
+# one version. `version_group = "workspace"` tells release-plz to assign
+# the same version — the highest among the next versions of the grouped
+# packages — to every crate in the group, instead of computing per-crate
+# versions independently. Without this, a `feat!:` that touches only
+# shaperail-runtime bumps just that crate, leaving codegen/core stuck and
+# causing `cargo update` to fail with "candidate versions found which
+# didn't match: 0.12.0" because internal `version = "0.11.3"` pins on the
+# unbumped crates won't satisfy `^0.11.3` against a 0.12.0 path-resolved
+# dep.
 [[package]]
 name = "shaperail-core"
 publish = true
+version_group = "workspace"
 
 [[package]]
 name = "shaperail-codegen"
 publish = true
+version_group = "workspace"
 
 [[package]]
 name = "shaperail-runtime"
 publish = true
+version_group = "workspace"
 
 [[package]]
 name = "shaperail-cli"
 publish = true
+version_group = "workspace"
 
 # Conventional-commit changelog grouping. Headings and order match the
 # existing CHANGELOG.md sections (Breaking, Added, Changed, Fixed).
