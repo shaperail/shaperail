@@ -793,3 +793,138 @@ async fn test_sql_injection_cursor_invalid(pool: sqlx::PgPool) {
         "Malicious cursor must yield error, not execute SQL"
     );
 }
+
+// ---------------------------------------------------------------------------
+// validate_item_references tests
+// ---------------------------------------------------------------------------
+
+/// Build a ResourceDefinition with a single array-of-uuid field whose
+/// items.ref points at "test_orgs.id".
+fn items_ref_resource() -> ResourceDefinition {
+    use shaperail_core::ItemsSpec;
+
+    let mut schema = IndexMap::new();
+    schema.insert(
+        "id".to_string(),
+        FieldSchema {
+            field_type: FieldType::Uuid,
+            primary: true,
+            generated: true,
+            required: false,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient: false,
+        },
+    );
+    let mut items = ItemsSpec::of(FieldType::Uuid);
+    items.reference = Some("test_orgs.id".to_string());
+    schema.insert(
+        "org_ids".to_string(),
+        FieldSchema {
+            field_type: FieldType::Array,
+            primary: false,
+            generated: false,
+            required: false,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: Some(items),
+            transient: false,
+        },
+    );
+    ResourceDefinition {
+        resource: "items_ref_test".to_string(),
+        version: 1,
+        db: None,
+        tenant_key: None,
+        schema,
+        endpoints: None,
+        relations: None,
+        indexes: None,
+    }
+}
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn items_ref_happy_path(pool: sqlx::PgPool) {
+    use shaperail_runtime::handlers::validate::validate_item_references;
+
+    // Insert two organizations with known IDs.
+    let org1 = uuid::Uuid::new_v4();
+    let org2 = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO \"test_orgs\" (\"id\", \"name\") VALUES ($1, 'Org One'), ($2, 'Org Two')",
+    )
+    .bind(org1)
+    .bind(org2)
+    .execute(&pool)
+    .await
+    .expect("Insert orgs failed");
+
+    let resource = items_ref_resource();
+    let mut data = serde_json::Map::new();
+    data.insert(
+        "org_ids".to_string(),
+        serde_json::json!([org1.to_string(), org2.to_string()]),
+    );
+
+    let result = validate_item_references(&data, &resource, &pool).await;
+    assert!(
+        result.is_ok(),
+        "Both org IDs exist — expected Ok, got: {result:?}"
+    );
+}
+
+#[sqlx::test(migrations = "tests/fixtures/migrations")]
+async fn items_ref_missing_id_rejects(pool: sqlx::PgPool) {
+    use shaperail_core::ShaperailError;
+    use shaperail_runtime::handlers::validate::validate_item_references;
+
+    // Insert one organization.
+    let existing_org = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO \"test_orgs\" (\"id\", \"name\") VALUES ($1, 'Existing Org')")
+        .bind(existing_org)
+        .execute(&pool)
+        .await
+        .expect("Insert org failed");
+
+    let missing_id = uuid::Uuid::new_v4();
+
+    let resource = items_ref_resource();
+    let mut data = serde_json::Map::new();
+    data.insert(
+        "org_ids".to_string(),
+        serde_json::json!([existing_org.to_string(), missing_id.to_string()]),
+    );
+
+    let result = validate_item_references(&data, &resource, &pool).await;
+    match result {
+        Err(ShaperailError::Validation(errors)) => {
+            let err = errors
+                .iter()
+                .find(|e| e.field == "org_ids" && e.code == "invalid_reference")
+                .expect("Expected invalid_reference error on org_ids");
+            assert!(
+                err.message.contains(&missing_id.to_string()),
+                "Error message should surface the missing UUID; got: {}",
+                err.message
+            );
+        }
+        other => panic!("Expected Validation(invalid_reference), got: {other:?}"),
+    }
+}

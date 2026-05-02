@@ -44,6 +44,25 @@ schema:
 | `array`     | type[]          | Vec<T>                 | add `items: type`            |
 | `file`      | TEXT (URL)      | FileRef                | stored in storage backend    |
 
+### Array element constraints
+
+`items:` accepts either a bare type name (shorthand) or a constraint map:
+
+```yaml
+schema:
+  tags:        { type: array, items: string }                          # legacy shorthand
+  currencies:  { type: array, items: { type: string, min: 3, max: 3 } }  # element-level constraints
+  scores:      { type: array, items: { type: integer, min: 0, max: 100 } }
+  flags:       { type: array, items: { type: enum, values: [a, b, c] } }
+  org_ids:     { type: array, items: { type: uuid, ref: organizations.id } }
+```
+
+Element-level constraints are validated per element on every write. Errors surface as `<field>[<index>]` (e.g. `currencies[0]` for a too-short string at index 0).
+
+`items.ref` performs a runtime existence check via `SELECT … WHERE id = ANY($1::uuid[])` and rejects the write with code `invalid_reference` if any element doesn't exist. Postgres only — non-Postgres backends are not supported for this feature.
+
+Nested arrays are not supported. Use `type: json` for nested structure.
+
 ## Field Constraints
 ```
 primary: true      # primary key

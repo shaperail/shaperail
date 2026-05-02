@@ -267,7 +267,57 @@ fn field_schema_to_openapi(schema: &FieldSchema) -> serde_json::Value {
         }
         FieldType::Array => {
             obj.insert("type".to_string(), serde_json::json!("array"));
-            obj.insert("items".to_string(), serde_json::json!({}));
+            let items_obj = if let Some(items) = &schema.items {
+                let mut item = serde_json::Map::new();
+                let element_type = match items.field_type {
+                    FieldType::String | FieldType::Enum | FieldType::Uuid | FieldType::File => {
+                        "string"
+                    }
+                    FieldType::Integer => "integer",
+                    FieldType::Bigint => "integer",
+                    FieldType::Number => "number",
+                    FieldType::Boolean => "boolean",
+                    FieldType::Timestamp | FieldType::Date => "string",
+                    FieldType::Json => "object",
+                    FieldType::Array => "array",
+                };
+                item.insert("type".to_string(), serde_json::json!(element_type));
+                if matches!(items.field_type, FieldType::Uuid) {
+                    item.insert("format".to_string(), serde_json::json!("uuid"));
+                }
+                if matches!(items.field_type, FieldType::Timestamp) {
+                    item.insert("format".to_string(), serde_json::json!("date-time"));
+                }
+                if matches!(items.field_type, FieldType::Date) {
+                    item.insert("format".to_string(), serde_json::json!("date"));
+                }
+                if let Some(format) = &items.format {
+                    item.insert("format".to_string(), serde_json::json!(format));
+                }
+                if let Some(values) = &items.values {
+                    item.insert("enum".to_string(), serde_json::json!(values));
+                }
+                if let Some(min) = &items.min {
+                    let key = if matches!(items.field_type, FieldType::String | FieldType::Enum) {
+                        "minLength"
+                    } else {
+                        "minimum"
+                    };
+                    item.insert(key.to_string(), min.clone());
+                }
+                if let Some(max) = &items.max {
+                    let key = if matches!(items.field_type, FieldType::String | FieldType::Enum) {
+                        "maxLength"
+                    } else {
+                        "maximum"
+                    };
+                    item.insert(key.to_string(), max.clone());
+                }
+                serde_json::Value::Object(item)
+            } else {
+                serde_json::json!({})
+            };
+            obj.insert("items".to_string(), items_obj);
         }
         FieldType::File => {
             obj.insert("type".to_string(), serde_json::json!("string"));
@@ -1272,5 +1322,57 @@ mod tests {
         assert!(err["properties"]["error"]["properties"]["code"].is_object());
         assert!(err["properties"]["error"]["properties"]["status"].is_object());
         assert!(err["properties"]["error"]["properties"]["message"].is_object());
+    }
+
+    #[test]
+    fn openapi_array_items_emits_element_constraints() {
+        let mut items = shaperail_core::ItemsSpec::of(shaperail_core::FieldType::String);
+        items.min = Some(serde_json::json!(3));
+        items.max = Some(serde_json::json!(3));
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "currencies".to_string(),
+            shaperail_core::FieldSchema {
+                field_type: shaperail_core::FieldType::Array,
+                items: Some(items),
+                primary: false,
+                generated: false,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                transient: false,
+            },
+        );
+        let resource = shaperail_core::ResourceDefinition {
+            resource: "vendors".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        let config = test_config();
+        let spec = generate(&config, &[resource]);
+        let json = serde_json::to_string(&spec).unwrap();
+        assert!(
+            json.contains("\"minLength\":3"),
+            "minLength missing: {json}"
+        );
+        assert!(
+            json.contains("\"maxLength\":3"),
+            "maxLength missing: {json}"
+        );
     }
 }
