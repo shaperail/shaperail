@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use actix_multipart::Multipart;
-use actix_web::{web, HttpRequest};
+use actix_web::{web, HttpMessage, HttpRequest};
 use shaperail_core::{HttpMethod, ResourceDefinition};
 
 use super::crud::{self, AppState};
@@ -194,6 +195,60 @@ pub fn register_resource(
                             let r = r.clone();
                             let action = action_owned.clone();
                             async move {
+                                // If the endpoint declares a before:-controller, build a Context,
+                                // run the hook, and stash the result in req.extensions_mut() so
+                                // the custom handler can read it via
+                                // req.extensions().get::<Context>().
+                                let before_name = ep
+                                    .controller
+                                    .as_ref()
+                                    .and_then(|c| c.before.as_deref())
+                                    .map(|s| s.to_string());
+                                if let Some(before_name) = before_name {
+                                    let user = crate::auth::extractor::try_extract_auth(&req);
+                                    let headers: HashMap<String, String> = req
+                                        .headers()
+                                        .iter()
+                                        .map(|(k, v)| {
+                                            (
+                                                k.to_string(),
+                                                v.to_str().unwrap_or("").to_string(),
+                                            )
+                                        })
+                                        .collect();
+                                    let tenant_id =
+                                        crud::resolve_tenant_id(&r, user.as_ref());
+                                    let mut ctx = super::controller::Context {
+                                        input: serde_json::Map::new(),
+                                        data: None,
+                                        user: user.clone(),
+                                        pool: state.pool.clone(),
+                                        headers,
+                                        response_headers: vec![],
+                                        tenant_id,
+                                        session: serde_json::Map::new(),
+                                        response_extras: serde_json::Map::new(),
+                                    };
+                                    #[cfg(feature = "wasm-plugins")]
+                                    let wasm_rt = state.wasm_runtime.as_ref();
+                                    #[cfg(not(feature = "wasm-plugins"))]
+                                    let wasm_rt: Option<&()> = None;
+                                    if let Err(e) = super::controller::dispatch_controller(
+                                        &before_name,
+                                        &r.resource,
+                                        &mut ctx,
+                                        state.controllers.as_ref(),
+                                        wasm_rt,
+                                    )
+                                    .await
+                                    {
+                                        use actix_web::ResponseError;
+                                        return e.error_response();
+                                    }
+                                    req.extensions_mut()
+                                        .insert(ctx);
+                                }
+
                                 let resource_name = r.resource.clone();
                                 let key = super::custom::handler_key(&resource_name, &action);
                                 let handler = state
