@@ -80,5 +80,4 @@ commit_parsers = [
     { message = "^build", skip = true },
 ]
 
-filter_commits = true
 sort_commits = "newest"
