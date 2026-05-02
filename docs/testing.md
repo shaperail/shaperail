@@ -981,14 +981,20 @@ multiple server instances will each get a unique port with no conflicts.
 For database-backed integration tests, call `ensure_migrations_run` before your
 first query. The helper is gated on a `tokio::sync::OnceCell`, so parallel
 tests share a single migration sweep instead of contending on the Postgres
-advisory lock:
+advisory lock.
+
+Pass the path to your project's own `migrations/` directory. Use
+`std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"))` for
+an absolute path that works regardless of where `cargo test` is invoked from:
 
 ```rust
+use std::path::Path;
 use shaperail_runtime::test_support::ensure_migrations_run;
 
 #[tokio::test]
 async fn test_create_user(pool: sqlx::PgPool) {
-    ensure_migrations_run(&pool).await.expect("migrations");
+    let migrations = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"));
+    ensure_migrations_run(&pool, migrations).await.expect("migrations");
     // ... test body ...
 }
 ```

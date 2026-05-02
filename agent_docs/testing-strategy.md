@@ -142,7 +142,7 @@ async fn health_responds_200() {
 }
 ```
 
-`spawn_with_listener` returns a `TestServer` whose `Drop` aborts the spawned task. For database-backed tests, run migrations once per process via `shaperail_runtime::test_support::ensure_migrations_run(&pool).await?` — the helper uses a `tokio::sync::OnceCell` so parallel tests share a single sweep instead of contending on the migration advisory lock.
+`spawn_with_listener` returns a `TestServer` whose `Drop` aborts the spawned task. For database-backed tests, run migrations once per process via `shaperail_runtime::test_support::ensure_migrations_run(&pool, migrations_dir).await?` — the helper uses a `tokio::sync::OnceCell` so parallel tests share a single sweep instead of contending on the migration advisory lock. Pass the consumer's own migrations directory (e.g. `Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"))`); the runtime `Migrator::new` API resolves the path at runtime rather than at macro-expansion time, so the path always points at the consumer's migrations even when called through the helper crate.
 
 Future versions of `shaperail init` will generate this lib/bin split for you. Until then, the manual lift above is a one-time edit per project.
 
