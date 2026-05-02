@@ -257,3 +257,7 @@ cargo install shaperail-cli@X.Y.Z                        # crates.io has it
 Cross-platform binaries take ~15 minutes (Windows MSVC is the long pole). crates.io publish completes earlier, so `cargo install` works before the GitHub Release page shows binaries.
 
 Configuration lives in `release-plz.toml` at the repo root. Required GitHub secret: `CARGO_REGISTRY_TOKEN` with publish scope for all four crates.
+
+**Internal crate version pins live ONLY in `[workspace.dependencies]` in the root `Cargo.toml`.** Each consumer's `[dependencies]` section uses `<crate>.workspace = true` to inherit. Do not add explicit `version = "..."` pins on `shaperail-*` deps in any consumer crate — release-plz's per-crate analysis can leave such pins stale when `version_group = "workspace"` lifts a crate that had no commits of its own, causing `cargo update` to fail with "candidate versions found which didn't match: X.Y.Z". One-place inheritance sidesteps this.
+
+**Do NOT set `release_always = false` in `release-plz.toml`.** It blocks the publish step on commits that weren't merged through a release-plz-generated PR (e.g. manual version bumps), so a stuck release becomes "skipping release: current commit is not from a release PR". Empty release PRs are already prevented by the `release_commits` regex; we don't need this flag.
