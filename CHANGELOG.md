@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking
 
 - **`database:` (singular) config block removed** from `shaperail.config.yaml`. The block was parsed by `ProjectConfig` but never read at runtime — the runtime only ever consumed `databases:` (plural) or `DATABASE_URL`. Configs that retain the legacy block now fail to parse with a clear `unknown field 'database'` error. Migrate by replacing the block with `databases.default:` (preferred — see the new `shaperail init` template) or by relying on `DATABASE_URL` from `.env`. The `DatabaseConfig` type is also removed from `shaperail-core`.
-- **`controller:` declared on a non-CRUD (custom) endpoint is now rejected** at validation time (`shaperail check`). The old behavior was a silent no-op — the runtime dispatched custom endpoints via `handler:` only and never invoked declared controllers. Move shared logic into the custom handler itself; use `shaperail_runtime::auth::Subject` for auth and tenant scoping (#1).
+- **`controller: { after: ... }` declared on a non-CRUD (custom) endpoint is now rejected** at validation time (`shaperail check`). The old behavior was a silent no-op — the runtime dispatched custom endpoints via `handler:` only and never invoked declared controllers. `controller: { before: ... }` is now supported on custom endpoints: the runtime builds a `Context` with auto-populated `tenant_id`, dispatches the before-hook, and stashes the result in `req.extensions_mut()` so the handler can read it via `req.extensions().get::<Context>()`. For purely manual tenant scoping, use `shaperail_runtime::auth::Subject` directly (#1).
 
 ### Added
 

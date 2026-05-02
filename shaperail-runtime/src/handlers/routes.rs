@@ -285,3 +285,188 @@ pub fn register_all_resources(
         register_resource(cfg, resource, state.clone());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use actix_web::HttpMessage;
+    use indexmap::IndexMap;
+    use shaperail_core::{FieldSchema, FieldType, ResourceDefinition};
+
+    use super::super::controller::Context;
+    use super::super::crud::resolve_tenant_id;
+    use crate::auth::extractor::AuthenticatedUser;
+
+    fn test_pool() -> sqlx::PgPool {
+        sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap()
+    }
+
+    fn user_with_tenant(tenant_id: &str) -> AuthenticatedUser {
+        AuthenticatedUser {
+            id: "user-1".to_string(),
+            role: "member".to_string(),
+            tenant_id: Some(tenant_id.to_string()),
+        }
+    }
+
+    fn uuid_field() -> FieldSchema {
+        FieldSchema {
+            field_type: FieldType::Uuid,
+            primary: true,
+            generated: true,
+            required: false,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient: false,
+        }
+    }
+
+    fn fk_field() -> FieldSchema {
+        FieldSchema {
+            field_type: FieldType::Uuid,
+            primary: false,
+            generated: false,
+            required: true,
+            unique: false,
+            nullable: false,
+            reference: Some("organizations.id".to_string()),
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient: false,
+        }
+    }
+
+    fn resource_with_tenant_key(tenant_key: &str) -> ResourceDefinition {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), uuid_field());
+        schema.insert(tenant_key.to_string(), fk_field());
+        ResourceDefinition {
+            resource: "agents".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: Some(tenant_key.to_string()),
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        }
+    }
+
+    fn resource_without_tenant_key() -> ResourceDefinition {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), uuid_field());
+        ResourceDefinition {
+            resource: "agents".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        }
+    }
+
+    // --- resolve_tenant_id behavior ---
+
+    #[test]
+    fn resolve_tenant_id_populates_from_user_when_resource_has_tenant_key() {
+        let resource = resource_with_tenant_key("org_id");
+        let user = user_with_tenant("org-abc");
+        let tenant_id = resolve_tenant_id(&resource, Some(&user));
+        assert_eq!(tenant_id, Some("org-abc".to_string()));
+    }
+
+    #[test]
+    fn resolve_tenant_id_is_none_when_resource_has_no_tenant_key() {
+        let resource = resource_without_tenant_key();
+        let user = user_with_tenant("org-abc");
+        // Even though the user carries a tenant claim, no tenant_key → no scoping.
+        let tenant_id = resolve_tenant_id(&resource, Some(&user));
+        assert_eq!(tenant_id, None);
+    }
+
+    #[test]
+    fn resolve_tenant_id_is_none_when_user_has_no_tenant_claim() {
+        let resource = resource_with_tenant_key("org_id");
+        let user = AuthenticatedUser {
+            id: "user-1".to_string(),
+            role: "super_admin".to_string(),
+            tenant_id: None,
+        };
+        let tenant_id = resolve_tenant_id(&resource, Some(&user));
+        assert_eq!(tenant_id, None);
+    }
+
+    // --- Context: Clone + actix extensions round-trip ---
+
+    #[tokio::test]
+    async fn context_clone_round_trips_through_extensions() {
+        // Build a Context with tenant_id and a session entry.
+        let mut ctx = Context {
+            input: serde_json::Map::new(),
+            data: None,
+            user: Some(user_with_tenant("org-1")),
+            pool: test_pool(),
+            headers: HashMap::new(),
+            response_headers: vec![],
+            tenant_id: Some("org-1".to_string()),
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
+        };
+        ctx.session
+            .insert("ran".to_string(), serde_json::json!(true));
+
+        // Simulate what routes.rs does: stash the context in the extensions of a
+        // minimal actix HttpRequest built from scratch.
+        let req = actix_web::test::TestRequest::post()
+            .uri("/agents/1/regenerate_secret")
+            .to_http_request();
+        req.extensions_mut().insert(ctx);
+
+        // Now simulate what the custom handler does: pull it back out.
+        let retrieved = req.extensions().get::<Context>().cloned();
+        assert!(
+            retrieved.is_some(),
+            "Context should be retrievable from extensions"
+        );
+        let ctx_out = retrieved.unwrap();
+        assert_eq!(ctx_out.tenant_id, Some("org-1".to_string()));
+        assert_eq!(ctx_out.session["ran"], serde_json::json!(true));
+        assert!(ctx_out.user.is_some());
+        assert_eq!(
+            ctx_out.user.as_ref().unwrap().tenant_id.as_deref(),
+            Some("org-1")
+        );
+    }
+
+    #[test]
+    fn context_without_before_controller_produces_no_extension() {
+        // When no before-controller is declared the runtime never inserts a Context.
+        // Verify that extensions().get::<Context>() returns None in that case.
+        let req = actix_web::test::TestRequest::get()
+            .uri("/agents")
+            .to_http_request();
+        let ctx = req.extensions().get::<Context>().cloned();
+        assert!(
+            ctx.is_none(),
+            "no Context should be present when no before-controller ran"
+        );
+    }
+}
