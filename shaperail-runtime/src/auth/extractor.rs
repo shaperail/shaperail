@@ -116,4 +116,69 @@ mod tests {
         let cloned = user.clone();
         assert_eq!(cloned.id, "u1");
     }
+
+    #[test]
+    fn try_extract_auth_returns_none_with_no_header() {
+        let req = actix_web::test::TestRequest::default().to_http_request();
+        let result = try_extract_auth(&req);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn try_extract_auth_returns_none_with_garbage_bearer() {
+        let req = actix_web::test::TestRequest::default()
+            .insert_header(("Authorization", "Bearer garbage.token.notvalid"))
+            .to_http_request();
+        let result = try_extract_auth(&req);
+        assert!(
+            result.is_none(),
+            "garbage JWT must not yield an authenticated user"
+        );
+    }
+
+    #[test]
+    fn try_extract_auth_returns_none_with_no_jwt_config() {
+        // Bearer header present but no JwtConfig registered in app_data → None
+        let req = actix_web::test::TestRequest::default()
+            .insert_header(("Authorization", "Bearer any.token.here"))
+            .to_http_request();
+        let result = try_extract_auth(&req);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn try_extract_auth_returns_some_with_valid_jwt() {
+        use std::sync::Arc;
+
+        use actix_web::web::Data;
+
+        use super::super::jwt::JwtConfig;
+
+        let jwt_config = JwtConfig::new("secret-key-that-is-at-least-32-bytes-long!", 3600, 86400);
+        let token = jwt_config.encode_access("user-42", "member").unwrap();
+
+        let req = actix_web::test::TestRequest::default()
+            .app_data(Data::new(Arc::new(jwt_config)))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_http_request();
+
+        let result = try_extract_auth(&req);
+        assert!(
+            result.is_some(),
+            "valid JWT must yield an authenticated user"
+        );
+        let user = result.unwrap();
+        assert_eq!(user.id, "user-42");
+        assert_eq!(user.role, "member");
+    }
+
+    #[test]
+    fn try_extract_auth_returns_none_with_api_key_but_no_store() {
+        // X-API-Key present but no ApiKeyStore in app_data → None
+        let req = actix_web::test::TestRequest::default()
+            .insert_header(("X-API-Key", "test-api-key"))
+            .to_http_request();
+        let result = try_extract_auth(&req);
+        assert!(result.is_none());
+    }
 }

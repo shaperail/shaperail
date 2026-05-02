@@ -724,4 +724,135 @@ mod tests {
         let result = validate_input_shape(&data, &resource);
         assert!(result.is_err(), "Phase-1 should catch invalid format");
     }
+
+    #[test]
+    fn validate_required_present_detects_missing_required_field() {
+        use std::collections::HashSet;
+        let resource = test_resource();
+        // Supply only 'email', leave 'name' (also required) absent
+        let mut data = serde_json::Map::new();
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+
+        let pre_keys: HashSet<String> = HashSet::new();
+        let result = validate_required_present(&data, &resource, &pre_keys);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "name" && e.code == "required"),
+                "Expected required error for 'name', got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_required_present_passes_when_all_required_fields_supplied() {
+        use std::collections::HashSet;
+        let resource = test_resource();
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("Alice"));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+
+        let pre_keys: HashSet<String> = HashSet::new();
+        let result = validate_required_present(&data, &resource, &pre_keys);
+        assert!(
+            result.is_ok(),
+            "All required fields supplied must pass phase-2"
+        );
+    }
+
+    #[test]
+    fn validate_required_present_skips_fields_with_default() {
+        use std::collections::HashSet;
+        // 'role' has a default value and is not required — must not be flagged
+        let resource = test_resource();
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("Alice"));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+        // role is absent but has default — must not error
+
+        let pre_keys: HashSet<String> = HashSet::new();
+        let result = validate_required_present(&data, &resource, &pre_keys);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_required_present_pre_controller_keys_skip_validation() {
+        use std::collections::HashSet;
+        let resource = test_resource();
+        // 'name' has an invalid value but is in pre_controller_keys
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!(""));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+
+        let mut pre_keys: HashSet<String> = HashSet::new();
+        pre_keys.insert("name".to_string()); // mark name as handled by controller
+
+        // When a field is in pre_controller_keys, shape checks are skipped for it
+        let result = validate_required_present(&data, &resource, &pre_keys);
+        // name is present so required check passes; shape check skipped due to pre_keys
+        assert!(
+            result.is_ok(),
+            "pre_controller_keys fields skip shape check"
+        );
+    }
+
+    #[test]
+    fn multiple_validation_errors_collected_not_short_circuited() {
+        let resource = test_resource();
+        // Both email (wrong format) and name (too short) supplied with bad values
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("")); // min is 1
+        data.insert("email".to_string(), serde_json::json!("not-an-email"));
+
+        let result = validate_input(&data, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            // Must collect errors for both fields, not stop at the first one
+            assert!(
+                errors.len() >= 2,
+                "Expected at least 2 errors, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_input_valid_enum_value_accepted() {
+        let resource = test_resource();
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("Alice"));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+        data.insert("role".to_string(), serde_json::json!("viewer"));
+        assert!(validate_input(&data, &resource).is_ok());
+    }
+
+    #[test]
+    fn integer_at_boundary_values_accepted() {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), id_field());
+        schema.insert(
+            "score".to_string(),
+            make_field(
+                FieldType::Integer,
+                true,
+                None,
+                Some(serde_json::json!(0)),
+                Some(serde_json::json!(100)),
+                None,
+                false,
+            ),
+        );
+        let resource = simple_resource("items", schema);
+
+        // Exactly at min
+        let mut data = serde_json::Map::new();
+        data.insert("score".to_string(), serde_json::json!(0));
+        assert!(validate_input(&data, &resource).is_ok(), "min boundary");
+
+        // Exactly at max
+        let mut data = serde_json::Map::new();
+        data.insert("score".to_string(), serde_json::json!(100));
+        assert!(validate_input(&data, &resource).is_ok(), "max boundary");
+    }
 }

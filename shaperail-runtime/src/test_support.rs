@@ -164,4 +164,49 @@ mod tests {
         let resp = reqwest::get(server.url("/health")).await.unwrap();
         assert_eq!(resp.status().as_u16(), 200);
     }
+
+    // ── Additional test_support coverage ──────────────────────────────────
+
+    #[tokio::test]
+    async fn server_url_constructs_correctly() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = spawn_with_listener(listener, |l| async move { trivial_factory(l) })
+            .await
+            .unwrap();
+        let url = server.url("/v1/users");
+        assert!(url.starts_with("http://127.0.0.1:"));
+        assert!(url.ends_with("/v1/users"));
+    }
+
+    #[tokio::test]
+    async fn server_address_is_loopback() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = spawn_with_listener(listener, |l| async move { trivial_factory(l) })
+            .await
+            .unwrap();
+        assert!(server.address().ip().is_loopback());
+    }
+
+    #[tokio::test]
+    async fn server_shutdown_completes_without_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = spawn_with_listener(listener, |l| async move { trivial_factory(l) })
+            .await
+            .unwrap();
+        let result = server.shutdown().await;
+        assert!(result.is_ok(), "shutdown must not error: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn multiple_servers_bind_different_ports() {
+        let l1 = TcpListener::bind("127.0.0.1:0").unwrap();
+        let l2 = TcpListener::bind("127.0.0.1:0").unwrap();
+        let s1 = spawn_with_listener(l1, |l| async move { trivial_factory(l) })
+            .await
+            .unwrap();
+        let s2 = spawn_with_listener(l2, |l| async move { trivial_factory(l) })
+            .await
+            .unwrap();
+        assert_ne!(s1.port(), s2.port(), "two servers must use different ports");
+    }
 }

@@ -1220,4 +1220,294 @@ indexes:
         let d = diags.iter().find(|d| d.code == "SR072").unwrap();
         assert!(d.fix.contains("asc") || d.fix.contains("desc"));
     }
+
+    // ── New SR codes added in v0.11.x ─────────────────────────────────────
+
+    #[test]
+    fn sr030_empty_controller_before_name() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    input: [id]
+    controller: { before: "" }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR030"),
+            "Expected SR030, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr031_empty_controller_after_name() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    input: [id]
+    controller: { after: "" }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR031"),
+            "Expected SR031, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr032_empty_event_name_in_diagnostics() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    input: [id]
+    events: [""]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR032"),
+            "Expected SR032, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr033_empty_job_name_in_diagnostics() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    input: [id]
+    jobs: [""]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR033"),
+            "Expected SR033, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr050_upload_on_get_method() {
+        let yaml = r#"
+resource: assets
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  file: { type: file, required: true }
+endpoints:
+  upload_file:
+    method: GET
+    path: /assets/upload
+    input: [file]
+    upload:
+      field: file
+      storage: s3
+      max_size: 5mb
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR050"),
+            "Expected SR050 (upload on GET), got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr051_upload_field_wrong_type() {
+        let yaml = r#"
+resource: assets
+version: 1
+schema:
+  id:    { type: uuid, primary: true, generated: true }
+  title: { type: string, required: true }
+endpoints:
+  upload_file:
+    method: POST
+    path: /assets/upload
+    input: [title]
+    upload:
+      field: title
+      storage: s3
+      max_size: 5mb
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR051"),
+            "Expected SR051 (upload field not type file), got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr052_upload_field_missing_from_schema() {
+        let yaml = r#"
+resource: assets
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  upload_file:
+    method: POST
+    path: /assets/upload
+    input: [attachment]
+    upload:
+      field: attachment
+      storage: s3
+      max_size: 5mb
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR052"),
+            "Expected SR052 (upload field not in schema), got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr053_upload_invalid_storage_backend() {
+        let yaml = r#"
+resource: assets
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  file: { type: file, required: true }
+endpoints:
+  upload_file:
+    method: POST
+    path: /assets/upload
+    input: [file]
+    upload:
+      field: file
+      storage: ftp
+      max_size: 5mb
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR053"),
+            "Expected SR053 (invalid storage 'ftp'), got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr054_upload_field_not_in_input() {
+        let yaml = r#"
+resource: assets
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  file: { type: file, required: true }
+endpoints:
+  upload_file:
+    method: POST
+    path: /assets/upload
+    input: []
+    upload:
+      field: file
+      storage: s3
+      max_size: 5mb
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR054"),
+            "Expected SR054 (upload field not in input), got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr050_to_sr054_all_clear_for_valid_upload_endpoint() {
+        let yaml = r#"
+resource: assets
+version: 1
+schema:
+  id:    { type: uuid, primary: true, generated: true }
+  file:  { type: file, required: true }
+  title: { type: string, required: true }
+endpoints:
+  upload_file:
+    method: POST
+    path: /assets/upload
+    input: [file, title]
+    upload:
+      field: file
+      storage: s3
+      max_size: 10mb
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        let upload_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| ["SR050", "SR051", "SR052", "SR053", "SR054"].contains(&d.code))
+            .collect();
+        assert!(
+            upload_diags.is_empty(),
+            "Valid upload endpoint should produce no SR050-054 diags, got: {upload_diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr073_subscriber_empty_event() {
+        let yaml = r#"
+resource: notifications
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  on_user_created:
+    method: POST
+    path: /notifications/on_user_created
+    handler: on_user_created_handler
+    subscribers:
+      - event: ""
+        handler: send_welcome
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR073"),
+            "Expected SR073, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr074_subscriber_empty_handler() {
+        let yaml = r#"
+resource: notifications
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  on_user_created:
+    method: POST
+    path: /notifications/on_user_created
+    handler: on_user_created_handler
+    subscribers:
+      - event: user.created
+        handler: ""
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR074"),
+            "Expected SR074, got: {diags:?}"
+        );
+    }
 }
