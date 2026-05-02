@@ -9,8 +9,23 @@
 dependencies_update = true
 
 # One release PR for the whole workspace, not one per crate.
-release_always = false
 pr_name = "chore(release): {{ version }}"
+
+# `release_always = true` (the default) tells release-plz to publish on
+# every push to main when the workspace version is ahead of the latest
+# tag, regardless of whether the merge was from a release-plz-generated
+# PR. This is the right setting for our pipeline because:
+#
+# - The `release_commits` regex below already gates whether a release PR
+#   opens at all, so we won't get spurious empty release PRs from chore:
+#   commits.
+# - Manual version bumps (e.g. when auto-versioning hits a workspace
+#   shared-version edge case) still publish through the normal flow.
+#
+# An earlier iteration set this to false to prevent empty release PRs,
+# but that also blocked publishing manually-bumped versions with the log
+# line "skipping release: current commit is not from a release PR".
+release_always = true
 
 # Only commits matching this regex count toward "is there anything to release?"
 # Tightens the rule beyond commit_parsers below: even if a `chore(release):`
