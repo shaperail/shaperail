@@ -7,18 +7,16 @@
 //! ```no_run
 //! # use std::net::TcpListener;
 //! # async fn run() -> std::io::Result<()> {
-//! // Provide a factory that builds your `actix_web::dev::Server` from a listener.
 //! let listener = TcpListener::bind("127.0.0.1:0")?;
 //! let server = shaperail_runtime::test_support::spawn_with_listener(
 //!     listener,
-//!     |listener| {
-//!         // Replace with your project's `build_server(listener)`.
+//!     |listener| async move {
+//!         // Replace with your project's async `build_server(listener)`.
 //!         unimplemented!()
 //!     },
 //! )
 //! .await?;
-//! // Hit it via reqwest, etc.
-//! drop(server); // shuts the server down
+//! drop(server);
 //! # Ok(()) }
 //! ```
 
@@ -74,19 +72,24 @@ impl Drop for TestServer {
 
 /// Spawns the server returned by `factory` on `listener` and returns a `TestServer`.
 ///
-/// The factory closure receives the listener (consumed) and must return the configured
-/// `actix_web::dev::Server`. Typical usage: pass your project's `build_server(listener)`
-/// function directly.
-pub async fn spawn_with_listener<F>(
+/// The factory closure receives the listener (consumed) and must return a future
+/// that resolves to the configured `actix_web::dev::Server`. This supports async
+/// factories — the common case — which connect a sqlx pool, generate OpenAPI docs,
+/// build resource registries, etc. before handing back the server.
+///
+/// Sync builders still work via `|l| async move { sync_build(l) }` or
+/// `|l| std::future::ready(sync_build(l))`.
+pub async fn spawn_with_listener<F, Fut>(
     listener: TcpListener,
     factory: F,
 ) -> std::io::Result<TestServer>
 where
-    F: FnOnce(TcpListener) -> std::io::Result<Server> + Send + 'static,
+    F: FnOnce(TcpListener) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = std::io::Result<Server>> + Send + 'static,
 {
     listener.set_nonblocking(true)?;
     let addr = listener.local_addr()?;
-    let server = factory(listener)?;
+    let server = factory(listener).await?;
     let handle = tokio::spawn(server);
     Ok(TestServer {
         addr,
@@ -94,23 +97,31 @@ where
     })
 }
 
-/// Runs database migrations exactly once per process, regardless of how many tests
-/// invoke this helper concurrently.
+/// Runs database migrations exactly once per process, regardless of how many
+/// tests invoke this helper concurrently.
 ///
-/// Tests running in parallel typically all want migrations applied before any of
-/// them touches the database. Calling `sqlx::migrate!()` from each test wastes
-/// time and serializes on the migration advisory lock; calling it once via this
-/// helper is O(1) for every subsequent caller.
+/// `migrations_dir` should point at the consumer's own `migrations/` directory.
+/// Use a relative path like `Path::new("./migrations")` from the consumer's
+/// crate root, or an absolute path computed via `env!("CARGO_MANIFEST_DIR")`.
 ///
-/// The migration source is the workspace `migrations/` directory, the same
-/// directory the runtime uses in production.
-pub async fn ensure_migrations_run(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+/// # Why this is not `sqlx::migrate!()`
+///
+/// The compile-time `sqlx::migrate!()` macro resolves its path against the
+/// caller's manifest dir at the macro's expansion site. If a helper crate
+/// expanded the macro, the path would point at that helper's dir, not the
+/// final consumer's. Taking the path at runtime via `Migrator::new` lets the
+/// consumer point at its own migrations.
+pub async fn ensure_migrations_run(
+    pool: &sqlx::PgPool,
+    migrations_dir: &std::path::Path,
+) -> Result<(), sqlx::migrate::MigrateError> {
     use tokio::sync::OnceCell;
     static MIGRATED: OnceCell<()> = OnceCell::const_new();
     MIGRATED
         .get_or_try_init(|| async {
-            sqlx::migrate!("../migrations").run(pool).await?;
-            Ok::<_, sqlx::Error>(())
+            let migrator = sqlx::migrate::Migrator::new(migrations_dir).await?;
+            migrator.run(pool).await?;
+            Ok::<_, sqlx::migrate::MigrateError>(())
         })
         .await?;
     Ok(())
@@ -137,7 +148,7 @@ mod tests {
     async fn spawn_with_listener_returns_bound_address() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let original_port = listener.local_addr().unwrap().port();
-        let server = spawn_with_listener(listener, trivial_factory)
+        let server = spawn_with_listener(listener, |l| async move { trivial_factory(l) })
             .await
             .unwrap();
         assert_eq!(server.port(), original_port);
@@ -147,7 +158,7 @@ mod tests {
     #[tokio::test]
     async fn spawn_with_listener_serves_requests() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let server = spawn_with_listener(listener, trivial_factory)
+        let server = spawn_with_listener(listener, |l| async move { trivial_factory(l) })
             .await
             .unwrap();
         let resp = reqwest::get(server.url("/health")).await.unwrap();

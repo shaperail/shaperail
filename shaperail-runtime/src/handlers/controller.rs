@@ -47,6 +47,7 @@ use crate::plugins::{PluginContext, PluginUser, WasmRuntime};
 ///     Ok(())
 /// }
 /// ```
+#[derive(Clone)]
 pub struct Context {
     /// Mutable input data. Before-controllers can modify what gets written to DB.
     pub input: serde_json::Map<String, serde_json::Value>,

@@ -212,6 +212,16 @@ CRUD actions) do **not** get automatic tenant isolation — the framework cannot
 infer your data flow. Use the `Subject` API in `shaperail_runtime::auth` to
 extract the role/tenant and apply scoping explicitly:
 
+### Cleaner alternative: a `before:` controller
+
+If you declare `controller: { before: ... }` on the endpoint, the runtime
+auto-populates `ctx.tenant_id` from the auth subject and the resource's
+`tenant_key`, runs your before-hook, and stashes the resulting Context
+in the request extensions. Your handler reads tenant context from there
+without manually calling `Subject::from_request`. See
+[Custom handlers](../agent_docs/custom-handlers.md)
+for the full pattern.
+
 ~~~rust
 use shaperail_runtime::auth::Subject;
 use sqlx::{Postgres, QueryBuilder};

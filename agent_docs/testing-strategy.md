@@ -95,13 +95,13 @@ shaperail-runtime = { workspace = true, features = ["test-support"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 ```
 
-**`src/lib.rs`** — extract the existing bootstrap into a function that takes a `TcpListener` and returns the unawaited `actix_web::dev::Server`:
+**`src/lib.rs`** — extract the existing bootstrap into an async function that takes a `TcpListener` and returns the unawaited `actix_web::dev::Server`. The function is async because realistic bootstrap code connects a sqlx pool, generates OpenAPI docs, builds resource registries, etc.:
 
 ```rust
 use std::net::TcpListener;
 use actix_web::dev::Server;
 
-pub fn build_server(listener: TcpListener) -> std::io::Result<Server> {
+pub async fn build_server(listener: TcpListener) -> std::io::Result<Server> {
     // ... your existing bootstrap (config, pool, registry, channels, etc.) ...
     let server = HttpServer::new(move || { /* ... */ })
         .listen(listener)?
@@ -119,7 +119,7 @@ use std::net::TcpListener;
 async fn main() -> std::io::Result<()> {
     let port: u16 = std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(3000);
     let listener = TcpListener::bind(("0.0.0.0", port))?;
-    my_app::build_server(listener)?.await
+    my_app::build_server(listener).await?.await
 }
 ```
 
@@ -133,7 +133,7 @@ async fn health_responds_200() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let server = shaperail_runtime::test_support::spawn_with_listener(
         listener,
-        my_app::build_server,
+        |l| async move { my_app::build_server(l).await },
     )
     .await
     .unwrap();
@@ -142,7 +142,7 @@ async fn health_responds_200() {
 }
 ```
 
-`spawn_with_listener` returns a `TestServer` whose `Drop` aborts the spawned task. For database-backed tests, run migrations once per process via `shaperail_runtime::test_support::ensure_migrations_run(&pool).await?` — the helper uses a `tokio::sync::OnceCell` so parallel tests share a single sweep instead of contending on the migration advisory lock.
+`spawn_with_listener` returns a `TestServer` whose `Drop` aborts the spawned task. For database-backed tests, run migrations once per process via `shaperail_runtime::test_support::ensure_migrations_run(&pool, migrations_dir).await?` — the helper uses a `tokio::sync::OnceCell` so parallel tests share a single sweep instead of contending on the migration advisory lock. Pass the consumer's own migrations directory (e.g. `Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"))`); the runtime `Migrator::new` API resolves the path at runtime rather than at macro-expansion time, so the path always points at the consumer's migrations even when called through the helper crate.
 
 Future versions of `shaperail init` will generate this lib/bin split for you. Until then, the manual lift above is a one-time edit per project.
 

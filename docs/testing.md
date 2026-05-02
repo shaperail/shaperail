@@ -915,16 +915,18 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 ### Step 2 — expose `build_server` from `src/lib.rs`
 
 Move the existing bootstrap logic (config, pool, registry, route registration)
-into a public function that accepts a `TcpListener` and returns the unawaited
-`actix_web::dev::Server`:
+into a public async function that accepts a `TcpListener` and returns the
+unawaited `actix_web::dev::Server`. The function is async because realistic
+bootstrap code connects a sqlx pool, generates OpenAPI docs, builds resource
+registries, etc., all of which are async operations:
 
 ```rust
 // src/lib.rs
 use std::net::TcpListener;
 use actix_web::dev::Server;
 
-pub fn build_server(listener: TcpListener) -> std::io::Result<Server> {
-    // ... config, pool setup, resource registry, middleware ...
+pub async fn build_server(listener: TcpListener) -> std::io::Result<Server> {
+    // ... async config, pool setup, resource registry, middleware ...
     let server = actix_web::HttpServer::new(move || {
         // ... App::new().route(...) ...
     })
@@ -962,7 +964,7 @@ async fn health_responds_200() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let server = shaperail_runtime::test_support::spawn_with_listener(
         listener,
-        my_app::build_server,
+        |l| async move { my_app::build_server(l).await },
     )
     .await
     .unwrap();
@@ -970,6 +972,17 @@ async fn health_responds_200() {
     let resp = reqwest::get(server.url("/health")).await.unwrap();
     assert_eq!(resp.status(), 200);
 }
+```
+
+If your `build_server` is synchronous (no async work in bootstrap), wrap it:
+
+```rust
+    let server = shaperail_runtime::test_support::spawn_with_listener(
+        listener,
+        |l| async move { my_app::build_server(l) },
+    )
+    .await
+    .unwrap();
 ```
 
 `spawn_with_listener` binds to port 0 (OS assigns an ephemeral port) and
@@ -981,14 +994,20 @@ multiple server instances will each get a unique port with no conflicts.
 For database-backed integration tests, call `ensure_migrations_run` before your
 first query. The helper is gated on a `tokio::sync::OnceCell`, so parallel
 tests share a single migration sweep instead of contending on the Postgres
-advisory lock:
+advisory lock.
+
+Pass the path to your project's own `migrations/` directory. Use
+`std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"))` for
+an absolute path that works regardless of where `cargo test` is invoked from:
 
 ```rust
+use std::path::Path;
 use shaperail_runtime::test_support::ensure_migrations_run;
 
 #[tokio::test]
 async fn test_create_user(pool: sqlx::PgPool) {
-    ensure_migrations_run(&pool).await.expect("migrations");
+    let migrations = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"));
+    ensure_migrations_run(&pool, migrations).await.expect("migrations");
     // ... test body ...
 }
 ```

@@ -5,12 +5,36 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-05-02
+
+Patch release fixing five issues caught in the v0.11.0 follow-up review. The headline runtime additions from v0.11.0 (`test_support`, `Context.session`/`response_extras`, `Subject`) are unchanged in semantics; this release fixes bugs and design regressions in those features.
+
+### Added
+
+- **`controller: { before: ... }` is now supported on custom (non-CRUD) endpoints.** The runtime builds a `Context` with auto-populated `tenant_id` (from the auth subject + the resource's `tenant_key`), dispatches the before-hook, and stashes the resulting Context into `req.extensions_mut()` via `extensions_mut().insert(ctx)`. The custom handler can then read it: `req.extensions().get::<shaperail_runtime::handlers::controller::Context>().cloned()`. This eliminates the most common cross-tenant data-access bug class in custom handlers (forgetting to scope by `tenant_id`). `controller: { after: ... }` on custom endpoints remains rejected — custom handlers own their response shape, so the runtime has no place to merge `response_extras`. (Issues A and B in the v0.11.0 follow-up review, refining #1.)
+
+### Changed (breaking, pre-1.0 cargo audit)
+
+- **`shaperail_runtime::test_support::ensure_migrations_run` signature** now takes `migrations_dir: &Path`. The previous signature used the compile-time `sqlx::migrate!("../migrations")` macro, which baked in `shaperail-runtime`'s manifest dir at *its* compile time — so the function was effectively unusable from any external consumer (Issue C). The new signature uses the runtime `Migrator::new` API: pass `Path::new("./migrations")` from your crate root, or `concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")` for absolute resolution.
+- **`shaperail_runtime::test_support::spawn_with_listener` factory contract** now accepts an async closure: `FnOnce(TcpListener) -> impl Future<Output = io::Result<Server>>`. The previous synchronous contract didn't compose with realistic `build_server` functions that connect a sqlx pool, generate OpenAPI, build registries, etc. (Issue D). Sync factories still work via `|l| std::future::ready(sync_build(l))`.
+
+### Fixed
+
+- **`Claims` test-token recipe is now discoverable on docs.rs.** The "Minting a test token" example was previously inside the struct rustdoc; it now also appears as a module-level doc on `shaperail_runtime::auth::jwt`, which renders at the top of the rendered module page. The `token_type` field doc additionally spells out the "must equal `\"access\"` for protected requests → 401" rule (Issue E).
+
+### Migration
+
+- Anyone calling `ensure_migrations_run(&pool)` must add the `migrations_dir` argument: `ensure_migrations_run(&pool, Path::new("./migrations"))`.
+- Anyone calling `spawn_with_listener(listener, |l| sync_build(l))` must wrap the factory: `spawn_with_listener(listener, |l| async move { sync_build(l) })` or `|l| std::future::ready(sync_build(l))`.
+
+In practice, the v0.11.0 versions of both functions were broken-by-design for the use cases they advertised, so existing code is unlikely to depend on them.
+
 ## [0.11.0] - 2026-05-02
 
 ### Breaking
 
 - **`database:` (singular) config block removed** from `shaperail.config.yaml`. The block was parsed by `ProjectConfig` but never read at runtime — the runtime only ever consumed `databases:` (plural) or `DATABASE_URL`. Configs that retain the legacy block now fail to parse with a clear `unknown field 'database'` error. Migrate by replacing the block with `databases.default:` (preferred — see the new `shaperail init` template) or by relying on `DATABASE_URL` from `.env`. The `DatabaseConfig` type is also removed from `shaperail-core`.
-- **`controller:` declared on a non-CRUD (custom) endpoint is now rejected** at validation time (`shaperail check`). The old behavior was a silent no-op — the runtime dispatched custom endpoints via `handler:` only and never invoked declared controllers. Move shared logic into the custom handler itself; use `shaperail_runtime::auth::Subject` for auth and tenant scoping (#1).
+- **`controller:` declared on a non-CRUD (custom) endpoint is now rejected** at validation time (`shaperail check`). The old behavior was a silent no-op — the runtime dispatched custom endpoints via `handler:` only and never invoked declared controllers. Move shared logic into the custom handler itself; use `shaperail_runtime::auth::Subject` for auth and tenant scoping (#1). (v0.11.1 partially relaxes this: `controller: { before: ... }` is now supported on custom endpoints.)
 
 ### Added
 
@@ -236,3 +260,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.10.0]: https://github.com/shaperail/shaperail/releases/tag/v0.10.0
 [0.10.1]: https://github.com/shaperail/shaperail/releases/tag/v0.10.1
 [0.11.0]: https://github.com/shaperail/shaperail/releases/tag/v0.11.0
+[0.11.1]: https://github.com/shaperail/shaperail/releases/tag/v0.11.1

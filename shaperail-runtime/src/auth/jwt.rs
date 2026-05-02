@@ -1,3 +1,29 @@
+//! HS256 JWT signing and validation for Shaperail's auth middleware.
+//!
+//! # Minting a test token
+//!
+//! ```rust,no_run
+//! use shaperail_runtime::auth::JwtConfig;
+//!
+//! let config = JwtConfig::new("test-secret-at-least-32-bytes-long!", 3600, 86400);
+//! let token = config
+//!     .encode_access_with_tenant(
+//!         "00000000-0000-0000-0000-000000000001",
+//!         "admin",
+//!         Some("org-1"),
+//!     )
+//!     .unwrap();
+//! // Send as `Authorization: Bearer {token}` on any protected request.
+//! ```
+//!
+//! # Common rejection reasons (logged via `tracing::warn!`)
+//!
+//! - `JWT rejected: decode failed` — signature mismatch, expired, malformed.
+//! - `JWT rejected: token_type must be "access"` — refresh token sent against
+//!   a protected endpoint.
+//!
+//! See [`Claims`] for the canonical claim shape.
+
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -41,7 +67,10 @@ pub struct Claims {
     pub iat: i64,
     /// Expiration (unix timestamp).
     pub exp: i64,
-    /// Token type: "access" or "refresh".
+    /// Token type. Must equal `"access"` to authorize a protected request —
+    /// any other value (including `"refresh"`) is rejected with 401, accompanied
+    /// by a `tracing::warn!` line. The runtime mints `"refresh"` tokens only
+    /// for the refresh endpoint.
     #[serde(default = "default_token_type")]
     pub token_type: String,
     /// Tenant ID (M18). Optional — present when multi-tenancy is enabled.
