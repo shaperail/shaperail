@@ -5,6 +5,18 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Release pipeline replaced with release-plz.** Every push to `main` runs `.github/workflows/release-plz.yml`, which opens a single auto-updated release PR and, on merge, publishes crates + tags + creates the GitHub Release. Cross-platform binaries are uploaded by `.github/workflows/release-binaries.yml` on `release: published`. The seven-place version-bump checklist, the local pre-release verification gate, and the manual `workflow_dispatch` release path are gone — release-plz manages workspace versions, internal `shaperail-*` dep versions, and the CHANGELOG. Authors only need conventional-commit PR titles (`feat:`, `fix:`, `feat!:`, etc.); release-plz does the rest. See `agent_docs/release.md` and the Release Process section of `CLAUDE.md`.
+- CI: `ci.yml` `check` job no longer runs `cargo bench --no-run` and `cargo build --workspace` after `cargo clippy --all-targets` — the clippy invocation already type-checks tests, benches, and examples, so the follow-up steps were redundant.
+- `docs/_config.yml` no longer hard-codes `release_version`; the Jekyll footer and `docs/index.md` link to the GitHub `releases/latest` page instead.
+
+### Removed
+
+- Deleted the custom release infrastructure: `.github/workflows/release.yml`, `.github/workflows/release-command.yml`, `.github/workflows/prepare-release.yml`, `.github/workflows/auto-release.yml`, `.github/ISSUE_TEMPLATE/release.md`, and the helper scripts under `.github/scripts/` (`assert-release-version.sh`, `check-pending-release.sh`, `extract-changelog-section.sh`, `publish-crates.sh`, `set-release-version.sh`). All of their responsibilities are now handled by release-plz.
+
 ## [0.11.2] - 2026-05-02
 
 ### Fixed

@@ -1,111 +1,119 @@
 # Release Process
 
+Shaperail releases are driven by [release-plz](https://release-plz.dev). The
+release pipeline is fully automatic except for one human step: reviewing and
+merging the generated release PR.
+
 ## What Gets Released
-1. **crates.io** — `shaperail-core`, `shaperail-codegen`, `shaperail-runtime`, `shaperail-cli`
+1. **crates.io** — `shaperail-core`, `shaperail-codegen`, `shaperail-runtime`, `shaperail-cli` (in dependency order)
 2. **GitHub Releases** — pre-built binaries for macOS, Linux, Windows
 3. **Install script** — `curl -fsSL https://shaperail.io/install.sh | sh`
 
 ---
 
-## Step 1 — Pre-release Checklist
-Run these before any release. All must pass:
+## How a Release Happens
 
-```bash
-# Full quality gate
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+Every push to `main` triggers `.github/workflows/release-plz.yml`, which runs two jobs:
 
-# Security audit
-cargo install cargo-audit --locked
-cargo audit
+1. **`release-plz-release`** — checks whether the workspace version in `Cargo.toml` is ahead of the latest tag. If yes (i.e. the previous push merged a release PR), it publishes all crates to crates.io in dependency order, tags the commit, and creates a GitHub Release with notes generated from the conventional-commit history.
+2. **`release-plz-pr`** — inspects commits since the last release. If there are any release-worthy changes (`feat:`, `fix:`, `feat!:`, etc.), it opens or updates a single release PR titled `chore(release): <new version>`. The PR contains:
+   - The bumped workspace version in `Cargo.toml`
+   - Internal `shaperail-*` dependency versions kept in lockstep
+   - A new `CHANGELOG.md` section grouped into Breaking / Added / Changed / Fixed
 
-# Validate the publish/install path
-# `shaperail-core` can be dry-run directly; dependent crates are validated
-# through the CLI install path and the staged publish script below.
-cargo publish -p shaperail-core --dry-run --locked
-cargo install --path shaperail-cli --locked --root /tmp/shaperail-install --force
+When a GitHub Release is published, `.github/workflows/release-binaries.yml` fires and uploads release archives for the five supported targets.
 
-# Compile benchmark targets and refresh BENCHMARKS.md before a tagged release
-cargo bench --workspace --no-run
+The whole flow:
+
+```
+feature PR merged ──► release-plz-pr opens/updates release PR
+                              │
+                              ▼
+                  human merges release PR
+                              │
+                              ▼
+release-plz-release ──► crates.io publish
+                   ──► git tag vX.Y.Z
+                   ──► GitHub Release created
+                              │
+                              ▼
+release-binaries.yml ──► 5 platform archives uploaded to the release
 ```
 
 ---
 
-## Step 2 — Prepare The Release PR
-Use either the release issue commands or the GitHub Actions **Prepare Release**
-workflow instead of editing versions and tags by hand.
+## What Authors Need To Do
 
-Inputs:
+**Use conventional-commit titles on every PR.** That is the only ongoing requirement. Examples:
 
-- `version` — semver without a leading `v`, for example `0.2.3`
-- `base_ref` — normally `main`
-- `changelog_summary` — optional bullet points, one per line
+| Prefix | Bumps | Example |
+|---|---|---|
+| `feat: ...` | minor | `feat: add SSE streaming for /events` |
+| `fix: ...` | patch | `fix: prevent panic on empty cache key` |
+| `feat!: ...` or `BREAKING CHANGE` in body | major (or pre-1.0 minor) | `feat!: drop legacy hooks API` |
+| `perf:` `refactor:` | patch | `perf: avoid clone in deserializer` |
+| `chore:` `docs:` `style:` `test:` `ci:` `build:` | no release | bookkeeping commits |
 
-What it does:
+If a merged PR contains nothing but `chore:`/`docs:`/etc. commits, no release PR is opened. That's the intended behavior.
 
-- updates `workspace.package.version`
-- updates internal `shaperail-*` dependency versions across crate manifests
-- updates `docs/_config.yml` release metadata
-- adds a changelog section and release link if missing
-- refreshes `Cargo.lock`
-- opens a release PR from `codex/release-v<version>`
-
-Merge that PR only after CI is green.
-
-Issue-driven option:
-
-- open a release issue from `.github/ISSUE_TEMPLATE/release.md`
-- comment `/prepare-release 0.2.3`
-- GitHub will queue the same workflow for you
+If a release PR is already open and you merge another `feat:` PR, release-plz updates the open release PR in place — it does not stack PRs.
 
 ---
 
-## Step 3 — Run The Release Workflow
-After the release PR is merged, use the release issue commands or the GitHub
-Actions **Release** workflow.
+## Cutting a Release
 
-Inputs:
+1. Open the auto-generated release PR (titled `chore(release): X.Y.Z`).
+2. Review the version bump and the generated CHANGELOG section.
+3. Edit the CHANGELOG inline if a generated bullet needs more context (release-plz does not regenerate the CHANGELOG once you commit to the PR branch).
+4. Confirm CI is green.
+5. Merge.
 
-- `version` — the merged semver, for example `0.2.3`
-- `ref` — normally `main`
-- `dry_run` — set to `true` to validate without publishing
+After merge, do nothing. crates.io publish, tag, GitHub Release, and binary attachment all run from `main`.
 
-What it does:
+---
 
-- validates release metadata with `.github/scripts/assert-release-version.sh`
-- runs formatting, clippy, tests, audit, install-path validation, and publish dry-run checks
-- builds release binaries for Linux, macOS, and Windows
-- publishes crates to crates.io in dependency order with `.github/scripts/publish-crates.sh`
-- creates and pushes the git tag
-- creates or updates the GitHub Release and uploads binaries
+## Verification
 
-The release workflow is self-contained on purpose. It does not depend on a
-second tag-triggered workflow.
+```bash
+gh run list --workflow release-plz.yml --limit 1   # release publish run
+gh run list --workflow release-binaries.yml --limit 1   # binary upload run
+gh release view vX.Y.Z                                  # tag + 5 binaries
+cargo install shaperail-cli@X.Y.Z                       # crates.io has it
+```
 
-Issue-driven commands:
+Cross-platform binaries take ~15 minutes (Windows MSVC is the long pole). crates.io publish completes earlier, so `cargo install` works before the GitHub Release page shows binaries.
 
-- `/release-dry-run 0.2.3` — run the full release validation without publishing
-- `/release 0.2.3` — publish crates, create the tag, and create/update the GitHub Release
+---
 
-The comment router lives in `.github/workflows/release-command.yml` and only
-accepts commands from repository owners, members, or collaborators on issues
-marked as release issues.
+## Configuration
+
+- `release-plz.toml` (repo root) — workspace settings, changelog template, conventional-commit grouping rules.
+- `.github/workflows/release-plz.yml` — runs both release-plz commands on push to `main`.
+- `.github/workflows/release-binaries.yml` — fires on `release: published` and uploads archives.
+
+Required GitHub secrets:
+
+- `CARGO_REGISTRY_TOKEN` — crates.io API token with publish scope for all four crates.
+- `GITHUB_TOKEN` — provided automatically by Actions.
 
 ---
 
 ## Version Policy
-- `0.x.0` — minor releases with new features (new milestones)
-- `0.x.y` — patch releases with bug fixes only
+- `0.x.0` — minor releases: new features (new milestones) and breaking changes (pre-1.0)
+- `0.x.y` — patch releases: bug fixes and additive non-breaking features
 - `1.0.0` — when all v2 milestones complete + performance targets validated
 - `2.0.0` — when all v3 milestones complete
 - `3.0.0` — when all v4 milestones complete
 
+A `feat!:` commit pre-1.0 currently bumps the minor version, matching the policy above.
+
 ---
 
 ## Rules for Claude
-- Never publish without all checks passing
-- Always publish in order: core → codegen → runtime → cli
-- The GitHub Actions release workflows live in `.github/workflows/prepare-release.yml`, `.github/workflows/release.yml`, and `.github/workflows/release-command.yml`
-- The install script lives in `install.sh` at the repo root
-- Benchmark results must be committed to `BENCHMARKS.md` before any tagged release
+- The release pipeline is `release-plz`. Do not reintroduce a manual `workflow_dispatch` release path or a 7-place version-bump checklist.
+- Never edit `workspace.package.version` or internal `shaperail-*` dependency versions by hand. Let release-plz do it.
+- Never edit CHANGELOG.md sections for already-published versions — they are frozen historical records.
+- The published CHANGELOG section for the in-flight release PR can be edited if a generated bullet needs more context. release-plz won't overwrite manual edits to `CHANGELOG.md` once they are committed to the PR branch.
+- Use conventional-commit titles on every PR. That is the only ongoing release requirement.
+- The install script lives in `install.sh` at the repo root.
+- Benchmark results must be committed to `BENCHMARKS.md` before any tagged release.

@@ -1,0 +1,71 @@
+name: Release-plz
+
+# Two-job pipeline:
+#
+# 1. release-plz-pr      — runs on every push to main. Inspects commits since
+#                          the last release, computes the next version + a
+#                          generated CHANGELOG entry, and opens (or updates)
+#                          a single "release PR" against main. No commits land
+#                          on main from this job.
+#
+# 2. release-plz-release — also runs on every push to main. If the previous
+#                          push was the merge of the release PR (i.e. the
+#                          new version in Cargo.toml is not yet tagged), it
+#                          publishes all crates to crates.io in dependency
+#                          order, creates the git tag, and opens a GitHub
+#                          Release with the generated notes. Cross-platform
+#                          binaries are attached by release-binaries.yml,
+#                          which fires on `release: published`.
+#
+# To cut a release: review and merge the open release PR. That is the only
+# manual step.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-plz-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-plz-release:
+    name: Publish crates and create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  release-plz-pr:
+    name: Open or update the release PR
+    runs-on: ubuntu-latest
+    needs: release-plz-release
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

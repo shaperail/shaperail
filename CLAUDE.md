@@ -198,72 +198,59 @@ When unsure where the public version belongs, default to creating a new `docs/<t
 - Never start new feature work on `main`. Create and switch to a fresh branch first.
 - Branch per milestone or feature: `git checkout -b feat/m01-core-types`
 - Only commit when clippy + tests pass
-- Commit format: `feat(shaperail-core): M01 — Core Types`
+- **Use [Conventional Commits](https://www.conventionalcommits.org/) on every commit and every PR title.** This is mandatory — release-plz reads commit messages to compute the next version and to generate the CHANGELOG. Getting the prefix wrong means the release PR is wrong.
+  - `feat: ...` → minor bump, listed under **Added** (e.g. `feat(shaperail-runtime): add SSE streaming for /events`)
+  - `fix: ...` → patch bump, listed under **Fixed** (e.g. `fix(shaperail-codegen): prevent panic on empty enum`)
+  - `feat!: ...` or `BREAKING CHANGE:` in the body → breaking (pre-1.0 minor, post-1.0 major)
+  - `perf: ...` / `refactor: ...` → patch bump, listed under **Changed**
+  - `chore: ...` / `docs: ...` / `style: ...` / `test: ...` / `ci: ...` / `build: ...` → bookkeeping, **does not trigger a release**
+  - Scope (the `(shaperail-core)` part) is optional but encouraged for crate-specific changes.
+  - PR titles MUST follow the same convention — auto-merge squashes the PR title into the merge commit, so the PR title is what release-plz sees.
 - **Never push more commits to a branch with an open PR you intend to merge as-is.** PRs auto-merge as soon as CI is green; follow-up commits frequently land too late and end up stranded on the merged branch. Open a new PR for follow-ups.
 
-## Release Process — FOLLOW EVERY TIME
+## Release Process — release-plz
 
-Releases ship via the `auto-release.yml` workflow on every push to `main`. The workflow checks whether the workspace version is ahead of the latest git tag; if yes, it tests + builds binaries (5 targets including the slow Windows MSVC) + publishes 4 crates to crates.io + creates a GitHub Release. Cross-platform binaries take ~15 minutes; the GitHub Release tag/page only appears at the end.
+Releases are driven by [release-plz](https://release-plz.dev). On every push to `main`, `.github/workflows/release-plz.yml` does two things:
 
-**Bumping the version requires updating SEVEN places.** `bash .github/scripts/assert-release-version.sh <version>` checks all of them. Run it locally before pushing — if it fails in CI the auto-release aborts and the next merge has to repeat the dance.
+1. **Publish (if a release PR was just merged):** publishes all four crates to crates.io in dependency order, tags the commit `vX.Y.Z`, and creates a GitHub Release. `.github/workflows/release-binaries.yml` then fires on `release: published` and uploads archives for the five supported targets.
+2. **Open or update the release PR:** scans new commits since the last tag and opens (or updates) a single PR titled `chore(release): X.Y.Z` containing the version bump and a generated CHANGELOG section.
 
-The seven places (use this checklist verbatim):
+The only manual step is reviewing and merging that release PR. There is **no** seven-place checklist, **no** manual `workflow_dispatch` button, and **no** local pre-release script.
 
-1. `Cargo.toml` — `[workspace.package] version = "X.Y.Z"`
-2. `shaperail-cli/Cargo.toml` — `shaperail-codegen = { version = "X.Y.Z", ... }` (and `shaperail-core`, `shaperail-runtime`)
-3. `shaperail-runtime/Cargo.toml` — `shaperail-core = { version = "X.Y.Z", ... }`
-4. `shaperail-codegen/Cargo.toml` — `shaperail-core = { version = "X.Y.Z", ... }`
-5. `docs/_config.yml` — `release_version: X.Y.Z` (Jekyll site footer; non-obvious; has bitten us)
-6. `CHANGELOG.md` — section heading `## [X.Y.Z] - YYYY-MM-DD`
-7. `CHANGELOG.md` — link reference at bottom: `[X.Y.Z]: https://github.com/shaperail/shaperail/releases/tag/vX.Y.Z`
+**Conventional-commit titles drive the release.** Use them on every PR:
+
+| Prefix | Effect |
+|---|---|
+| `feat: ...` | minor bump, listed under **Added** |
+| `fix: ...` | patch bump, listed under **Fixed** |
+| `feat!: ...` (or `BREAKING CHANGE:` in body) | breaking — pre-1.0 minor, post-1.0 major |
+| `perf:` `refactor:` | patch bump, listed under **Changed** |
+| `chore:` `docs:` `style:` `test:` `ci:` `build:` | bookkeeping — no release |
+
+A merge consisting only of bookkeeping commits does not open a release PR. That is the intended behavior.
 
 **Pre-1.0 semver convention this project uses:**
 - Patch (`0.11.0` → `0.11.1`): bug fixes, additive non-breaking features, documentation.
-- Minor (`0.11.x` → `0.12.0`): breaking API or behavior changes (e.g., removing a public field, changing function signatures, validation rules that reject previously-accepted YAML).
-- A change behind an opt-in feature flag (e.g. `test-support`) that nobody could have realistically used yet → patch is acceptable.
+- Minor (`0.11.x` → `0.12.0`): breaking API or behavior changes.
+- A change behind an opt-in feature flag (e.g. `test-support`) that nobody could have realistically used yet → patch is acceptable; mark the commit `feat:` not `feat!:`.
 
-**Pre-release verification gate (all must pass before push):**
+**Reviewing the release PR:**
+- Confirm the version bump matches the change scope (release-plz computes it from commits — sanity-check it).
+- The generated CHANGELOG section follows Keep-a-Changelog with `Breaking` / `Added` / `Changed` / `Fixed` subsections. Subsections with no entries are skipped.
+- Hand-edits to the CHANGELOG inside the release PR branch are preserved — release-plz only regenerates if commits are added.
+- Once a release is published, **never edit its CHANGELOG section** — it is frozen historical record.
 
-```
-bash .github/scripts/assert-release-version.sh X.Y.Z
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo audit
-cargo test --workspace --no-fail-fast --features test-support
-```
-
-The 44 `PoolTimedOut` failures in `api_integration` / `db_integration` / `grpc_service_tests` are pre-existing and acceptable when no Postgres is running locally.
-
-**RUSTSEC advisories that block the release** must be either upgraded out (`cargo update -p <crate> --precise <version>`) or ignored in `.cargo/audit.toml` with a comment explaining the upstream block. Do NOT release without addressing them — `cargo audit` is part of the auto-release pipeline.
-
-**CHANGELOG section structure:**
-
-```markdown
-## [X.Y.Z] - YYYY-MM-DD
-
-### Breaking
-- ...
-
-### Added
-- ...
-
-### Changed
-- ...
-
-### Fixed
-- ...
-```
-
-Skip subsections that have no entries. Once a release is published, **never edit its CHANGELOG section** — it's frozen as historical record. New changes go in a new `[X.Y.Z+1]` section above.
-
-**The PR title for a release commit MUST be descriptive of the user-facing change, not "release X.Y.Z".** The auto-merge squash uses the PR title as the commit message; "release X.Y.Z" loses the actual content. Example: `v0.11.2 patch — fix custom-handler body extraction (#issue)`.
+**RUSTSEC advisories** must be either upgraded out (`cargo update -p <crate> --precise <version>`) or ignored in `.cargo/audit.toml` with a comment explaining the upstream block. `cargo audit` runs in `ci.yml` on every PR.
 
 **Verifying the release shipped:**
 
 ```
-gh run list --workflow auto-release.yml --limit 1   # status: completed/success
-gh release view vX.Y.Z                              # tag exists, all 5 binaries
-cargo install shaperail-cli@X.Y.Z                   # crates.io has it
+gh run list --workflow release-plz.yml --limit 1        # publish run: completed/success
+gh run list --workflow release-binaries.yml --limit 1   # binaries run: completed/success
+gh release view vX.Y.Z                                   # tag exists, 5 binaries attached
+cargo install shaperail-cli@X.Y.Z                        # crates.io has it
 ```
 
-The first two only succeed once the slowest binary (Windows MSVC) finishes building, which can take up to 15 minutes after merge. crates.io publish happens earlier in the pipeline, so `cargo install` works before the GitHub Release page appears.
+Cross-platform binaries take ~15 minutes (Windows MSVC is the long pole). crates.io publish completes earlier, so `cargo install` works before the GitHub Release page shows binaries.
+
+Configuration lives in `release-plz.toml` at the repo root. Required GitHub secret: `CARGO_REGISTRY_TOKEN` with publish scope for all four crates.
