@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **List endpoints reject bracket-notation filter params for undeclared fields.** `validate_filter_param_form` in `shaperail-runtime/src/handlers/params.rs` was extended: in addition to the v0.11.3 `INVALID_FILTER_FORM` rejection of bare-field params that match a declared filter, the runtime now also returns **422** with code `UNDECLARED_FILTER` when a request sends `?filter[<field>]=<value>` and `<field>` is not in the endpoint's `filters:` list (or the endpoint declares no filters at all). The error message names the available filters when there are any, or notes that the endpoint declares none. Multiple offending keys accumulate into a single 422 response. Closes Issue H.
+
 ## [0.11.3] - 2026-05-02
 
 > **Note on version label.** Both bullet points under **Breaking** below would normally warrant a minor bump under this project's pre-1.0 semver convention (breaking changes go to `0.x+1.0`). They shipped under `0.11.3` due to a release-PR race in the new release-plz pipeline: an empty release PR was created during the pipeline cutover and was merged in parallel with the `feat!:` PR, so the version computation never saw the breaking-change commits. The published `0.11.3` artifacts on crates.io contain the changes described here regardless of the version label. The next user-visible change will trigger a clean `0.12.0`.

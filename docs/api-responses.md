@@ -224,8 +224,7 @@ different version number.
 ### Filtering
 
 Use bracket syntax on the `filter` key. Only fields declared in the endpoint's
-`filters` list are accepted; bracket-form keys for fields not in `filters` are
-silently dropped.
+`filters` list are accepted.
 
 ```
 GET /v1/users?filter[role]=admin&filter[org_id]=550e8400-e29b-41d4-a716-446655440000
@@ -235,11 +234,18 @@ Filters produce exact-match `WHERE` clauses (`field = value`).
 
 **Bare-field params are rejected.** If you send `?role=admin` (without the
 `filter[...]` wrapper) and `role` is declared in `filters:`, the runtime
-returns **422** with a `INVALID_FILTER_FORM` error and a "did you mean
-`?filter[role]=admin`?" hint. This prevents a footgun where a wrong URL
-silently returns unfiltered results. Bare params that don't match any
-declared filter are ignored without error (they may be application-defined
-or reserved like `sort`, `after`, `limit`, `search`, `fields`, `include`).
+returns **422** with `INVALID_FILTER_FORM` and a "did you mean
+`?filter[role]=admin`?" hint. Bare params that don't match any declared
+filter are ignored without error (they may be application-defined or reserved
+like `sort`, `after`, `limit`, `search`, `fields`, `include`).
+
+**Bracket-form params on undeclared fields are also rejected.** If you send
+`?filter[org_id]=...` but `org_id` is not in the endpoint's `filters:` list
+(or the endpoint declares no filters at all), the runtime returns **422**
+with `UNDECLARED_FILTER` and a message naming the available filters. This
+mirrors the bare-field rejection — both anti-patterns previously returned
+200 with a structurally-correct-but-unfiltered response. Add the field to
+`filters:` in YAML if it's a real schema field you want to expose.
 
 ### Sorting
 
