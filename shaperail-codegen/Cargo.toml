@@ -11,7 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-shaperail-core = { version = "0.11.3", path = "../shaperail-core" }
+shaperail-core = { version = "0.12.0", path = "../shaperail-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
