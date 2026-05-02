@@ -124,28 +124,32 @@ pub fn parse_list_params(req: &HttpRequest, endpoint: &EndpointSpec) -> ListPara
     }
 }
 
-/// Rejects bare-field query params that match a declared filter field.
+/// Rejects malformed filter query params on list endpoints.
 ///
-/// The runtime convention is `?filter[field]=value`; bare `?field=value` is
-/// silently ignored by `FilterSet::from_query_params`, which is a footgun
-/// (the response looks paginated and structurally correct but is unfiltered).
-/// When the bare key exactly matches a declared `filters:` entry, return a
-/// 422 with a "did you mean `filter[<field>]`?" suggestion so the caller
-/// fixes the URL instead of debugging a phantom data-leak.
+/// The runtime convention is `?filter[<field>]=<value>`, and only fields
+/// declared in the endpoint's `filters:` list are honored. Two failure modes
+/// are surfaced as 422 errors so callers learn immediately when their URL
+/// will return unfiltered results:
+///
+/// 1. **`INVALID_FILTER_FORM`** — bare `?<field>=<value>` where `<field>`
+///    matches a declared filter. Hint: "did you mean `?filter[<field>]=...`?".
+/// 2. **`UNDECLARED_FILTER`** — bracket-form `?filter[<field>]=<value>`
+///    where `<field>` is not in the declared list (or no filters are
+///    declared at all). Message lists the available filters or notes that
+///    the endpoint declares none.
 ///
 /// Bare params that do not match any declared filter are left alone — they
 /// may be application-defined or reserved (`sort`, `after`, `limit`, etc.).
+/// Multiple offending keys accumulate into a single 422 response.
 pub fn validate_filter_param_form(
     req: &HttpRequest,
     endpoint: &EndpointSpec,
 ) -> Result<(), ShaperailError> {
     let allowed = endpoint.filters.as_deref().unwrap_or(&[]);
-    if allowed.is_empty() {
-        return Ok(());
-    }
     let params = query_map(req);
     let mut bad: Vec<FieldError> = Vec::new();
     for key in params.keys() {
+        // Bare-field matching a declared filter — Issue G (0.11.3).
         if allowed.iter().any(|f| f == key) {
             bad.push(FieldError {
                 field: key.clone(),
@@ -154,6 +158,28 @@ pub fn validate_filter_param_form(
                 ),
                 code: "INVALID_FILTER_FORM".to_string(),
             });
+            continue;
+        }
+        // Bracket-notation on an undeclared field — Issue H.
+        if let Some(field) = key
+            .strip_prefix("filter[")
+            .and_then(|s| s.strip_suffix(']'))
+        {
+            if !allowed.iter().any(|f| f == field) {
+                let message = if allowed.is_empty() {
+                    format!("this endpoint declares no filters; '{field}' is not accepted")
+                } else {
+                    format!(
+                        "'{field}' is not a declared filter on this endpoint; available filters: {}",
+                        allowed.join(", ")
+                    )
+                };
+                bad.push(FieldError {
+                    field: format!("filter[{field}]"),
+                    message,
+                    code: "UNDECLARED_FILTER".to_string(),
+                });
+            }
         }
     }
     if bad.is_empty() {
@@ -261,5 +287,75 @@ mod tests {
             .to_http_request();
         let ep = endpoint_with_filters(&[]);
         assert!(validate_filter_param_form(&req, &ep).is_ok());
+    }
+
+    #[test]
+    fn validate_filter_param_form_rejects_bracket_notation_on_undeclared_field() {
+        let req = actix_web::test::TestRequest::default()
+            .uri("/v1/items?filter[org_id]=abc-123")
+            .to_http_request();
+        let ep = endpoint_with_filters(&["posting_date", "source"]);
+        let err = validate_filter_param_form(&req, &ep).unwrap_err();
+        match err {
+            ShaperailError::Validation(field_errors) => {
+                assert_eq!(field_errors.len(), 1);
+                assert_eq!(field_errors[0].field, "filter[org_id]");
+                assert_eq!(field_errors[0].code, "UNDECLARED_FILTER");
+                assert!(
+                    field_errors[0].message.contains("'org_id'"),
+                    "message should name the offending field: {}",
+                    field_errors[0].message
+                );
+                assert!(
+                    field_errors[0].message.contains("posting_date"),
+                    "message should list available filters: {}",
+                    field_errors[0].message
+                );
+            }
+            other => panic!("expected Validation error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_filter_param_form_rejects_bracket_notation_when_no_filters_declared() {
+        let req = actix_web::test::TestRequest::default()
+            .uri("/v1/items?filter[anything]=value")
+            .to_http_request();
+        let ep = endpoint_with_filters(&[]);
+        let err = validate_filter_param_form(&req, &ep).unwrap_err();
+        match err {
+            ShaperailError::Validation(field_errors) => {
+                assert_eq!(field_errors.len(), 1);
+                assert_eq!(field_errors[0].field, "filter[anything]");
+                assert_eq!(field_errors[0].code, "UNDECLARED_FILTER");
+                assert!(
+                    field_errors[0].message.contains("declares no filters"),
+                    "no-filters-declared message should call that out: {}",
+                    field_errors[0].message
+                );
+            }
+            other => panic!("expected Validation error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_filter_param_form_accumulates_multiple_errors() {
+        // role: bare-field match → INVALID_FILTER_FORM.
+        // filter[org_id]: bracket on undeclared field → UNDECLARED_FILTER.
+        let req = actix_web::test::TestRequest::default()
+            .uri("/v1/items?role=admin&filter[org_id]=abc")
+            .to_http_request();
+        let ep = endpoint_with_filters(&["role"]);
+        let err = validate_filter_param_form(&req, &ep).unwrap_err();
+        match err {
+            ShaperailError::Validation(field_errors) => {
+                assert_eq!(field_errors.len(), 2);
+                let codes: std::collections::HashSet<&str> =
+                    field_errors.iter().map(|e| e.code.as_str()).collect();
+                assert!(codes.contains("INVALID_FILTER_FORM"));
+                assert!(codes.contains("UNDECLARED_FILTER"));
+            }
+            other => panic!("expected Validation error, got {other:?}"),
+        }
     }
 }
