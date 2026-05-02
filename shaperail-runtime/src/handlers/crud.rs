@@ -127,7 +127,7 @@ fn user_role_for_cache(user: Option<&AuthenticatedUser>) -> &str {
 
 /// Returns the tenant_id for the current request, if the resource has `tenant_key` set
 /// and the user has a `tenant_id` claim.
-fn resolve_tenant_id(
+pub(crate) fn resolve_tenant_id(
     resource: &ResourceDefinition,
     user: Option<&AuthenticatedUser>,
 ) -> Option<String> {
