@@ -162,16 +162,126 @@ shaperail resource create <name> --archetype <type>  # archetypes: basic, user, 
 - agent_docs/release.md           → crates.io publish + GitHub Releases
 
 ## Documentation Rule
-After every code change that alters behavior, CLI commands, APIs, or test
-infrastructure, update the relevant docs BEFORE committing:
-- `docs/` — user-facing documentation (CLI reference, guides, examples)
-- `agent_docs/` — internal developer docs (architecture, testing strategy, milestones)
-- `CLAUDE.md` — if the change affects project-level conventions or workflows
+
+After every code change that alters behavior, CLI commands, APIs, configuration, error semantics, or test infrastructure, update the relevant docs BEFORE committing:
+
+- `docs/` — **user-facing public documentation** (rendered to https://shaperail.io). CLI reference, guides, examples, recipes. Has Jekyll front matter (`title`, `parent`, `nav_order`).
+- `agent_docs/` — **internal developer docs** (architecture, testing strategy, codegen patterns, hooks system). No front matter.
+- `CLAUDE.md` — **project-level conventions and workflows** (this file). Update when the change affects how future Claude sessions should approach the codebase.
 
 If docs and code disagree, fix the disagreement immediately (AI-First rule).
+
+### Public-mirror requirement
+
+`docs/` and `agent_docs/` are not optional alternatives — they're parallel audiences. **Every behavior change documented in `agent_docs/X.md` MUST have a corresponding update in `docs/`**, either in an existing user-facing page or as a new mirror page (`docs/X.md`). The internal note isn't enough; users reading the public site at shaperail.io need the same information in public-voice form.
+
+Concretely, the checklist when you finish a code change:
+
+1. ✅ Code change committed with tests.
+2. ✅ `agent_docs/<relevant>.md` updated.
+3. ✅ **Corresponding `docs/<page>.md` updated** — either an existing page got a new section, or a new mirror page was created with Jekyll front matter. If no public page is appropriate, write a one-line justification in the commit message saying so (very rare — most user-visible changes belong in public docs).
+4. ✅ `CHANGELOG.md` `[Unreleased]` (or current version) section names the change.
+5. ✅ If the change affects a release-process, validation rule, or codebase convention, update `CLAUDE.md`.
+
+Examples of the mirror requirement in action:
+
+| Change | `agent_docs/` page | `docs/` page |
+|---|---|---|
+| New runtime API (`Subject`, `Context.session`, `test_support`) | `agent_docs/auth-claims.md`, `agent_docs/custom-handlers.md`, `agent_docs/testing-strategy.md` | `docs/security.md`, `docs/custom-handlers.md`, `docs/testing.md` |
+| Custom-handler body extraction (v0.11.2) | `agent_docs/custom-handlers.md` "Reading the request body" | `docs/custom-handlers.md` "Reading the request body" + callout in `docs/controllers.md` |
+| New validator rule | `agent_docs/codegen-patterns.md` | inline note in `docs/resource-guide.md` |
+| Breaking config change | `agent_docs/architecture.md` if structural | `docs/configuration.md` migration section |
+
+When unsure where the public version belongs, default to creating a new `docs/<topic>.md` page with the same structure as `agent_docs/<topic>.md`, adapted for end-user voice (less internal jargon, more "how do I do this in my project" framing).
 
 ## Git Workflow
 - Never start new feature work on `main`. Create and switch to a fresh branch first.
 - Branch per milestone or feature: `git checkout -b feat/m01-core-types`
 - Only commit when clippy + tests pass
 - Commit format: `feat(shaperail-core): M01 — Core Types`
+- **Never push more commits to a branch with an open PR you intend to merge as-is.** PRs auto-merge as soon as CI is green; follow-up commits frequently land too late and end up stranded on the merged branch. Open a new PR for follow-ups.
+
+## Release Process — FOLLOW EVERY TIME
+
+Releases ship via the `auto-release.yml` workflow on every push to `main`. The workflow checks whether the workspace version is ahead of the latest git tag; if yes, it tests + builds binaries (5 targets including the slow Windows MSVC) + publishes 4 crates to crates.io + creates a GitHub Release. Cross-platform binaries take ~15 minutes; the GitHub Release tag/page only appears at the end.
+
+**Bumping the version requires updating SEVEN places.** `bash .github/scripts/assert-release-version.sh <version>` checks all of them. Run it locally before pushing — if it fails in CI the auto-release aborts and the next merge has to repeat the dance.
+
+The seven places (use this checklist verbatim):
+
+1. `Cargo.toml` — `[workspace.package] version = "X.Y.Z"`
+2. `shaperail-cli/Cargo.toml` — `shaperail-codegen = { version = "X.Y.Z", ... }` (and `shaperail-core`, `shaperail-runtime`)
+3. `shaperail-runtime/Cargo.toml` — `shaperail-core = { version = "X.Y.Z", ... }`
+4. `shaperail-codegen/Cargo.toml` — `shaperail-core = { version = "X.Y.Z", ... }`
+5. `docs/_config.yml` — `release_version: X.Y.Z` (Jekyll site footer; non-obvious; has bitten us)
+6. `CHANGELOG.md` — section heading `## [X.Y.Z] - YYYY-MM-DD`
+7. `CHANGELOG.md` — link reference at bottom: `[X.Y.Z]: https://github.com/shaperail/shaperail/releases/tag/vX.Y.Z`
+
+**Pre-1.0 semver convention this project uses:**
+- Patch (`0.11.0` → `0.11.1`): bug fixes, additive non-breaking features, documentation.
+- Minor (`0.11.x` → `0.12.0`): breaking API or behavior changes (e.g., removing a public field, changing function signatures, validation rules that reject previously-accepted YAML).
+- A change behind an opt-in feature flag (e.g. `test-support`) that nobody could have realistically used yet → patch is acceptable.
+
+**Pre-release verification gate (all must pass before push). Run these with the SAME flags CI uses — `--locked` matters:**
+
+```
+bash .github/scripts/assert-release-version.sh X.Y.Z
+cargo fmt --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo bench --locked --workspace --no-run
+cargo build --locked --workspace
+cargo audit
+cargo test --locked --workspace --no-fail-fast --features test-support
+```
+
+`--locked` is critical: if `Cargo.toml` was edited (version bumps, dep changes) but `Cargo.lock` wasn't refreshed, CI fails even though `cargo build` (without `--locked`) silently regenerates the lock. Always run `cargo build --locked --workspace` before pushing — it surfaces the mismatch locally.
+
+The 44 `PoolTimedOut` failures in `api_integration` / `db_integration` / `grpc_service_tests` are pre-existing and acceptable when no Postgres is running locally — CI runs them with live Postgres + Redis services.
+
+**RUSTSEC advisories that block the release** must be either upgraded out (`cargo update -p <crate> --precise <version>`) or ignored in `.cargo/audit.toml` with a comment explaining the upstream block. Do NOT release without addressing them — `cargo audit` is part of the auto-release pipeline.
+
+**CHANGELOG section structure:**
+
+```markdown
+## [X.Y.Z] - YYYY-MM-DD
+
+### Breaking
+- ...
+
+### Added
+- ...
+
+### Changed
+- ...
+
+### Fixed
+- ...
+```
+
+Skip subsections that have no entries. Once a release is published, **never edit its CHANGELOG section** — it's frozen as historical record. New changes go in a new `[X.Y.Z+1]` section above.
+
+**The PR title for a release commit MUST be descriptive of the user-facing change, not "release X.Y.Z".** The auto-merge squash uses the PR title as the commit message; "release X.Y.Z" loses the actual content. Example: `v0.11.2 patch — fix custom-handler body extraction (#issue)`.
+
+**Verifying the release shipped:**
+
+```
+gh run list --workflow auto-release.yml --limit 1   # status: completed/success
+gh release view vX.Y.Z                              # tag exists, all 5 binaries
+cargo install shaperail-cli@X.Y.Z                   # crates.io has it
+```
+
+The first two only succeed once the slowest binary (Windows MSVC) finishes building, which can take up to 15 minutes after merge. crates.io publish happens earlier in the pipeline, so `cargo install` works before the GitHub Release page appears.
+
+**Release PRs require explicit user merge approval.** Never merge a release-triggering PR autonomously — even if all checks are green. Auto-release ships to crates.io and creates immutable git tags; the user needs to know it's happening. State the gate plainly: "Holding for your merge approval." When the user gives the OK, only then merge.
+
+**Don't bump the next version until the current release is fully shipped.** The auto-release workflow uses `concurrency: auto-release / cancel-in-progress: false`, so back-to-back pushes to main queue. But if `main` carries `0.11.2` while a `0.11.1` auto-release is still mid-flight (binary builds), the second invocation can race against an unstable advisory-db state, registry index, or tag pointer. Wait for `gh release view v<previous>` to return the published release before starting work on the next bump.
+
+**Common pitfalls (every one of these has bitten us at least once):**
+
+1. **Stale `Cargo.lock`** — `cargo build --locked` catches it. Run before push.
+2. **Missing CHANGELOG link reference** at the bottom of `CHANGELOG.md` — `assert-release-version.sh` enforces it.
+3. **`docs/_config.yml::release_version` left at the previous version** — same script enforces it.
+4. **Inter-crate version pin drift** — when bumping the workspace version, the three `version = "X.Y.Z"` strings on `path` deps in `shaperail-cli/Cargo.toml`, `shaperail-runtime/Cargo.toml`, `shaperail-codegen/Cargo.toml` all need updating in lockstep.
+5. **Local-only state files committed by accident** — `.claude/scheduled_tasks.lock`, `.claude/settings.local.json`, `.env.local`, etc. Always `git status` before commit and verify nothing under `.claude/` (besides `agents/`, `commands/`, `skills/`, `settings.json`) is staged.
+6. **A new RUSTSEC advisory landing on the day you release** — happened with hickory-proto on 2026-05-01. If `cargo audit` fails the auto-release, either upgrade out (`cargo update -p <crate> --precise <ver>`) or add to `.cargo/audit.toml` with a comment explaining the upstream block.
+7. **Pushing follow-up commits to a branch with an open PR** — see Git Workflow above. Open a new PR for follow-ups instead.
