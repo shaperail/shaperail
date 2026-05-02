@@ -109,6 +109,42 @@ custom handler owns the response shape — there's no `data:` envelope for
 the runtime to merge `response_extras` into. If your logic needs an
 after-pass, factor it into a helper called from the handler.
 
+## Reading the request body
+
+Custom handlers receive the request body as `actix_web::web::Bytes` stashed in the request extensions — **not** via `req.take_payload()`. The runtime extracts the body up front (so actix doesn't drop it from `ServiceRequest.payload`) and inserts it under `web::Bytes`:
+
+```rust
+use actix_web::{HttpRequest, HttpResponse, web};
+
+pub async fn create_journal_entry(
+    req: HttpRequest,
+    state: actix_web::web::Data<std::sync::Arc<shaperail_runtime::handlers::crud::AppState>>,
+    _resource: std::sync::Arc<shaperail_core::ResourceDefinition>,
+    _endpoint: std::sync::Arc<shaperail_core::EndpointSpec>,
+) -> HttpResponse {
+    // HttpRequest is !Send. Extract from req synchronously, move owned data
+    // into the async block.
+    let body = req
+        .extensions()
+        .get::<web::Bytes>()
+        .cloned()
+        .unwrap_or_default();
+    if body.is_empty() {
+        return HttpResponse::BadRequest().finish();
+    }
+    let payload: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => return HttpResponse::BadRequest().json(serde_json::json!({"error": e.to_string()})),
+    };
+    // ... use `state.pool` and `payload` ...
+    HttpResponse::Created().finish()
+}
+```
+
+`req.take_payload()` and `req.payload()` do **not** work — actix-web only extracts the request payload when an extractor is declared in the dispatch closure's argument list. The runtime declares `body: web::Bytes` there and stashes the result; manually re-reading the underlying stream returns `Payload::None`.
+
+For bodies larger than 256 KB (actix's default `PayloadConfig` limit) the request fails with 413 before the handler runs. Configure a larger limit at the app level outside the framework scaffold if you need bigger payloads.
+
 ## Sharing logic across custom handlers
 
 For endpoints without a before-controller, share logic the normal Rust way: extract a helper function in `resources/<name>.handlers.rs` and call it from each handler. The framework's job is to give you `Subject` and the runtime's `AppState`; your job is to use them.

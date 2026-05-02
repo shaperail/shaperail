@@ -5,6 +5,12 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-05-02
+
+### Fixed
+
+- **Custom handlers can now read the request body.** The custom-endpoint dispatch closure in `shaperail-runtime/src/handlers/routes.rs` had only `(req, state)` in its argument list — actix-web only extracts the request payload when an extractor is declared there, so `ServiceRequest.payload` was dropped before the handler ran and `req.take_payload()` returned `Payload::None` unconditionally. Any custom POST/PUT/PATCH handler trying to read a body got zero bytes regardless of `Content-Length`. The closure now also accepts `body: web::Bytes`; the runtime stashes the buffered bytes in `req.extensions_mut().insert(body)`, and custom handlers read them via `req.extensions().get::<web::Bytes>().cloned()`. Bodies larger than actix's default `PayloadConfig` limit (256 KB) still fail with 413 before the handler runs — configure that at the app level if you need bigger payloads. See `agent_docs/custom-handlers.md` for the full pattern.
+
 ## [0.11.1] - 2026-05-02
 
 Patch release fixing five issues caught in the v0.11.0 follow-up review. The headline runtime additions from v0.11.0 (`test_support`, `Context.session`/`response_extras`, `Subject`) are unchanged in semantics; this release fixes bugs and design regressions in those features.
@@ -261,3 +267,4 @@ In practice, the v0.11.0 versions of both functions were broken-by-design for th
 [0.10.1]: https://github.com/shaperail/shaperail/releases/tag/v0.10.1
 [0.11.0]: https://github.com/shaperail/shaperail/releases/tag/v0.11.0
 [0.11.1]: https://github.com/shaperail/shaperail/releases/tag/v0.11.1
+[0.11.2]: https://github.com/shaperail/shaperail/releases/tag/v0.11.2

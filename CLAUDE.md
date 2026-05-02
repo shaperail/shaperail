@@ -175,3 +175,71 @@ If docs and code disagree, fix the disagreement immediately (AI-First rule).
 - Branch per milestone or feature: `git checkout -b feat/m01-core-types`
 - Only commit when clippy + tests pass
 - Commit format: `feat(shaperail-core): M01 — Core Types`
+- **Never push more commits to a branch with an open PR you intend to merge as-is.** PRs auto-merge as soon as CI is green; follow-up commits frequently land too late and end up stranded on the merged branch. Open a new PR for follow-ups.
+
+## Release Process — FOLLOW EVERY TIME
+
+Releases ship via the `auto-release.yml` workflow on every push to `main`. The workflow checks whether the workspace version is ahead of the latest git tag; if yes, it tests + builds binaries (5 targets including the slow Windows MSVC) + publishes 4 crates to crates.io + creates a GitHub Release. Cross-platform binaries take ~15 minutes; the GitHub Release tag/page only appears at the end.
+
+**Bumping the version requires updating SEVEN places.** `bash .github/scripts/assert-release-version.sh <version>` checks all of them. Run it locally before pushing — if it fails in CI the auto-release aborts and the next merge has to repeat the dance.
+
+The seven places (use this checklist verbatim):
+
+1. `Cargo.toml` — `[workspace.package] version = "X.Y.Z"`
+2. `shaperail-cli/Cargo.toml` — `shaperail-codegen = { version = "X.Y.Z", ... }` (and `shaperail-core`, `shaperail-runtime`)
+3. `shaperail-runtime/Cargo.toml` — `shaperail-core = { version = "X.Y.Z", ... }`
+4. `shaperail-codegen/Cargo.toml` — `shaperail-core = { version = "X.Y.Z", ... }`
+5. `docs/_config.yml` — `release_version: X.Y.Z` (Jekyll site footer; non-obvious; has bitten us)
+6. `CHANGELOG.md` — section heading `## [X.Y.Z] - YYYY-MM-DD`
+7. `CHANGELOG.md` — link reference at bottom: `[X.Y.Z]: https://github.com/shaperail/shaperail/releases/tag/vX.Y.Z`
+
+**Pre-1.0 semver convention this project uses:**
+- Patch (`0.11.0` → `0.11.1`): bug fixes, additive non-breaking features, documentation.
+- Minor (`0.11.x` → `0.12.0`): breaking API or behavior changes (e.g., removing a public field, changing function signatures, validation rules that reject previously-accepted YAML).
+- A change behind an opt-in feature flag (e.g. `test-support`) that nobody could have realistically used yet → patch is acceptable.
+
+**Pre-release verification gate (all must pass before push):**
+
+```
+bash .github/scripts/assert-release-version.sh X.Y.Z
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo audit
+cargo test --workspace --no-fail-fast --features test-support
+```
+
+The 44 `PoolTimedOut` failures in `api_integration` / `db_integration` / `grpc_service_tests` are pre-existing and acceptable when no Postgres is running locally.
+
+**RUSTSEC advisories that block the release** must be either upgraded out (`cargo update -p <crate> --precise <version>`) or ignored in `.cargo/audit.toml` with a comment explaining the upstream block. Do NOT release without addressing them — `cargo audit` is part of the auto-release pipeline.
+
+**CHANGELOG section structure:**
+
+```markdown
+## [X.Y.Z] - YYYY-MM-DD
+
+### Breaking
+- ...
+
+### Added
+- ...
+
+### Changed
+- ...
+
+### Fixed
+- ...
+```
+
+Skip subsections that have no entries. Once a release is published, **never edit its CHANGELOG section** — it's frozen as historical record. New changes go in a new `[X.Y.Z+1]` section above.
+
+**The PR title for a release commit MUST be descriptive of the user-facing change, not "release X.Y.Z".** The auto-merge squash uses the PR title as the commit message; "release X.Y.Z" loses the actual content. Example: `v0.11.2 patch — fix custom-handler body extraction (#issue)`.
+
+**Verifying the release shipped:**
+
+```
+gh run list --workflow auto-release.yml --limit 1   # status: completed/success
+gh release view vX.Y.Z                              # tag exists, all 5 binaries
+cargo install shaperail-cli@X.Y.Z                   # crates.io has it
+```
+
+The first two only succeed once the slowest binary (Windows MSVC) finishes building, which can take up to 15 minutes after merge. crates.io publish happens earlier in the pipeline, so `cargo install` works before the GitHub Release page appears.

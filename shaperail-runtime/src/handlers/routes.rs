@@ -190,10 +190,17 @@ pub fn register_resource(
                     };
                     cfg.route(
                         &actix_path,
-                        route.to(move |req: HttpRequest, state: web::Data<Arc<AppState>>| {
+                        route.to(move |req: HttpRequest, body: web::Bytes, state: web::Data<Arc<AppState>>| {
                             let ep = ep.clone();
                             let r = r.clone();
                             let action = action_owned.clone();
+                            // Stash the buffered body in request extensions so the custom handler
+                            // can read it via `req.extensions().get::<web::Bytes>().cloned()`.
+                            // actix-web only extracts the request payload when an extractor is
+                            // declared in the closure's argument list — without `body: web::Bytes`
+                            // here, ServiceRequest.payload is dropped and `req.take_payload()`
+                            // returns Payload::None unconditionally.
+                            req.extensions_mut().insert(body);
                             async move {
                                 // If the endpoint declares a before:-controller, build a Context,
                                 // run the hook, and stash the result in req.extensions_mut() so
@@ -467,6 +474,150 @@ mod tests {
         assert!(
             ctx.is_none(),
             "no Context should be present when no before-controller ran"
+        );
+    }
+
+    // --- Custom-handler body extraction (regression test for v0.11.2) ---
+
+    #[actix_web::test]
+    async fn custom_handler_can_read_request_body() {
+        // Regression test for the v0.11.1 bug: actix-web only extracts the
+        // request payload when an extractor is declared in the closure
+        // argument list. v0.11.1's dispatch closure had only (req, state),
+        // so ServiceRequest.payload was dropped and req.take_payload()
+        // returned Payload::None unconditionally — making POST/PUT custom
+        // handlers unable to read their bodies.
+        //
+        // The fix adds `body: web::Bytes` to the closure and stashes it in
+        // req.extensions_mut() so the handler can read it via
+        // req.extensions().get::<web::Bytes>().cloned().
+        use actix_web::{
+            test::{call_service, init_service, TestRequest},
+            web, App,
+        };
+        use indexmap::IndexMap;
+        use shaperail_core::{
+            EndpointSpec, FieldSchema, FieldType, HttpMethod, ResourceDefinition,
+        };
+        use std::sync::Arc;
+
+        // Resource with a single custom POST endpoint named "echo".
+        let mut endpoints = IndexMap::new();
+        endpoints.insert(
+            "echo".to_string(),
+            EndpointSpec {
+                method: Some(HttpMethod::Post),
+                path: Some("/journal_entries".to_string()),
+                handler: Some("echo_body".to_string()),
+                ..Default::default()
+            },
+        );
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "journal".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: Some(endpoints),
+            relations: None,
+            indexes: None,
+        };
+
+        // Custom handler reads the body bytes from req.extensions() and
+        // echoes back its length + the content. If the bug were still
+        // present, body_len would be 0 and content would be empty.
+        let handler: super::super::custom::CustomHandlerFn = Arc::new(|req, _state, _r, _ep| {
+            // Extract from req synchronously — HttpRequest contains Rc internally
+            // and is therefore !Send, so it cannot cross an async-await boundary.
+            // Move only owned data (the Bytes) into the async block.
+            let body = req
+                .extensions()
+                .get::<web::Bytes>()
+                .cloned()
+                .unwrap_or_default();
+            Box::pin(async move {
+                let body_len = body.len();
+                let content = String::from_utf8_lossy(&body).to_string();
+                actix_web::HttpResponse::Ok().json(serde_json::json!({
+                    "body_len": body_len,
+                    "content": content,
+                }))
+            })
+        });
+        let mut custom_handlers: super::super::custom::CustomHandlerMap =
+            std::collections::HashMap::new();
+        custom_handlers.insert(
+            super::super::custom::handler_key("journal", "echo"),
+            handler,
+        );
+
+        let mut state = super::super::crud::AppState::new(test_pool(), vec![resource.clone()]);
+        state.custom_handlers = Some(custom_handlers);
+        let state = Arc::new(state);
+
+        // Spin up the actix App with the routes registered.
+        let app = init_service(
+            App::new()
+                .app_data(web::Data::new(state.clone()))
+                .configure(|cfg| {
+                    super::super::routes::register_resource(cfg, &resource, state.clone());
+                }),
+        )
+        .await;
+
+        // POST a non-trivial JSON body. v0.11.1 would echo body_len: 0;
+        // v0.11.2 must echo the actual posted bytes.
+        let payload = serde_json::json!({"description": "ate lunch", "amount": 12.50});
+        let payload_bytes = serde_json::to_vec(&payload).unwrap();
+        let req = TestRequest::post()
+            .uri("/v1/journal_entries")
+            .insert_header(("content-type", "application/json"))
+            .set_payload(payload_bytes.clone())
+            .to_request();
+        let resp = call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "expected 2xx, got {:?}",
+            resp.status()
+        );
+
+        let body = actix_web::test::read_body(resp).await;
+        let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let body_len = parsed["body_len"].as_u64().unwrap_or(0);
+        assert_eq!(
+            body_len as usize,
+            payload_bytes.len(),
+            "custom handler must see the full request body, got {} bytes",
+            body_len
+        );
+        assert!(
+            parsed["content"]
+                .as_str()
+                .unwrap_or("")
+                .contains("ate lunch"),
+            "body content should round-trip; got {parsed:?}"
         );
     }
 }
