@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **`handler:` on convention action keys is now a hard validation error.** Declaring `handler: <fn>` on `list` / `get` / `update` / `create` / `delete` was previously silently dropped at codegen time — `collect_custom_handlers` filtered the entry out, the function was never registered, and the endpoint served the standard CRUD response. The new validator rule (`shaperail-codegen/src/validator.rs::validate_handler_only_on_custom`) rejects this with a clear error and a workaround that renames the endpoint key to a non-convention action (e.g. `post_<resource>`) with explicit `method:` / `path:`. To customize standard CRUD without replacing the runtime path, use `controller: { before: ... }` / `controller: { after: ... }` on the convention key. Closes Issue F.
+- **List endpoints reject bare-field query params that match a declared filter.** The runtime convention has always been `?filter[<field>]=<value>`; bare `?<field>=<value>` was silently ignored, producing a structurally-correct-but-unfiltered response (a footgun that surfaced as phantom data leaks across tenants in tests). The new check (`shaperail-runtime/src/handlers/params.rs::validate_filter_param_form`) returns **422** with `INVALID_FILTER_FORM` and a "did you mean `?filter[<field>]=...`?" hint when a bare key exactly matches a declared `filters:` entry. Bare params that don't match any declared filter remain ignored without error. Closes Issue G.
+
 ### Changed
 
 - **Release pipeline replaced with release-plz.** Every push to `main` runs `.github/workflows/release-plz.yml`, which opens a single auto-updated release PR and, on merge, publishes crates + tags + creates the GitHub Release. Cross-platform binaries are uploaded by `.github/workflows/release-binaries.yml` on `release: published`. The seven-place version-bump checklist, the local pre-release verification gate, and the manual `workflow_dispatch` release path are gone — release-plz manages workspace versions, internal `shaperail-*` dep versions, and the CHANGELOG. Authors only need conventional-commit PR titles (`feat:`, `fix:`, `feat!:`, etc.); release-plz does the rest. See `agent_docs/release.md` and the Release Process section of `CLAUDE.md`.

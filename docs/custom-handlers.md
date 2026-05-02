@@ -18,6 +18,8 @@ endpoints:
     handler: regenerate_secret
 ```
 
+> **`handler:` is rejected on convention action keys.** `list`, `get`, `create`, `update`, `delete` are dispatched by the runtime CRUD path. Declaring `handler:` on one of these keys is a validation error caught by `shaperail check`, with a fix suggestion that renames the key to a non-convention action (e.g. `post_<resource>`) and pins `method:` / `path:` explicitly. To customize standard CRUD behavior without replacing the runtime path, use `controller: { before: ... }` / `controller: { after: ... }` instead.
+
 ---
 
 ## What custom handlers do NOT inherit

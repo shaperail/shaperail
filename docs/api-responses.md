@@ -224,13 +224,22 @@ different version number.
 ### Filtering
 
 Use bracket syntax on the `filter` key. Only fields declared in the endpoint's
-`filters` list are accepted; all others are silently ignored.
+`filters` list are accepted; bracket-form keys for fields not in `filters` are
+silently dropped.
 
 ```
 GET /v1/users?filter[role]=admin&filter[org_id]=550e8400-e29b-41d4-a716-446655440000
 ```
 
 Filters produce exact-match `WHERE` clauses (`field = value`).
+
+**Bare-field params are rejected.** If you send `?role=admin` (without the
+`filter[...]` wrapper) and `role` is declared in `filters:`, the runtime
+returns **422** with a `INVALID_FILTER_FORM` error and a "did you mean
+`?filter[role]=admin`?" hint. This prevents a footgun where a wrong URL
+silently returns unfiltered results. Bare params that don't match any
+declared filter are ignored without error (they may be application-defined
+or reserved like `sort`, `after`, `limit`, `search`, `fields`, `include`).
 
 ### Sorting
 

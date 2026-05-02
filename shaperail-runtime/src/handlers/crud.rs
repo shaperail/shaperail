@@ -17,7 +17,9 @@ use crate::jobs::{JobPriority, JobQueue};
 use crate::observability::MetricsState;
 use crate::storage::{parse_max_size, FileMetadata, StorageBackend, UploadHandler};
 
-use super::params::{parse_item_params, parse_list_params, query_map_public};
+use super::params::{
+    parse_item_params, parse_list_params, query_map_public, validate_filter_param_form,
+};
 use super::relations::load_relations;
 use super::response;
 use super::validate::{
@@ -353,6 +355,7 @@ async fn execute_list(
     endpoint: &EndpointSpec,
     user: Option<AuthenticatedUser>,
 ) -> Result<serde_json::Value, ShaperailError> {
+    validate_filter_param_form(req, endpoint)?;
     let mut params = parse_list_params(req, endpoint);
 
     // M18: Inject tenant filter — scopes all list queries to user's tenant

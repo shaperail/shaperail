@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use actix_web::HttpRequest;
-use shaperail_core::{EndpointSpec, PaginationStyle};
+use shaperail_core::{EndpointSpec, FieldError, PaginationStyle, ShaperailError};
 
 use crate::db::{FilterSet, PageRequest, SearchParam, SortParam};
 
@@ -124,6 +124,45 @@ pub fn parse_list_params(req: &HttpRequest, endpoint: &EndpointSpec) -> ListPara
     }
 }
 
+/// Rejects bare-field query params that match a declared filter field.
+///
+/// The runtime convention is `?filter[field]=value`; bare `?field=value` is
+/// silently ignored by `FilterSet::from_query_params`, which is a footgun
+/// (the response looks paginated and structurally correct but is unfiltered).
+/// When the bare key exactly matches a declared `filters:` entry, return a
+/// 422 with a "did you mean `filter[<field>]`?" suggestion so the caller
+/// fixes the URL instead of debugging a phantom data-leak.
+///
+/// Bare params that do not match any declared filter are left alone — they
+/// may be application-defined or reserved (`sort`, `after`, `limit`, etc.).
+pub fn validate_filter_param_form(
+    req: &HttpRequest,
+    endpoint: &EndpointSpec,
+) -> Result<(), ShaperailError> {
+    let allowed = endpoint.filters.as_deref().unwrap_or(&[]);
+    if allowed.is_empty() {
+        return Ok(());
+    }
+    let params = query_map(req);
+    let mut bad: Vec<FieldError> = Vec::new();
+    for key in params.keys() {
+        if allowed.iter().any(|f| f == key) {
+            bad.push(FieldError {
+                field: key.clone(),
+                message: format!(
+                    "filter params use bracket notation; did you mean `?filter[{key}]=...`?"
+                ),
+                code: "INVALID_FILTER_FORM".to_string(),
+            });
+        }
+    }
+    if bad.is_empty() {
+        Ok(())
+    } else {
+        Err(ShaperailError::Validation(bad))
+    }
+}
+
 /// Parses query parameters for item endpoints (get/create/update).
 pub fn parse_item_params(req: &HttpRequest) -> ItemParams {
     let params = query_map(req);
@@ -170,5 +209,57 @@ mod tests {
         let params = HashMap::new();
         let result = parse_csv_param(&params, "fields");
         assert!(result.is_empty());
+    }
+
+    fn endpoint_with_filters(filters: &[&str]) -> EndpointSpec {
+        EndpointSpec {
+            filters: Some(filters.iter().map(|s| s.to_string()).collect()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn validate_filter_param_form_accepts_bracket_notation() {
+        let req = actix_web::test::TestRequest::default()
+            .uri("/v1/items?filter[role]=admin&sort=-created_at")
+            .to_http_request();
+        let ep = endpoint_with_filters(&["role", "org_id"]);
+        assert!(validate_filter_param_form(&req, &ep).is_ok());
+    }
+
+    #[test]
+    fn validate_filter_param_form_rejects_bare_field_matching_declared_filter() {
+        let req = actix_web::test::TestRequest::default()
+            .uri("/v1/items?role=admin")
+            .to_http_request();
+        let ep = endpoint_with_filters(&["role", "org_id"]);
+        let err = validate_filter_param_form(&req, &ep).unwrap_err();
+        match err {
+            ShaperailError::Validation(field_errors) => {
+                assert_eq!(field_errors.len(), 1);
+                assert_eq!(field_errors[0].field, "role");
+                assert_eq!(field_errors[0].code, "INVALID_FILTER_FORM");
+                assert!(field_errors[0].message.contains("filter[role]"));
+            }
+            other => panic!("expected Validation error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_filter_param_form_ignores_unrelated_bare_params() {
+        let req = actix_web::test::TestRequest::default()
+            .uri("/v1/items?some_other_param=value&sort=name")
+            .to_http_request();
+        let ep = endpoint_with_filters(&["role"]);
+        assert!(validate_filter_param_form(&req, &ep).is_ok());
+    }
+
+    #[test]
+    fn validate_filter_param_form_is_noop_when_no_filters_declared() {
+        let req = actix_web::test::TestRequest::default()
+            .uri("/v1/items?role=admin")
+            .to_http_request();
+        let ep = endpoint_with_filters(&[]);
+        assert!(validate_filter_param_form(&req, &ep).is_ok());
     }
 }
