@@ -195,6 +195,14 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
                 )));
             }
 
+            // handler: is only valid on custom (non-convention) endpoints.
+            // The runtime dispatches list/get/create/update/delete via the
+            // standard CRUD path, so a handler: declaration on those keys
+            // would be silently ignored at codegen time.
+            if let Some(e) = validate_handler_only_on_custom(res, action, ep) {
+                errors.push(e);
+            }
+
             if let Some(controller) = &ep.controller {
                 // controller: is only valid on conventional CRUD endpoints.
                 if let Some(e) = validate_controller_only_on_crud(res, action, ep) {
@@ -460,6 +468,46 @@ fn validate_controller_only_on_crud(
         )));
     }
     None
+}
+
+/// Rejects `handler:` declarations on convention endpoint action keys.
+///
+/// The runtime dispatches the convention actions (`list`, `get`, `create`,
+/// `update`, `delete`) via the standard CRUD path. The codegen helper
+/// `collect_custom_handlers` filters these out, so a `handler:` declaration
+/// on a convention key is silently dropped — the user's function is never
+/// registered, never compiled, and never called. Surface this as a hard
+/// validation error with an actionable workaround.
+fn validate_handler_only_on_custom(
+    resource: &str,
+    action: &str,
+    endpoint: &shaperail_core::EndpointSpec,
+) -> Option<ValidationError> {
+    let handler = endpoint.handler.as_deref()?;
+    if !crate::rust::HANDLER_CONVENTIONS.contains(&action) {
+        return None;
+    }
+    Some(err(&format!(
+        "resource '{resource}': endpoint '{action}' declares `handler: {handler}`, \
+         but `handler:` is only valid on custom (non-convention) endpoints. \
+         The convention actions list / get / create / update / delete are \
+         dispatched by the runtime CRUD path; a `handler:` declaration on \
+         them would be silently dropped at codegen time.\n\
+         \n\
+         To attach a custom handler at the same HTTP method+path, rename the \
+         endpoint key to a non-convention action (e.g. `post_{resource}`) and \
+         set `method:` and `path:` explicitly:\n\
+         \n\
+         endpoints:\n  \
+           post_{resource}:\n    \
+             method: POST\n    \
+             path: /{resource}\n    \
+             handler: {handler}\n\
+         \n\
+         To customize standard CRUD behavior without replacing the runtime \
+         path, use `controller: {{ before: ... }}` for setup logic and \
+         `controller: {{ after: ... }}` for response shaping."
+    )))
 }
 
 /// Validates a controller name — either a Rust function name or a `wasm:` prefixed path.
@@ -1042,6 +1090,80 @@ endpoints:
                 .message
                 .contains("declares `controller:` but is a custom endpoint")),
             "create endpoint with controller should NOT trip the rule, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn handler_on_convention_endpoint_rejected() {
+        for action in &["list", "get", "create", "update", "delete"] {
+            let yaml = format!(
+                r#"
+resource: items
+version: 1
+schema:
+  id: {{ type: uuid, primary: true, generated: true }}
+  name: {{ type: string, required: true }}
+endpoints:
+  {action}:
+    handler: my_handler
+"#
+            );
+            let rd = parse_resource(&yaml).unwrap();
+            let errors = validate_resource(&rd);
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.message.contains("`handler: my_handler`")
+                        && e.message
+                            .contains("only valid on custom (non-convention) endpoints")),
+                "expected handler-on-convention error for action '{action}', got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn handler_on_custom_endpoint_allowed() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  post_item:
+    method: POST
+    path: /items
+    handler: create_item_custom
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e.message.contains("only valid on custom")),
+            "custom endpoint with handler must not trip the rule, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn convention_endpoint_without_handler_allowed() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    input: [name]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e.message.contains("only valid on custom")),
+            "convention endpoint without handler must not trip the rule, got: {errors:?}"
         );
     }
 }

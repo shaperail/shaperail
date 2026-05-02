@@ -2,6 +2,14 @@
 
 A custom endpoint declares `handler:` (and optionally `method:` / `path:`) instead of using one of the conventional CRUD actions (`list` / `get` / `create` / `update` / `delete` / `bulk_create` / `bulk_delete`). Custom handlers own their own request parsing AND response generation — the framework gives you the route binding and authentication, but the rest is your code.
 
+## `handler:` is rejected on convention action keys
+
+`shaperail-codegen/src/validator.rs::validate_handler_only_on_custom` rejects `handler:` on the five convention action keys (`list`, `get`, `create`, `update`, `delete`). The check fires from `validate_resource` and is caught by `shaperail check`. The error includes a workaround: rename the endpoint key to a non-convention action and pin `method:` / `path:` explicitly.
+
+The reason is purely codegen mechanics: `collect_custom_handlers` (in `shaperail-codegen/src/rust.rs`) filters out entries whose action name is in `HANDLER_CONVENTIONS`, so a `handler:` declaration on those keys was silently dropped before the `generated/mod.rs` got written. The runtime then dispatched the endpoint via the standard CRUD path and the user's function was never registered. The validator now surfaces this as a hard error rather than allowing the silent drop to ship to runtime.
+
+To customize standard CRUD without replacing the runtime path, use `controller: { before: ... }` / `controller: { after: ... }` — those are valid on convention actions.
+
 ## What custom handlers do NOT get for free
 
 Unlike CRUD endpoints, custom handlers do **not** inherit:
