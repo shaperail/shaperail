@@ -413,11 +413,16 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
     errors
 }
 
-/// Rejects `controller:` declarations on non-CRUD (custom) endpoints.
+/// Rejects `controller: { after: ... }` declarations on non-CRUD (custom) endpoints.
 ///
-/// `controller:` is dispatched exclusively by the CRUD pipeline. Custom endpoints
-/// use `handler:` and own their own request/response flow — declaring a controller
-/// on them was previously a silent no-op. Now it is a hard validation error.
+/// `before:` controllers are now permitted on custom endpoints — the runtime builds
+/// a `Context` with auto-populated `tenant_id`, dispatches the before-hook, and
+/// stashes the resulting `Context` into `req.extensions_mut()` so the custom handler
+/// can read it.
+///
+/// `after:` controllers remain rejected on custom endpoints because the custom handler
+/// owns the response shape — there is no `data:` envelope for the runtime to merge
+/// `ctx.response_extras` into, and no consistent hook point after the handler returns.
 fn validate_controller_only_on_crud(
     resource: &str,
     action: &str,
@@ -432,13 +437,26 @@ fn validate_controller_only_on_crud(
         "bulk_create",
         "bulk_delete",
     ];
-    if !CRUD_ACTIONS.contains(&action) && endpoint.controller.is_some() {
+    if CRUD_ACTIONS.contains(&action) {
+        return None;
+    }
+    // Custom endpoint: allow before-only controller, reject after-controller.
+    let has_after = endpoint
+        .controller
+        .as_ref()
+        .and_then(|c| c.after.as_deref())
+        .is_some();
+    if has_after {
         return Some(err(&format!(
-            "resource '{resource}': endpoint '{action}' declares `controller:` but is a custom \
-             endpoint (dispatched via `handler:`). `controller` is only valid on conventional CRUD \
-             endpoints (list / get / create / update / delete / bulk_create / bulk_delete). For \
-             shared logic on custom handlers, use the typed `Subject` and tenant helpers from \
-             `shaperail_runtime::auth` directly inside your handler."
+            "resource '{resource}': endpoint '{action}' declares `controller: {{ after: ... }}`, \
+             but `after:` controllers are only valid on conventional CRUD endpoints \
+             (list / get / create / update / delete / bulk_create / bulk_delete).\n\
+             \n\
+             Custom endpoints generate their own response via `handler:`, so the runtime \
+             has no place to merge `ctx.response_extras` or pass through after-hook \
+             mutations. Use a `before:` controller for shared setup (auth augmentation, \
+             tenant scoping, request validation), and put response-shaping logic inside \
+             the handler itself."
         )));
     }
     None
@@ -957,7 +975,31 @@ schema:
     }
 
     #[test]
-    fn reject_controller_on_custom_endpoint() {
+    fn reject_after_controller_on_custom_endpoint() {
+        let yaml = r#"
+resource: agents
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  regenerate_secret:
+    method: POST
+    path: /agents/:id/regenerate_secret
+    auth: [admin]
+    controller: { after: my_after }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("declares `controller: { after: ... }`")),
+            "expected a CustomEndpointWithAfterController error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn allow_before_controller_on_custom_endpoint() {
         let yaml = r#"
 resource: agents
 version: 1
@@ -973,10 +1015,8 @@ endpoints:
         let rd = parse_resource(yaml).unwrap();
         let errors = validate_resource(&rd);
         assert!(
-            errors.iter().any(|e| e
-                .message
-                .contains("declares `controller:` but is a custom endpoint")),
-            "expected a CustomEndpointWithController error, got: {errors:?}"
+            errors.is_empty(),
+            "before:-only controller on a custom endpoint should validate clean, got: {errors:?}"
         );
     }
 
