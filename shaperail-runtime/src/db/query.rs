@@ -1022,10 +1022,15 @@ fn field_type_to_sql(ft: &FieldType, field: &FieldSchema) -> String {
         FieldType::Json => "JSONB".to_string(),
         FieldType::Array => {
             if let Some(items) = &field.items {
-                let item_sql = match items.as_str() {
-                    "string" => "TEXT",
-                    "integer" => "INTEGER",
-                    "uuid" => "UUID",
+                let item_sql = match items.field_type {
+                    FieldType::String | FieldType::Enum => "TEXT",
+                    FieldType::Integer => "INTEGER",
+                    FieldType::Bigint => "BIGINT",
+                    FieldType::Number => "DOUBLE PRECISION",
+                    FieldType::Boolean => "BOOLEAN",
+                    FieldType::Timestamp => "TIMESTAMPTZ",
+                    FieldType::Date => "DATE",
+                    FieldType::Uuid => "UUID",
                     _ => "TEXT",
                 };
                 format!("{item_sql}[]")
@@ -1448,7 +1453,9 @@ mod tests {
             default: None,
             sensitive: false,
             search: false,
-            items: Some("string".to_string()),
+            items: Some(shaperail_core::ItemsSpec::of(
+                shaperail_core::FieldType::String,
+            )),
             transient: false,
         };
         assert_eq!(field_type_to_sql(&FieldType::Array, &field), "TEXT[]");

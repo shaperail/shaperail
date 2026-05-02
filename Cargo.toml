@@ -3,7 +3,7 @@ members = ["shaperail-core", "shaperail-codegen", "shaperail-runtime", "shaperai
 resolver = "2"
 
 [workspace.package]
-version = "0.11.3"
+version = "0.12.1"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -15,6 +15,17 @@ keywords = ["web", "api", "framework", "code-generation"]
 categories = ["web-programming::http-server", "development-tools"]
 
 [workspace.dependencies]
+# Internal crates — pinned in one place so release-plz only needs to
+# update workspace.package.version + these four lines on a release. Each
+# consumer crate inherits via `<name>.workspace = true` in its
+# [dependencies] section. Without this, internal version pins live in
+# every consumer's Cargo.toml and release-plz's per-crate analysis can
+# leave some pins stale when a release bumps the workspace via
+# version_group but the consumer crate had no commits of its own.
+shaperail-core = { version = "0.12.1", path = "shaperail-core" }
+shaperail-codegen = { version = "0.12.1", path = "shaperail-codegen" }
+shaperail-runtime = { version = "0.12.1", path = "shaperail-runtime" }
+
 # Async
 tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"

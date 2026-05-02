@@ -205,6 +205,237 @@ fn check_field_rules(
             }
         }
     }
+
+    if field.field_type == FieldType::Array {
+        if let Some(items_spec) = &field.items {
+            match value {
+                serde_json::Value::Array(elements) => {
+                    for (idx, element) in elements.iter().enumerate() {
+                        check_item_rules(name, idx, items_spec, element, errors);
+                    }
+                }
+                _ => {
+                    errors.push(FieldError {
+                        field: name.to_string(),
+                        message: format!("{name} must be an array"),
+                        code: "invalid_type".to_string(),
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn check_item_rules(
+    field_name: &str,
+    idx: usize,
+    items: &shaperail_core::ItemsSpec,
+    value: &serde_json::Value,
+    errors: &mut Vec<FieldError>,
+) {
+    let path = format!("{field_name}[{idx}]");
+
+    // String / enum length checks
+    if matches!(items.field_type, FieldType::String | FieldType::Enum) {
+        if let Some(s) = value.as_str() {
+            if let Some(min) = items.min.as_ref().and_then(|v| v.as_u64()) {
+                if (s.len() as u64) < min {
+                    errors.push(FieldError {
+                        field: path.clone(),
+                        message: format!("{path} must be at least {min} characters"),
+                        code: "too_short".to_string(),
+                    });
+                }
+            }
+            if let Some(max) = items.max.as_ref().and_then(|v| v.as_u64()) {
+                if (s.len() as u64) > max {
+                    errors.push(FieldError {
+                        field: path.clone(),
+                        message: format!("{path} must be at most {max} characters"),
+                        code: "too_long".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Numeric range checks
+    if matches!(
+        items.field_type,
+        FieldType::Integer | FieldType::Bigint | FieldType::Number
+    ) {
+        if let Some(n) = value.as_f64() {
+            if let Some(min) = items.min.as_ref().and_then(|v| v.as_f64()) {
+                if n < min {
+                    errors.push(FieldError {
+                        field: path.clone(),
+                        message: format!("{path} must be at least {min}"),
+                        code: "too_small".to_string(),
+                    });
+                }
+            }
+            if let Some(max) = items.max.as_ref().and_then(|v| v.as_f64()) {
+                if n > max {
+                    errors.push(FieldError {
+                        field: path.clone(),
+                        message: format!("{path} must be at most {max}"),
+                        code: "too_large".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Enum allowlist
+    if items.field_type == FieldType::Enum {
+        if let (Some(allowed), Some(s)) = (&items.values, value.as_str()) {
+            if !allowed.contains(&s.to_string()) {
+                errors.push(FieldError {
+                    field: path.clone(),
+                    message: format!("{path} must be one of: {}", allowed.join(", ")),
+                    code: "invalid_enum".to_string(),
+                });
+            }
+        }
+    }
+
+    // UUID parse
+    if items.field_type == FieldType::Uuid {
+        if let Some(s) = value.as_str() {
+            if uuid::Uuid::parse_str(s).is_err() {
+                errors.push(FieldError {
+                    field: path.clone(),
+                    message: format!("{path} must be a valid UUID"),
+                    code: "invalid_uuid".to_string(),
+                });
+            }
+        }
+    }
+
+    // Email / URL format on string elements
+    if items.format.as_deref() == Some("email") {
+        if let Some(s) = value.as_str() {
+            if !s.contains('@') || !s.contains('.') {
+                errors.push(FieldError {
+                    field: path.clone(),
+                    message: format!("{path} must be a valid email address"),
+                    code: "invalid_format".to_string(),
+                });
+            }
+        }
+    }
+    if items.format.as_deref() == Some("url") {
+        if let Some(s) = value.as_str() {
+            if !s.starts_with("http://") && !s.starts_with("https://") {
+                errors.push(FieldError {
+                    field: path.clone(),
+                    message: format!("{path} must be a valid URL"),
+                    code: "invalid_format".to_string(),
+                });
+            }
+        }
+    }
+}
+
+/// Validates that every element of every `items.ref` array field exists in
+/// the referenced table. Postgres-only. Runs after phase-2 validation,
+/// before INSERT/UPDATE.
+///
+/// Issues at most one query per FK-array column per write, and only when
+/// the field is present and non-empty.
+pub async fn validate_item_references(
+    data: &serde_json::Map<String, serde_json::Value>,
+    resource: &ResourceDefinition,
+    pool: &sqlx::PgPool,
+) -> Result<(), ShaperailError> {
+    let mut errors = Vec::new();
+
+    for (name, field) in &resource.schema {
+        let Some(items) = &field.items else { continue };
+        let Some(reference) = &items.reference else {
+            continue;
+        };
+        if items.field_type != FieldType::Uuid {
+            continue;
+        }
+
+        let Some(serde_json::Value::Array(elements)) = data.get(name) else {
+            continue;
+        };
+        if elements.is_empty() {
+            continue;
+        }
+
+        let Some((table, column)) = reference.split_once('.') else {
+            continue;
+        };
+
+        // Parse all elements as UUIDs (any malformed element should already have
+        // been caught by phase-1 validation; defensive parse here too).
+        let mut uuids: Vec<uuid::Uuid> = Vec::with_capacity(elements.len());
+        for element in elements {
+            if let Some(s) = element.as_str() {
+                if let Ok(u) = uuid::Uuid::parse_str(s) {
+                    uuids.push(u);
+                }
+            }
+        }
+        if uuids.is_empty() {
+            continue;
+        }
+
+        // SAFETY: table/column come from a validated `resource.field` reference
+        // string in the resource YAML, which has already been parser-checked.
+        // They are NOT user input at runtime.
+        let sql = format!(
+            "SELECT COUNT(DISTINCT \"{column}\") FROM \"{table}\" WHERE \"{column}\" = ANY($1::uuid[])"
+        );
+        let row: (i64,) = sqlx::query_as(&sql)
+            .bind(&uuids)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| ShaperailError::Internal(format!("items.ref check failed: {e}")))?;
+
+        let found = row.0 as usize;
+        let distinct: std::collections::HashSet<_> = uuids.iter().collect();
+        if found < distinct.len() {
+            // Compute missing IDs by querying once more (cheap, capped at distinct.len()).
+            let sql_present = format!(
+                "SELECT \"{column}\" FROM \"{table}\" WHERE \"{column}\" = ANY($1::uuid[])"
+            );
+            let present_rows: Vec<(uuid::Uuid,)> = sqlx::query_as(&sql_present)
+                .bind(&uuids)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| ShaperailError::Internal(format!("items.ref check failed: {e}")))?;
+            let present: std::collections::HashSet<uuid::Uuid> =
+                present_rows.into_iter().map(|(u,)| u).collect();
+            let missing: Vec<uuid::Uuid> = distinct
+                .into_iter()
+                .filter(|u| !present.contains(u))
+                .copied()
+                .take(5)
+                .collect();
+            errors.push(FieldError {
+                field: name.clone(),
+                message: format!(
+                    "{name} contains references that do not exist in {reference}: {}",
+                    missing
+                        .iter()
+                        .map(|u| u.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                code: "invalid_reference".to_string(),
+            });
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ShaperailError::Validation(errors))
+    }
 }
 
 #[cfg(test)]
@@ -854,5 +1085,142 @@ mod tests {
         let mut data = serde_json::Map::new();
         data.insert("score".to_string(), serde_json::json!(100));
         assert!(validate_input(&data, &resource).is_ok(), "max boundary");
+    }
+
+    fn array_resource(items: shaperail_core::ItemsSpec, required: bool) -> ResourceDefinition {
+        let mut schema = indexmap::IndexMap::new();
+        schema.insert(
+            "tags".to_string(),
+            FieldSchema {
+                field_type: FieldType::Array,
+                primary: false,
+                generated: false,
+                required,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: Some(items),
+                transient: false,
+            },
+        );
+        ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        }
+    }
+
+    #[test]
+    fn array_string_item_too_short() {
+        let mut items = shaperail_core::ItemsSpec::of(FieldType::String);
+        items.min = Some(serde_json::json!(3));
+        let resource = array_resource(items, false);
+        let mut data = serde_json::Map::new();
+        data.insert("tags".to_string(), serde_json::json!(["ab", "abcd"]));
+
+        let result = validate_input(&data, &resource);
+        let errors = match result {
+            Err(ShaperailError::Validation(e)) => e,
+            _ => panic!("expected validation error"),
+        };
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "tags[0]" && e.code == "too_short"));
+        assert!(errors.iter().all(|e| e.field != "tags[1]"));
+    }
+
+    #[test]
+    fn array_enum_item_invalid() {
+        let mut items = shaperail_core::ItemsSpec::of(FieldType::Enum);
+        items.values = Some(vec!["red".to_string(), "blue".to_string()]);
+        let resource = array_resource(items, false);
+        let mut data = serde_json::Map::new();
+        data.insert("tags".to_string(), serde_json::json!(["red", "purple"]));
+
+        let result = validate_input(&data, &resource);
+        let errors = match result {
+            Err(ShaperailError::Validation(e)) => e,
+            _ => panic!("expected validation error"),
+        };
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "tags[1]" && e.code == "invalid_enum"));
+    }
+
+    #[test]
+    fn array_uuid_item_invalid() {
+        let items = shaperail_core::ItemsSpec::of(FieldType::Uuid);
+        let resource = array_resource(items, false);
+        let mut data = serde_json::Map::new();
+        data.insert(
+            "tags".to_string(),
+            serde_json::json!(["00000000-0000-0000-0000-000000000001", "not-a-uuid"]),
+        );
+
+        let result = validate_input(&data, &resource);
+        let errors = match result {
+            Err(ShaperailError::Validation(e)) => e,
+            _ => panic!("expected validation error"),
+        };
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "tags[1]" && e.code == "invalid_uuid"));
+    }
+
+    #[test]
+    fn array_integer_item_too_large() {
+        let mut items = shaperail_core::ItemsSpec::of(FieldType::Integer);
+        items.max = Some(serde_json::json!(10));
+        let resource = array_resource(items, false);
+        let mut data = serde_json::Map::new();
+        data.insert("tags".to_string(), serde_json::json!([1, 5, 100]));
+
+        let result = validate_input(&data, &resource);
+        let errors = match result {
+            Err(ShaperailError::Validation(e)) => e,
+            _ => panic!("expected validation error"),
+        };
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "tags[2]" && e.code == "too_large"));
+    }
+
+    #[test]
+    fn array_empty_passes() {
+        let items = shaperail_core::ItemsSpec::of(FieldType::String);
+        let resource = array_resource(items, false);
+        let mut data = serde_json::Map::new();
+        data.insert("tags".to_string(), serde_json::json!([]));
+
+        assert!(validate_input(&data, &resource).is_ok());
+    }
+
+    #[test]
+    fn array_value_must_be_array() {
+        let items = shaperail_core::ItemsSpec::of(FieldType::String);
+        let resource = array_resource(items, false);
+        let mut data = serde_json::Map::new();
+        data.insert("tags".to_string(), serde_json::json!("not-an-array"));
+
+        let result = validate_input(&data, &resource);
+        let errors = match result {
+            Err(ShaperailError::Validation(e)) => e,
+            _ => panic!("expected validation error"),
+        };
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "tags" && e.code == "invalid_type"));
     }
 }

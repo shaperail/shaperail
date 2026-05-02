@@ -35,7 +35,7 @@ pub use field_type::FieldType;
 pub use relation::{IndexSpec, RelationSpec, RelationType};
 pub use resource::ResourceDefinition;
 pub use saga::{SagaDefinition, SagaExecutionStatus, SagaStep};
-pub use schema::FieldSchema;
+pub use schema::{FieldSchema, ItemsSpec};
 pub use workspace::{
     InterServiceClientConfig, ServiceDefinition, ServiceRegistryEntry, ServiceStatus, SharedConfig,
     WorkspaceConfig,

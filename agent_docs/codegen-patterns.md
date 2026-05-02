@@ -150,3 +150,17 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 - Generate SQL with string interpolation (always use `$1`, `$2` placeholders)
 - Generate code that imports from outside `shaperail-core` or `shaperail-runtime`
 - Generate files that don't compile with `cargo clippy -- -D warnings`
+
+## OpenAPI Generation
+
+The OpenAPI generator walks each `ResourceDefinition` and emits an OpenAPI 3.1
+schema object per field.
+
+For `FieldType::Array`, the generator consults `field.items` to build the
+element schema: `items.type` is mapped to OpenAPI primitives, and `format`,
+`enum`, `minLength`/`maxLength` (string/enum), or `minimum`/`maximum`
+(numeric) are emitted on the element schema when present. An `items` value that
+is a bare type name (legacy shorthand) produces an element schema with only
+`type` set. An `items` value that is a constraint map produces a fully
+annotated element schema. Previously, array `items` were rendered as an empty
+schema `{}`.

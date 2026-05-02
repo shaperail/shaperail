@@ -40,7 +40,7 @@ indexes: ...          # list of index definitions (optional)
 | timestamp |                 | generated, required, nullable                                         |
 | enum      | values          | values (required), default, required                                  |
 | json      |                 | required, nullable                                                    |
-| array     | items           | items (required — e.g. `items: string`), required                    |
+| array     | items           | items (required). Bare type: `items: string`. Constraint map: `items: { type: string, min: 3, max: 3 }`, `items: { type: enum, values: [...] }`, `items: { type: uuid, ref: resource.id }`. |
 
 `format` valid values: `email`, `url`, `uuid` (string fields only).
 `ref` format: `resource_name.field_name` — the field must be `type: uuid`.
@@ -62,7 +62,7 @@ indexes: ...          # list of index definitions (optional)
 | values    | list    | enum only            | Allowed enum values — required when `type: enum`                |
 | default   | any     | enum, bool, int      | Default value. For enum must be one of `values`                 |
 | ref       | string  | uuid only            | Foreign key reference in `resource.field` format                |
-| items     | string  | array only           | Element type — required when `type: array`                      |
+| items     | string or map | array only    | Element type — required when `type: array`. Either a bare type name (`items: string`) or a constraint map (`{ type: string, min: 3, max: 3 }`, `{ type: enum, values: [...] }`, `{ type: uuid, ref: resource.id }`). |
 | sensitive | bool    | uuid, string         | Omitted from all responses; redacted in logs and error messages |
 | transient | bool    | string, json         | Input-only: validated and visible to before-controller, never persisted, never returned. Must appear in some endpoint's `input:`. Mutually exclusive with primary, generated, ref, unique, default. |
 

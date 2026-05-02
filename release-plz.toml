@@ -9,8 +9,33 @@
 dependencies_update = true
 
 # One release PR for the whole workspace, not one per crate.
-release_always = false
 pr_name = "chore(release): {{ version }}"
+
+# `release_always = true` (the default) tells release-plz to publish on
+# every push to main when the workspace version is ahead of the latest
+# tag, regardless of whether the merge was from a release-plz-generated
+# PR. This is the right setting for our pipeline because:
+#
+# - The `release_commits` regex below already gates whether a release PR
+#   opens at all, so we won't get spurious empty release PRs from chore:
+#   commits.
+# - Manual version bumps (e.g. when auto-versioning hits a workspace
+#   shared-version edge case) still publish through the normal flow.
+#
+# An earlier iteration set this to false to prevent empty release PRs,
+# but that also blocked publishing manually-bumped versions with the log
+# line "skipping release: current commit is not from a release PR".
+release_always = true
+
+# Only commits matching this regex count toward "is there anything to release?"
+# Tightens the rule beyond commit_parsers below: even if a `chore(release):`
+# parser misbehaves and the changelog is empty, release-plz won't open a
+# release PR unless at least one user-facing commit exists in the range.
+#
+# Match feat/fix/perf/refactor either unscoped or with a crate scope. The
+# internal scopes (ci/release/deps/build/examples) are deliberately excluded
+# so internal-pipeline fixes never trigger a release on their own.
+release_commits = "^(feat|fix|perf|refactor)(\\(shaperail-(core|codegen|runtime|cli)\\))?[!]?:"
 
 # Use the existing CHANGELOG.md format.
 changelog_update = true
@@ -24,23 +49,36 @@ publish = true
 publish_features = []
 allow_dirty = false
 
-# Per-crate overrides: explicit publish=true and the dependency-driven
-# publish order is computed automatically by cargo.
+# Per-crate overrides. All four crates share `workspace.package.version`
+# (each declares `version.workspace = true`) and must release together at
+# one version. `version_group = "workspace"` tells release-plz to assign
+# the same version — the highest among the next versions of the grouped
+# packages — to every crate in the group, instead of computing per-crate
+# versions independently. Without this, a `feat!:` that touches only
+# shaperail-runtime bumps just that crate, leaving codegen/core stuck and
+# causing `cargo update` to fail with "candidate versions found which
+# didn't match: 0.12.0" because internal `version = "0.11.3"` pins on the
+# unbumped crates won't satisfy `^0.11.3` against a 0.12.0 path-resolved
+# dep.
 [[package]]
 name = "shaperail-core"
 publish = true
+version_group = "workspace"
 
 [[package]]
 name = "shaperail-codegen"
 publish = true
+version_group = "workspace"
 
 [[package]]
 name = "shaperail-runtime"
 publish = true
+version_group = "workspace"
 
 [[package]]
 name = "shaperail-cli"
 publish = true
+version_group = "workspace"
 
 # Conventional-commit changelog grouping. Headings and order match the
 # existing CHANGELOG.md sections (Breaking, Added, Changed, Fixed).

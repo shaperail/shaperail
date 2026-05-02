@@ -44,6 +44,25 @@ schema:
 | `array`     | type[]          | Vec<T>                 | add `items: type`            |
 | `file`      | TEXT (URL)      | FileRef                | stored in storage backend    |
 
+### Array element constraints
+
+`items:` accepts either a bare type name (shorthand) or a constraint map:
+
+```yaml
+schema:
+  tags:        { type: array, items: string }                          # legacy shorthand
+  currencies:  { type: array, items: { type: string, min: 3, max: 3 } }  # element-level constraints
+  scores:      { type: array, items: { type: integer, min: 0, max: 100 } }
+  flags:       { type: array, items: { type: enum, values: [a, b, c] } }
+  org_ids:     { type: array, items: { type: uuid, ref: organizations.id } }
+```
+
+Element-level constraints are validated per element on every write. Errors surface as `<field>[<index>]` (e.g. `currencies[0]` for a too-short string at index 0).
+
+`items.ref` performs a runtime existence check via `SELECT … WHERE id = ANY($1::uuid[])` and rejects the write with code `invalid_reference` if any element doesn't exist. Postgres only — non-Postgres backends are not supported for this feature.
+
+Nested arrays are not supported. Use `type: json` for nested structure.
+
 ## Field Constraints
 ```
 primary: true      # primary key
@@ -152,7 +171,7 @@ endpoints:
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `auth` | string or array | No | Roles allowed to call this endpoint, or `public` |
-| `filters` | array | No | Query-param filters exposed on list endpoints. Runtime convention is `?filter[<field>]=<value>`. Bare-field params (`?<field>=<value>`) that match a declared filter return 422 `INVALID_FILTER_FORM` — see `shaperail-runtime/src/handlers/params.rs::validate_filter_param_form`. |
+| `filters` | array | No | Query-param filters exposed on list endpoints. Runtime convention is `?filter[<field>]=<value>`. Two error codes from `validate_filter_param_form` in `shaperail-runtime/src/handlers/params.rs`: `INVALID_FILTER_FORM` (422) when a bare `?<field>=<value>` matches a declared filter; `UNDECLARED_FILTER` (422) when bracket-form `?filter[<field>]=<value>` references a field not in the declared list. |
 | `search` | array | No | Fields included in full-text search |
 | `pagination` | string | No | `cursor` or `offset` |
 | `sort` | array | No | Fields available for `?sort=` |

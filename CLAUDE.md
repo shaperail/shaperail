@@ -240,6 +240,8 @@ A merge consisting only of bookkeeping commits does not open a release PR. That 
 - The generated CHANGELOG section follows Keep-a-Changelog with `Breaking` / `Added` / `Changed` / `Fixed` subsections. Subsections with no entries are skipped.
 - Hand-edits to the CHANGELOG inside the release PR branch are preserved — release-plz only regenerates if commits are added.
 - Once a release is published, **never edit its CHANGELOG section** — it is frozen historical record.
+- **Never merge a release PR with an empty changelog body.** If release-plz opens a `chore(release): X.Y.Z` PR whose body has no real entries (just `<details>...</details>` with blank lines), close it instead of merging — merging it ships an empty release that mislabels future user-facing changes. The `release_commits` regex in `release-plz.toml` is the primary guard against this, but treat the empty-body case as a final manual check.
+- **If two release PRs are open at once, close the older one.** This can happen during a pipeline transition or when a `feat!:` lands while a patch-only release PR is already open. Keep only the PR with the correct target version; release-plz will re-sync on the next push.
 
 **RUSTSEC advisories** must be either upgraded out (`cargo update -p <crate> --precise <version>`) or ignored in `.cargo/audit.toml` with a comment explaining the upstream block. `cargo audit` runs in `ci.yml` on every PR.
 
@@ -255,3 +257,7 @@ cargo install shaperail-cli@X.Y.Z                        # crates.io has it
 Cross-platform binaries take ~15 minutes (Windows MSVC is the long pole). crates.io publish completes earlier, so `cargo install` works before the GitHub Release page shows binaries.
 
 Configuration lives in `release-plz.toml` at the repo root. Required GitHub secret: `CARGO_REGISTRY_TOKEN` with publish scope for all four crates.
+
+**Internal crate version pins live ONLY in `[workspace.dependencies]` in the root `Cargo.toml`.** Each consumer's `[dependencies]` section uses `<crate>.workspace = true` to inherit. Do not add explicit `version = "..."` pins on `shaperail-*` deps in any consumer crate — release-plz's per-crate analysis can leave such pins stale when `version_group = "workspace"` lifts a crate that had no commits of its own, causing `cargo update` to fail with "candidate versions found which didn't match: X.Y.Z". One-place inheritance sidesteps this.
+
+**Do NOT set `release_always = false` in `release-plz.toml`.** It blocks the publish step on commits that weren't merged through a release-plz-generated PR (e.g. manual version bumps), so a stuck release becomes "skipping release: current commit is not from a release PR". Empty release PRs are already prevented by the `release_commits` regex; we don't need this flag.

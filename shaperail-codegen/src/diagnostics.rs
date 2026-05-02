@@ -124,6 +124,63 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
             });
         }
 
+        if let Some(items_spec) = &field.items {
+            if items_spec.field_type == FieldType::Array {
+                diags.push(Diagnostic {
+                    code: "SR076",
+                    error: format!("resource '{res}': field '{name}' has nested array items"),
+                    fix: "change items to type: json (nested arrays are not supported)".to_string(),
+                    example: format!("{name}: {{ type: json }}"),
+                });
+            }
+            if items_spec.field_type == FieldType::Enum && items_spec.values.is_none() {
+                diags.push(Diagnostic {
+                    code: "SR077",
+                    error: format!("resource '{res}': field '{name}' enum items missing values"),
+                    fix: "add `values: [...]` to items".to_string(),
+                    example: format!(
+                        "{name}: {{ type: array, items: {{ type: enum, values: [a, b] }} }}"
+                    ),
+                });
+            }
+            if items_spec.format.is_some() && items_spec.field_type != FieldType::String {
+                diags.push(Diagnostic {
+                    code: "SR078",
+                    error: format!(
+                        "resource '{res}': field '{name}' items.format only valid on string"
+                    ),
+                    fix: "remove items.format or change items.type to string".to_string(),
+                    example: format!(
+                        "{name}: {{ type: array, items: {{ type: string, format: email }} }}"
+                    ),
+                });
+            }
+            if items_spec.reference.is_some() && items_spec.field_type != FieldType::Uuid {
+                diags.push(Diagnostic {
+                    code: "SR079",
+                    error: format!(
+                        "resource '{res}': field '{name}' items.ref requires items.type uuid"
+                    ),
+                    fix: "change items.type to uuid, or remove items.ref".to_string(),
+                    example: format!(
+                        "{name}: {{ type: array, items: {{ type: uuid, ref: organizations.id }} }}"
+                    ),
+                });
+            }
+            if let Some(reference) = &items_spec.reference {
+                if !reference.contains('.') {
+                    diags.push(Diagnostic {
+                        code: "SR080",
+                        error: format!(
+                            "resource '{res}': field '{name}' items.ref must be 'resource.field'"
+                        ),
+                        fix: "write items.ref as 'resource_name.column_name'".to_string(),
+                        example: "items: { type: uuid, ref: organizations.id }".to_string(),
+                    });
+                }
+            }
+        }
+
         if field.format.is_some() && field.field_type != FieldType::String {
             diags.push(Diagnostic {
                 code: "SR015",

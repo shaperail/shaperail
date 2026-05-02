@@ -88,6 +88,46 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
             )));
         }
 
+        // Element-level rules for items
+        if let Some(items_spec) = &field.items {
+            // No nested arrays — clearer error than the generic deny_unknown_fields.
+            if items_spec.field_type == FieldType::Array {
+                errors.push(err(&format!(
+                    "resource '{res}': field '{name}' has nested array items; use type: json for nested arrays"
+                )));
+            }
+
+            // Enum items require values: [...]
+            if items_spec.field_type == FieldType::Enum && items_spec.values.is_none() {
+                errors.push(err(&format!(
+                    "resource '{res}': field '{name}' has enum items but no values; add `values: [...]` to items"
+                )));
+            }
+
+            // format only valid for string element type
+            if items_spec.format.is_some() && items_spec.field_type != FieldType::String {
+                errors.push(err(&format!(
+                    "resource '{res}': field '{name}' has items.format but items.type is not string"
+                )));
+            }
+
+            // ref only valid on uuid element type
+            if items_spec.reference.is_some() && items_spec.field_type != FieldType::Uuid {
+                errors.push(err(&format!(
+                    "resource '{res}': field '{name}' has items.ref but items.type is not uuid"
+                )));
+            }
+
+            // ref must be in resource.field shape
+            if let Some(reference) = &items_spec.reference {
+                if !reference.contains('.') {
+                    errors.push(err(&format!(
+                        "resource '{res}': field '{name}' items.ref must be in 'resource.field' format, got '{reference}'"
+                    )));
+                }
+            }
+        }
+
         // Format only valid for string type
         if field.format.is_some() && field.field_type != FieldType::String {
             errors.push(err(&format!(
@@ -1167,6 +1207,45 @@ endpoints:
         );
     }
 
+    fn array_field(items: shaperail_core::ItemsSpec) -> shaperail_core::FieldSchema {
+        shaperail_core::FieldSchema {
+            field_type: shaperail_core::FieldType::Array,
+            primary: false,
+            generated: false,
+            required: false,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: Some(items),
+            transient: false,
+        }
+    }
+
+    fn resource_with_array(
+        name: &str,
+        field: shaperail_core::FieldSchema,
+    ) -> shaperail_core::ResourceDefinition {
+        let mut schema = indexmap::IndexMap::new();
+        schema.insert(name.to_string(), field);
+        shaperail_core::ResourceDefinition {
+            resource: "test".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        }
+    }
+
     // ── Additional tests from coverage-improvement pass ───────────────────
 
     #[test]
@@ -1649,5 +1728,70 @@ endpoints:
                 .any(|e| e.message.contains("upload storage 'dropbox' is invalid")),
             "Expected invalid-storage error, got: {errors:?}"
         );
+    }
+
+    #[test]
+    fn items_nested_array_rejected() {
+        let field = array_field(shaperail_core::ItemsSpec::of(
+            shaperail_core::FieldType::Array,
+        ));
+        let rd = resource_with_array("nested", field);
+        let errors = validate_resource(&rd);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("nested array") || e.message.contains("type: json")));
+    }
+
+    #[test]
+    fn items_enum_requires_values() {
+        let field = array_field(shaperail_core::ItemsSpec::of(
+            shaperail_core::FieldType::Enum,
+        ));
+        let rd = resource_with_array("flags", field);
+        let errors = validate_resource(&rd);
+        assert!(errors.iter().any(|e| e.message.contains("values")));
+    }
+
+    #[test]
+    fn items_format_only_on_string() {
+        let mut items = shaperail_core::ItemsSpec::of(shaperail_core::FieldType::Integer);
+        items.format = Some("email".to_string());
+        let field = array_field(items);
+        let rd = resource_with_array("nums", field);
+        let errors = validate_resource(&rd);
+        assert!(errors.iter().any(|e| e.message.contains("format")));
+    }
+
+    #[test]
+    fn items_ref_requires_uuid() {
+        let mut items = shaperail_core::ItemsSpec::of(shaperail_core::FieldType::String);
+        items.reference = Some("organizations.id".to_string());
+        let field = array_field(items);
+        let rd = resource_with_array("badrefs", field);
+        let errors = validate_resource(&rd);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("ref") && e.message.contains("uuid")));
+    }
+
+    #[test]
+    fn items_ref_format_must_be_resource_dot_field() {
+        let mut items = shaperail_core::ItemsSpec::of(shaperail_core::FieldType::Uuid);
+        items.reference = Some("organizations".to_string()); // missing .id
+        let field = array_field(items);
+        let rd = resource_with_array("orgs", field);
+        let errors = validate_resource(&rd);
+        assert!(errors.iter().any(|e| e.message.contains("resource.field")));
+    }
+
+    #[test]
+    fn items_uuid_ref_valid() {
+        let mut items = shaperail_core::ItemsSpec::of(shaperail_core::FieldType::Uuid);
+        items.reference = Some("organizations.id".to_string());
+        let field = array_field(items);
+        let rd = resource_with_array("tags", field);
+        let errors = validate_resource(&rd);
+        // No errors related to this field.
+        assert!(errors.iter().all(|e| !e.message.contains("tags")));
     }
 }
