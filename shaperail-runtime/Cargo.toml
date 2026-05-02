@@ -20,7 +20,7 @@ observability-otlp = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:ope
 test-support = []
 
 [dependencies]
-shaperail-core = { version = "0.11.2", path = "../shaperail-core" }
+shaperail-core = { version = "0.11.3", path = "../shaperail-core" }
 actix-web = { workspace = true }
 actix-ws = { workspace = true }
 actix-multipart = { workspace = true }
