@@ -36,8 +36,6 @@ jobs:
             ${{ runner.os }}-cargo-
       - run: cargo fmt --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo bench --locked --workspace --no-run
-      - run: cargo build --locked --workspace
 
   test:
     name: Tests
