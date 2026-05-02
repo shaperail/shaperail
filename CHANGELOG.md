@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-05-03
+
 ### Breaking
 
 - **List endpoints reject bracket-notation filter params for undeclared fields.** `validate_filter_param_form` in `shaperail-runtime/src/handlers/params.rs` was extended: in addition to the v0.11.3 `INVALID_FILTER_FORM` rejection of bare-field params that match a declared filter, the runtime now also returns **422** with code `UNDECLARED_FILTER` when a request sends `?filter[<field>]=<value>` and `<field>` is not in the endpoint's `filters:` list (or the endpoint declares no filters at all). The error message names the available filters when there are any, or notes that the endpoint declares none. Multiple offending keys accumulate into a single 422 response. Closes Issue H.
+
+> **Release note:** This release was version-bumped manually rather than via release-plz auto-versioning. The auto-version path failed because release-plz computes per-crate versions independently from commit file paths, but our workspace shares `workspace.package.version` — when only `shaperail-runtime` had relevant commits, `version_group = "workspace"` lifted the other crates to 0.12.0 but `dependencies_update` did not rewrite the unbumped crates' internal `shaperail-core = "^0.11.3"` pins to `"0.12.0"`, so `cargo update` failed with "candidate versions found which didn't match: 0.12.0". A long-term fix using `[workspace.dependencies]` inheritance is tracked as a follow-up.
 
 ## [0.11.3] - 2026-05-02
 
@@ -294,3 +298,4 @@ In practice, the v0.11.0 versions of both functions were broken-by-design for th
 [0.11.1]: https://github.com/shaperail/shaperail/releases/tag/v0.11.1
 [0.11.2]: https://github.com/shaperail/shaperail/releases/tag/v0.11.2
 [0.11.3]: https://github.com/shaperail/shaperail/releases/tag/shaperail-cli-v0.11.3
+[0.12.0]: https://github.com/shaperail/shaperail/releases/tag/v0.12.0
