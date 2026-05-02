@@ -5,6 +5,87 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking
+
+- **`handler:` on convention action keys is now a hard validation error.** Declaring `handler: <fn>` on `list` / `get` / `update` / `create` / `delete` was previously silently dropped at codegen time — `collect_custom_handlers` filtered the entry out, the function was never registered, and the endpoint served the standard CRUD response. The new validator rule (`shaperail-codegen/src/validator.rs::validate_handler_only_on_custom`) rejects this with a clear error and a workaround that renames the endpoint key to a non-convention action (e.g. `post_<resource>`) with explicit `method:` / `path:`. To customize standard CRUD without replacing the runtime path, use `controller: { before: ... }` / `controller: { after: ... }` on the convention key. Closes Issue F.
+- **List endpoints reject bare-field query params that match a declared filter.** The runtime convention has always been `?filter[<field>]=<value>`; bare `?<field>=<value>` was silently ignored, producing a structurally-correct-but-unfiltered response (a footgun that surfaced as phantom data leaks across tenants in tests). The new check (`shaperail-runtime/src/handlers/params.rs::validate_filter_param_form`) returns **422** with `INVALID_FILTER_FORM` and a "did you mean `?filter[<field>]=...`?" hint when a bare key exactly matches a declared `filters:` entry. Bare params that don't match any declared filter remain ignored without error. Closes Issue G.
+
+### Changed
+
+- **Release pipeline replaced with release-plz.** Every push to `main` runs `.github/workflows/release-plz.yml`, which opens a single auto-updated release PR and, on merge, publishes crates + tags + creates the GitHub Release. Cross-platform binaries are uploaded by `.github/workflows/release-binaries.yml` on `release: published`. The seven-place version-bump checklist, the local pre-release verification gate, and the manual `workflow_dispatch` release path are gone — release-plz manages workspace versions, internal `shaperail-*` dep versions, and the CHANGELOG. Authors only need conventional-commit PR titles (`feat:`, `fix:`, `feat!:`, etc.); release-plz does the rest. See `agent_docs/release.md` and the Release Process section of `CLAUDE.md`.
+- CI: `ci.yml` `check` job no longer runs `cargo bench --no-run` and `cargo build --workspace` after `cargo clippy --all-targets` — the clippy invocation already type-checks tests, benches, and examples, so the follow-up steps were redundant.
+- `docs/_config.yml` no longer hard-codes `release_version`; the Jekyll footer and `docs/index.md` link to the GitHub `releases/latest` page instead.
+
+### Removed
+
+- Deleted the custom release infrastructure: `.github/workflows/release.yml`, `.github/workflows/release-command.yml`, `.github/workflows/prepare-release.yml`, `.github/workflows/auto-release.yml`, `.github/ISSUE_TEMPLATE/release.md`, and the helper scripts under `.github/scripts/` (`assert-release-version.sh`, `check-pending-release.sh`, `extract-changelog-section.sh`, `publish-crates.sh`, `set-release-version.sh`). All of their responsibilities are now handled by release-plz.
+
+## [0.11.2] - 2026-05-02
+
+### Fixed
+
+- **Custom handlers can now read the request body.** The custom-endpoint dispatch closure in `shaperail-runtime/src/handlers/routes.rs` had only `(req, state)` in its argument list — actix-web only extracts the request payload when an extractor is declared there, so `ServiceRequest.payload` was dropped before the handler ran and `req.take_payload()` returned `Payload::None` unconditionally. Any custom POST/PUT/PATCH handler trying to read a body got zero bytes regardless of `Content-Length`. The closure now also accepts `body: web::Bytes`; the runtime stashes the buffered bytes in `req.extensions_mut().insert(body)`, and custom handlers read them via `req.extensions().get::<web::Bytes>().cloned()`. Bodies larger than actix's default `PayloadConfig` limit (256 KB) still fail with 413 before the handler runs — configure that at the app level if you need bigger payloads. See `agent_docs/custom-handlers.md` for the full pattern.
+
+## [0.11.1] - 2026-05-02
+
+Patch release fixing five issues caught in the v0.11.0 follow-up review. The headline runtime additions from v0.11.0 (`test_support`, `Context.session`/`response_extras`, `Subject`) are unchanged in semantics; this release fixes bugs and design regressions in those features.
+
+### Added
+
+- **`controller: { before: ... }` is now supported on custom (non-CRUD) endpoints.** The runtime builds a `Context` with auto-populated `tenant_id` (from the auth subject + the resource's `tenant_key`), dispatches the before-hook, and stashes the resulting Context into `req.extensions_mut()` via `extensions_mut().insert(ctx)`. The custom handler can then read it: `req.extensions().get::<shaperail_runtime::handlers::controller::Context>().cloned()`. This eliminates the most common cross-tenant data-access bug class in custom handlers (forgetting to scope by `tenant_id`). `controller: { after: ... }` on custom endpoints remains rejected — custom handlers own their response shape, so the runtime has no place to merge `response_extras`. (Issues A and B in the v0.11.0 follow-up review, refining #1.)
+
+### Changed (breaking, pre-1.0 cargo audit)
+
+- **`shaperail_runtime::test_support::ensure_migrations_run` signature** now takes `migrations_dir: &Path`. The previous signature used the compile-time `sqlx::migrate!("../migrations")` macro, which baked in `shaperail-runtime`'s manifest dir at *its* compile time — so the function was effectively unusable from any external consumer (Issue C). The new signature uses the runtime `Migrator::new` API: pass `Path::new("./migrations")` from your crate root, or `concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")` for absolute resolution.
+- **`shaperail_runtime::test_support::spawn_with_listener` factory contract** now accepts an async closure: `FnOnce(TcpListener) -> impl Future<Output = io::Result<Server>>`. The previous synchronous contract didn't compose with realistic `build_server` functions that connect a sqlx pool, generate OpenAPI, build registries, etc. (Issue D). Sync factories still work via `|l| std::future::ready(sync_build(l))`.
+
+### Fixed
+
+- **`Claims` test-token recipe is now discoverable on docs.rs.** The "Minting a test token" example was previously inside the struct rustdoc; it now also appears as a module-level doc on `shaperail_runtime::auth::jwt`, which renders at the top of the rendered module page. The `token_type` field doc additionally spells out the "must equal `\"access\"` for protected requests → 401" rule (Issue E).
+
+### Migration
+
+- Anyone calling `ensure_migrations_run(&pool)` must add the `migrations_dir` argument: `ensure_migrations_run(&pool, Path::new("./migrations"))`.
+- Anyone calling `spawn_with_listener(listener, |l| sync_build(l))` must wrap the factory: `spawn_with_listener(listener, |l| async move { sync_build(l) })` or `|l| std::future::ready(sync_build(l))`.
+
+In practice, the v0.11.0 versions of both functions were broken-by-design for the use cases they advertised, so existing code is unlikely to depend on them.
+
+## [0.11.0] - 2026-05-02
+
+### Breaking
+
+- **`database:` (singular) config block removed** from `shaperail.config.yaml`. The block was parsed by `ProjectConfig` but never read at runtime — the runtime only ever consumed `databases:` (plural) or `DATABASE_URL`. Configs that retain the legacy block now fail to parse with a clear `unknown field 'database'` error. Migrate by replacing the block with `databases.default:` (preferred — see the new `shaperail init` template) or by relying on `DATABASE_URL` from `.env`. The `DatabaseConfig` type is also removed from `shaperail-core`.
+- **`controller:` declared on a non-CRUD (custom) endpoint is now rejected** at validation time (`shaperail check`). The old behavior was a silent no-op — the runtime dispatched custom endpoints via `handler:` only and never invoked declared controllers. Move shared logic into the custom handler itself; use `shaperail_runtime::auth::Subject` for auth and tenant scoping (#1). (v0.11.1 partially relaxes this: `controller: { before: ... }` is now supported on custom endpoints.)
+
+### Added
+
+- **`shaperail_runtime::test_support`** — new module behind the `test-support` cargo feature, providing `TestServer`, `spawn_with_listener`, and `ensure_migrations_run`. Lets library consumers spin up the actix server in-process on an ephemeral port for integration tests, modeled on the zero2prod `TestApp` pattern (#4). See `agent_docs/testing-strategy.md` for the canonical lib/bin split that consumers should adopt to use it.
+- **`shaperail_runtime::auth::Claims`** is now re-exported from the auth module so consumers minting tokens for tests can use the canonical struct directly. `Claims` rustdoc spells out the required claim shape and includes a test-token recipe (#10).
+- **OpenAPI export** now emits `x-shaperail-auth: [<roles>]` as a vendor extension on each operation that declares non-public `auth:`. Matches the existing `x-shaperail-controller` / `x-shaperail-events` extension pattern. Standard `security:` is unchanged — roles are deliberately not stuffed into the OAuth-scopes array, which would mislead SDK generators that apply OAuth-flow code paths to non-empty scopes (#9).
+- **`Context.response_extras`** — `serde_json::Map<String, Value>` field on `ControllerContext`. Merged into the response body's `data:` envelope after the after-hook returns; never persisted. Perfect for one-time fields like minted plaintext secrets that must reach the client exactly once (#2).
+- **`Context.session`** — cross-phase scratch space on `ControllerContext`. Anything written in `before:` is visible in `after:` for the same request. Never persisted, never serialized to the client (#11).
+- **`shaperail_runtime::auth::Subject`** — typed wrapper around the authenticated user with role/tenant accessors and `sqlx::QueryBuilder<Postgres>` integration. Use in custom handlers for explicit tenant scoping; CRUD endpoints continue to apply scoping automatically (#3).
+
+### Changed
+
+- **`Context` is preserved across `before:` and `after:` hooks** for the same request. Previously the runtime constructed a new `Context` for each phase, so state set in `before:` was not visible in `after:`. Now both phases share the same struct instance (#11). `input` is no longer reset between phases. The Context lifecycle is documented on the struct's rustdoc and in `agent_docs/hooks-system.md`.
+
+### Fixed
+
+- **`docker-compose.yml` Postgres healthcheck** no longer logs `FATAL: database "shaperail" does not exist` every 5 seconds (#7). The scaffolded healthcheck now reads `POSTGRES_USER` / `POSTGRES_DB` from the compose service environment, so it always probes the database that was actually created.
+- **`shaperail init` scaffolded `shaperail.config.yaml`** now emits a working `databases.default:` block with `${DATABASE_URL:postgresql://localhost/<project>}` interpolation (and an inline comment explaining the override) instead of the old, dead singular `database:` block (#8). Fresh projects connect cleanly without manual `.env` editing.
+- **JWT auth middleware logs structured warnings on rejection.** Previously, requests with a malformed/expired JWT or with `token_type != "access"` returned a silent 401 with no log line. The middleware now emits `tracing::warn!` lines with the rejection reason (`decode failed` or `token_type must be "access"`) and the rejected `sub`/`token_type` fields. External response is unchanged (#10).
+- **`shaperail generate` output now passes `cargo fmt --check`.** Each generated `.rs` file is run through `rustfmt --edition 2021` post-write. Missing rustfmt on `PATH` is degraded to a warning rather than failing codegen (#5).
+- **Generated list handlers no longer trip `cargo clippy -- -D warnings`** with `unused_variables: filters` (or, secondarily, `sort`). When a resource declares no `filters:` / `pagination.sort:` in YAML, the codegen now emits `let _ = filters;` / `let _ = sort;` at the top of the find_all body (#6).
+
+## [0.10.1] - 2026-05-01
+
+### Fixed
+
+- **Cross-compile to `aarch64-unknown-linux-gnu` no longer requires system OpenSSL.** Switched `reqwest` from `native-tls` (default) to `rustls-tls`, dropping the `openssl-sys` dependency entirely. The 0.10.0 release shipped to crates.io but the GitHub Release binary build matrix failed because the cross-compile environment lacked ARM OpenSSL libraries. 0.10.1 is functionally identical to 0.10.0; the only change is the TLS backend.
+
 ## [0.10.0] - 2026-05-01
 
 ### Added
@@ -198,3 +279,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.7.0]: https://github.com/shaperail/shaperail/releases/tag/v0.7.0
 [0.6.0]: https://github.com/shaperail/shaperail/releases/tag/v0.6.0
 [0.8.0]: https://github.com/shaperail/shaperail/releases/tag/v0.8.0
+[0.9.0]: https://github.com/shaperail/shaperail/releases/tag/v0.9.0
+[0.10.0]: https://github.com/shaperail/shaperail/releases/tag/v0.10.0
+[0.10.1]: https://github.com/shaperail/shaperail/releases/tag/v0.10.1
+[0.11.0]: https://github.com/shaperail/shaperail/releases/tag/v0.11.0
+[0.11.1]: https://github.com/shaperail/shaperail/releases/tag/v0.11.1
+[0.11.2]: https://github.com/shaperail/shaperail/releases/tag/v0.11.2

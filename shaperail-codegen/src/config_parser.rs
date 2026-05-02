@@ -91,7 +91,6 @@ project: my-app
         assert_eq!(cfg.project, "my-app");
         assert_eq!(cfg.port, 3000);
         assert_eq!(cfg.workers, WorkerCount::Auto);
-        assert!(cfg.database.is_none());
     }
 
     #[test]
@@ -101,12 +100,11 @@ project: my-api
 port: 8080
 workers: 4
 
-database:
-  type: postgresql
-  host: localhost
-  port: 5432
-  name: my_api_db
-  pool_size: 20
+databases:
+  default:
+    engine: postgres
+    url: postgresql://localhost/my_api_db
+    pool_size: 20
 
 cache:
   type: redis
@@ -132,9 +130,11 @@ logging:
         assert_eq!(cfg.project, "my-api");
         assert_eq!(cfg.port, 8080);
         assert_eq!(cfg.workers, WorkerCount::Fixed(4));
-        let db = cfg.database.unwrap();
-        assert_eq!(db.db_type, "postgresql");
-        assert_eq!(db.name, "my_api_db");
+        let dbs = cfg.databases.as_ref().unwrap();
+        assert_eq!(
+            dbs.get("default").unwrap().url,
+            "postgresql://localhost/my_api_db"
+        );
         let auth = cfg.auth.unwrap();
         assert_eq!(auth.provider, "jwt");
     }
@@ -150,16 +150,21 @@ logging:
     fn parse_config_interpolates_env_vars() {
         let yaml = r#"
 project: ${SHAPERAIL_TEST_PROJECT}
-database:
-  type: postgresql
-  name: ${SHAPERAIL_TEST_DB:test_db}
+databases:
+  default:
+    engine: postgres
+    url: postgresql://localhost/${SHAPERAIL_TEST_DB:test_db}
 "#;
         std::env::set_var("SHAPERAIL_TEST_PROJECT", "shaperail-ai");
         std::env::remove_var("SHAPERAIL_TEST_DB");
 
         let cfg = parse_config(yaml).unwrap();
         assert_eq!(cfg.project, "shaperail-ai");
-        assert_eq!(cfg.database.unwrap().name, "test_db");
+        let dbs = cfg.databases.as_ref().unwrap();
+        assert_eq!(
+            dbs.get("default").unwrap().url,
+            "postgresql://localhost/test_db"
+        );
 
         std::env::remove_var("SHAPERAIL_TEST_PROJECT");
     }
@@ -198,6 +203,25 @@ unknown: true
         let err = parse_config(yaml).unwrap_err();
         assert!(err.to_string().contains("unknown field"));
         assert!(err.to_string().contains("unknown"));
+    }
+
+    #[test]
+    fn parse_config_legacy_database_field_rejected() {
+        // The singular `database:` block was removed in v0.11. Existing configs
+        // must fail loudly so users migrate to `databases.default:` or DATABASE_URL.
+        let yaml = r#"
+project: legacy-app
+database:
+  type: postgresql
+  name: legacy_db
+"#;
+        let err = parse_config(yaml)
+            .expect_err("legacy `database:` block should be rejected after v0.11");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown field") && msg.contains("database"),
+            "expected error to name the rejected `database` field, got: {msg}"
+        );
     }
 
     #[test]

@@ -25,6 +25,40 @@ pub fn generate_project(resources: &[ResourceDefinition]) -> Result<GeneratedRus
     })
 }
 
+/// Run `rustfmt --edition 2021` against the Rust source file at `path`, formatting it in place.
+///
+/// Logs to stderr and continues on any failure — never panics or returns `Err` — so that
+/// codegen keeps working in environments without `rustfmt` on `PATH`.
+/// Call only for `.rs` files; it is a no-op for other extensions.
+pub fn rustfmt_in_place(path: &std::path::Path) {
+    if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+        return;
+    }
+    let result = std::process::Command::new("rustfmt")
+        .arg("--edition")
+        .arg("2021")
+        .arg(path)
+        .status();
+    match result {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            eprintln!(
+                "warning: rustfmt exited with {:?} for {}; leaving generated file unformatted",
+                status.code(),
+                path.display()
+            );
+        }
+        Err(err) => {
+            eprintln!(
+                "warning: rustfmt not found on PATH ({}); skipping format pass for {}. \
+                 Install with `rustup component add rustfmt`.",
+                err,
+                path.display()
+            );
+        }
+    }
+}
+
 pub fn generate_resource_module(resource: &ResourceDefinition) -> Result<String, String> {
     let context = ResourceContext::new(resource)?;
 
@@ -519,19 +553,23 @@ fn generate_list_helper(
     let search_fields = endpoint.spec.search.clone().unwrap_or_default();
     let sort_fields = endpoint.spec.sort.clone().unwrap_or_default();
 
-    let filter_decls = filters
-        .iter()
-        .map(|field_name| {
-            let field = context.resource.schema.get(field_name).ok_or_else(|| {
-                format!(
-                    "Unknown filter field '{field_name}' on resource '{}'",
-                    context.resource.resource
-                )
-            })?;
-            Ok(generate_filter_declaration(field_name, field))
-        })
-        .collect::<Result<Vec<_>, String>>()?
-        .join("\n");
+    let filter_decls = if filters.is_empty() {
+        "        let _ = filters;".to_string()
+    } else {
+        filters
+            .iter()
+            .map(|field_name| {
+                let field = context.resource.schema.get(field_name).ok_or_else(|| {
+                    format!(
+                        "Unknown filter field '{field_name}' on resource '{}'",
+                        context.resource.resource
+                    )
+                })?;
+                Ok(generate_filter_declaration(field_name, field))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+            .join("\n")
+    };
 
     let filter_args = filters
         .iter()
@@ -564,14 +602,18 @@ fn generate_list_helper(
         search_expression(&search_fields)
     };
 
-    let sort_decls = (0..sort_fields.len())
-        .map(|index| {
-            format!(
-                "        let sort_field_{index} = sort_field_at(sort, {index});\n        let sort_direction_{index} = sort_direction_at(sort, {index});"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let sort_decls = if sort_fields.is_empty() {
+        "        let _ = sort;".to_string()
+    } else {
+        (0..sort_fields.len())
+            .map(|index| {
+                format!(
+                    "        let sort_field_{index} = sort_field_at(sort, {index});\n        let sort_direction_{index} = sort_direction_at(sort, {index});"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
 
     let filter_positions = filters
         .iter()

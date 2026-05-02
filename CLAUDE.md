@@ -162,16 +162,96 @@ shaperail resource create <name> --archetype <type>  # archetypes: basic, user, 
 - agent_docs/release.md           → crates.io publish + GitHub Releases
 
 ## Documentation Rule
-After every code change that alters behavior, CLI commands, APIs, or test
-infrastructure, update the relevant docs BEFORE committing:
-- `docs/` — user-facing documentation (CLI reference, guides, examples)
-- `agent_docs/` — internal developer docs (architecture, testing strategy, milestones)
-- `CLAUDE.md` — if the change affects project-level conventions or workflows
+
+After every code change that alters behavior, CLI commands, APIs, configuration, error semantics, or test infrastructure, update the relevant docs BEFORE committing:
+
+- `docs/` — **user-facing public documentation** (rendered to https://shaperail.io). CLI reference, guides, examples, recipes. Has Jekyll front matter (`title`, `parent`, `nav_order`).
+- `agent_docs/` — **internal developer docs** (architecture, testing strategy, codegen patterns, hooks system). No front matter.
+- `CLAUDE.md` — **project-level conventions and workflows** (this file). Update when the change affects how future Claude sessions should approach the codebase.
 
 If docs and code disagree, fix the disagreement immediately (AI-First rule).
+
+### Public-mirror requirement
+
+`docs/` and `agent_docs/` are not optional alternatives — they're parallel audiences. **Every behavior change documented in `agent_docs/X.md` MUST have a corresponding update in `docs/`**, either in an existing user-facing page or as a new mirror page (`docs/X.md`). The internal note isn't enough; users reading the public site at shaperail.io need the same information in public-voice form.
+
+Concretely, the checklist when you finish a code change:
+
+1. ✅ Code change committed with tests.
+2. ✅ `agent_docs/<relevant>.md` updated.
+3. ✅ **Corresponding `docs/<page>.md` updated** — either an existing page got a new section, or a new mirror page was created with Jekyll front matter. If no public page is appropriate, write a one-line justification in the commit message saying so (very rare — most user-visible changes belong in public docs).
+4. ✅ `CHANGELOG.md` `[Unreleased]` (or current version) section names the change.
+5. ✅ If the change affects a release-process, validation rule, or codebase convention, update `CLAUDE.md`.
+
+Examples of the mirror requirement in action:
+
+| Change | `agent_docs/` page | `docs/` page |
+|---|---|---|
+| New runtime API (`Subject`, `Context.session`, `test_support`) | `agent_docs/auth-claims.md`, `agent_docs/custom-handlers.md`, `agent_docs/testing-strategy.md` | `docs/security.md`, `docs/custom-handlers.md`, `docs/testing.md` |
+| Custom-handler body extraction (v0.11.2) | `agent_docs/custom-handlers.md` "Reading the request body" | `docs/custom-handlers.md` "Reading the request body" + callout in `docs/controllers.md` |
+| New validator rule | `agent_docs/codegen-patterns.md` | inline note in `docs/resource-guide.md` |
+| Breaking config change | `agent_docs/architecture.md` if structural | `docs/configuration.md` migration section |
+
+When unsure where the public version belongs, default to creating a new `docs/<topic>.md` page with the same structure as `agent_docs/<topic>.md`, adapted for end-user voice (less internal jargon, more "how do I do this in my project" framing).
 
 ## Git Workflow
 - Never start new feature work on `main`. Create and switch to a fresh branch first.
 - Branch per milestone or feature: `git checkout -b feat/m01-core-types`
 - Only commit when clippy + tests pass
-- Commit format: `feat(shaperail-core): M01 — Core Types`
+- **Use [Conventional Commits](https://www.conventionalcommits.org/) on every commit and every PR title.** This is mandatory — release-plz reads commit messages to compute the next version and to generate the CHANGELOG. Getting the prefix wrong means the release PR is wrong.
+  - `feat: ...` → minor bump, listed under **Added** (e.g. `feat(shaperail-runtime): add SSE streaming for /events`)
+  - `fix: ...` → patch bump, listed under **Fixed** (e.g. `fix(shaperail-codegen): prevent panic on empty enum`)
+  - `feat!: ...` or `BREAKING CHANGE:` in the body → breaking (pre-1.0 minor, post-1.0 major)
+  - `perf: ...` / `refactor: ...` → patch bump, listed under **Changed**
+  - `chore: ...` / `docs: ...` / `style: ...` / `test: ...` / `ci: ...` / `build: ...` → bookkeeping, **does not trigger a release**
+  - **Internal-scoped fixes do not trigger a release.** `fix(ci)`, `fix(release)`, `fix(deps)`, `fix(build)`, `fix(examples)` (and the same scopes with `feat`/`perf`/`refactor`) are skipped by the release-plz parsers. Use these scopes for plumbing changes that have no user-visible effect — e.g. fixing a workflow file, bumping a dev dependency, refreshing an example's lockfile.
+  - Scope (the `(shaperail-core)` part) is optional but encouraged for crate-specific changes. Crate-name scopes (`shaperail-core`, `shaperail-codegen`, `shaperail-runtime`, `shaperail-cli`) on `fix:`/`feat:` commits **do** trigger releases — they signal user-facing crate changes.
+  - PR titles MUST follow the same convention — auto-merge squashes the PR title into the merge commit, so the PR title is what release-plz sees.
+- **Never push more commits to a branch with an open PR you intend to merge as-is.** PRs auto-merge as soon as CI is green; follow-up commits frequently land too late and end up stranded on the merged branch. Open a new PR for follow-ups.
+
+## Release Process — release-plz
+
+Releases are driven by [release-plz](https://release-plz.dev). On every push to `main`, `.github/workflows/release-plz.yml` does two things:
+
+1. **Publish (if a release PR was just merged):** publishes all four crates to crates.io in dependency order, tags the commit `vX.Y.Z`, and creates a GitHub Release. `.github/workflows/release-binaries.yml` then fires on `release: published` and uploads archives for the five supported targets.
+2. **Open or update the release PR:** scans new commits since the last tag and opens (or updates) a single PR titled `chore(release): X.Y.Z` containing the version bump and a generated CHANGELOG section.
+
+The only manual step is reviewing and merging that release PR. There is **no** seven-place checklist, **no** manual `workflow_dispatch` button, and **no** local pre-release script.
+
+**Conventional-commit titles drive the release.** Use them on every PR:
+
+| Prefix | Effect |
+|---|---|
+| `feat: ...` | minor bump, listed under **Added** |
+| `fix: ...` | patch bump, listed under **Fixed** |
+| `feat!: ...` (or `BREAKING CHANGE:` in body) | breaking — pre-1.0 minor, post-1.0 major |
+| `perf:` `refactor:` | patch bump, listed under **Changed** |
+| `chore:` `docs:` `style:` `test:` `ci:` `build:` | bookkeeping — no release |
+
+A merge consisting only of bookkeeping commits does not open a release PR. That is the intended behavior.
+
+**Pre-1.0 semver convention this project uses:**
+- Patch (`0.11.0` → `0.11.1`): bug fixes, additive non-breaking features, documentation.
+- Minor (`0.11.x` → `0.12.0`): breaking API or behavior changes.
+- A change behind an opt-in feature flag (e.g. `test-support`) that nobody could have realistically used yet → patch is acceptable; mark the commit `feat:` not `feat!:`.
+
+**Reviewing the release PR:**
+- Confirm the version bump matches the change scope (release-plz computes it from commits — sanity-check it).
+- The generated CHANGELOG section follows Keep-a-Changelog with `Breaking` / `Added` / `Changed` / `Fixed` subsections. Subsections with no entries are skipped.
+- Hand-edits to the CHANGELOG inside the release PR branch are preserved — release-plz only regenerates if commits are added.
+- Once a release is published, **never edit its CHANGELOG section** — it is frozen historical record.
+
+**RUSTSEC advisories** must be either upgraded out (`cargo update -p <crate> --precise <version>`) or ignored in `.cargo/audit.toml` with a comment explaining the upstream block. `cargo audit` runs in `ci.yml` on every PR.
+
+**Verifying the release shipped:**
+
+```
+gh run list --workflow release-plz.yml --limit 1        # publish run: completed/success
+gh run list --workflow release-binaries.yml --limit 1   # binaries run: completed/success
+gh release view vX.Y.Z                                   # tag exists, 5 binaries attached
+cargo install shaperail-cli@X.Y.Z                        # crates.io has it
+```
+
+Cross-platform binaries take ~15 minutes (Windows MSVC is the long pole). crates.io publish completes earlier, so `cargo install` works before the GitHub Release page shows binaries.
+
+Configuration lives in `release-plz.toml` at the repo root. Required GitHub secret: `CARGO_REGISTRY_TOKEN` with publish scope for all four crates.

@@ -11,20 +11,43 @@ use crate::plugins::{PluginContext, PluginUser, WasmRuntime};
 
 /// Context passed to controller functions for synchronous in-request business logic.
 ///
-/// Controllers receive a mutable `Context` and can:
-/// - Modify `input` before the DB operation (before-controllers)
-/// - Read/modify `data` after the DB operation (after-controllers)
-/// - Return `Err(...)` to halt the request with an error response
+/// # Lifecycle
 ///
-/// # Example
+/// One `Context` is constructed per CRUD request and **survives both phases**:
+///
+/// 1. `before:` controller — `data` is `None`. May read/mutate `input`, `session`,
+///    `response_extras`, `response_headers`, `tenant_id`.
+/// 2. CRUD operation runs. The runtime sets `data` to the persisted record.
+/// 3. `after:` controller — `data` is `Some(record)`. May read everything,
+///    mutate `data`, `session`, `response_extras`, `response_headers`.
+///
+/// Anything written to `session` in `before:` is visible in `after:`. Anything
+/// written to `response_extras` in either phase is merged into the JSON response
+/// body (under the `data:` envelope key) but **never persisted**.
+///
+/// `input` is **not** reset between phases — by `after:` it reflects what the
+/// before-hook wrote, but it is no longer authoritative for the persisted record.
+///
+/// # Example: minting a one-time secret
+///
 /// ```rust,ignore
-/// pub async fn validate_org(ctx: &mut Context) -> Result<(), ShaperailError> {
-///     if let Some(email) = ctx.input.get("email").and_then(|v| v.as_str()) {
-///         ctx.input["email"] = serde_json::json!(email.to_lowercase());
+/// async fn mint_mcp_secret(ctx: &mut Context) -> ControllerResult {
+///     if ctx.data.is_none() {
+///         // before-phase
+///         let plaintext = generate_random_secret_32_bytes();
+///         let hash = hash_secret(&plaintext);
+///         ctx.input.insert("mcp_secret_hash".into(), serde_json::json!(hash));
+///         ctx.session.insert("plaintext".into(), serde_json::json!(plaintext));
+///     } else {
+///         // after-phase
+///         if let Some(plaintext) = ctx.session.remove("plaintext") {
+///             ctx.response_extras.insert("mcp_secret".into(), plaintext);
+///         }
 ///     }
 ///     Ok(())
 /// }
 /// ```
+#[derive(Clone)]
 pub struct Context {
     /// Mutable input data. Before-controllers can modify what gets written to DB.
     pub input: serde_json::Map<String, serde_json::Value>,
@@ -41,6 +64,17 @@ pub struct Context {
     /// The tenant ID extracted from the authenticated user (M18).
     /// Present when the resource has `tenant_key` and the user has a `tenant_id` claim.
     pub tenant_id: Option<String>,
+    /// Cross-phase scratch space. Anything written here in a `before:` controller
+    /// is visible in the matching `after:` controller for the same request. Never
+    /// persisted to the database, never sent to the client.
+    pub session: serde_json::Map<String, serde_json::Value>,
+    /// Fields to inject into the JSON response body without persisting them.
+    ///
+    /// Merged into the response under the `data:` envelope key after the after-hook
+    /// returns. Useful for one-time values (minted secrets, server-computed URLs,
+    /// signed download tokens). Keys here will **shadow** any same-named field on
+    /// the persisted record.
+    pub response_extras: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Type alias for controller function results.
@@ -286,6 +320,8 @@ mod tests {
             headers: HashMap::new(),
             response_headers: vec![],
             tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
         };
 
         map.call("users", "normalize_email", &mut ctx)
@@ -305,6 +341,8 @@ mod tests {
             headers: HashMap::new(),
             response_headers: vec![],
             tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
         };
 
         let result = map.call("users", "nonexistent", &mut ctx).await;

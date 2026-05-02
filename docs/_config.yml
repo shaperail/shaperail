@@ -3,7 +3,6 @@ description: Deterministic Rust backend generation from explicit YAML resources.
 url: https://shaperail.io
 baseurl: ""
 repository: shaperail/shaperail
-release_version: 0.10.0
 markdown: kramdown
 permalink: pretty
 remote_theme: just-the-docs/just-the-docs@v0.12.0
@@ -20,6 +19,6 @@ aux_links:
   GitHub: https://github.com/shaperail/shaperail
   crates.io: https://crates.io/crates/shaperail-cli
   Releases: https://github.com/shaperail/shaperail/releases
-footer_content: "Shaperail documentation lives in the same repository as the framework so every release has versioned instructions. Documentation for v{{ site.release_version }}."
+footer_content: "Shaperail documentation lives in the same repository as the framework so every release has versioned instructions. See the <a href='https://github.com/shaperail/shaperail/releases/latest'>latest release</a> for the most recent version."
 exclude:
   - superpowers/

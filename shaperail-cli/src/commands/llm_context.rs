@@ -61,8 +61,6 @@ fn db_summary(config: &ProjectConfig) -> String {
         engines.sort();
         engines.dedup();
         engines.join(", ")
-    } else if let Some(ref db) = config.database {
-        db.db_type.clone()
     } else {
         "unknown".into()
     }
@@ -337,20 +335,13 @@ fn print_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shaperail_core::{DatabaseConfig, ProjectConfig, WorkerCount};
+    use shaperail_core::{ProjectConfig, WorkerCount};
 
     fn make_config(project: &str) -> ProjectConfig {
         ProjectConfig {
             project: project.to_string(),
             port: 3000,
             workers: WorkerCount::Auto,
-            database: Some(DatabaseConfig {
-                db_type: "postgresql".to_string(),
-                host: "localhost".to_string(),
-                port: 5432,
-                name: "test_db".to_string(),
-                pool_size: 5,
-            }),
             databases: None,
             cache: None,
             auth: None,
@@ -365,8 +356,18 @@ mod tests {
 
     #[test]
     fn db_summary_single_db() {
-        let config = make_config("my-app");
-        assert_eq!(db_summary(&config), "postgresql");
+        let mut config = make_config("my-app");
+        let mut dbs = indexmap::IndexMap::new();
+        dbs.insert(
+            "default".to_string(),
+            shaperail_core::NamedDatabaseConfig {
+                engine: shaperail_core::DatabaseEngine::Postgres,
+                url: "postgresql://localhost/test_db".to_string(),
+                pool_size: 5,
+            },
+        );
+        config.databases = Some(dbs);
+        assert_eq!(db_summary(&config), "postgres");
     }
 
     #[test]

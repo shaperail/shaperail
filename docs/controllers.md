@@ -15,9 +15,16 @@ For background work that should not block the response, use
 
 ---
 
+> **Custom endpoints (`handler:`):**
+> - `controller: { before: <name> }` IS supported on custom endpoints (v0.11.1+). The runtime builds a `Context` with auto-populated `tenant_id`, runs the before-hook, and stashes the result in `req.extensions()` so the handler can read it via `req.extensions().get::<Context>().cloned()`.
+> - `controller: { after: <name> }` is rejected at validation time — custom handlers own their response shape, so there is no place for the runtime to merge `response_extras` after the handler returns. Factor after-logic into a helper called from inside the handler.
+> - Custom handlers read the request body via `req.extensions().get::<actix_web::web::Bytes>().cloned()` (v0.11.2+) — `req.take_payload()` returns `Payload::None` because actix doesn't extract the payload unless an extractor is declared in the dispatch closure.
+>
+> See [Custom handlers]({{ '/custom-handlers/' | relative_url }}) for the full pattern.
+
 ## Declaring controllers
 
-Add a `controller` field to any endpoint in your resource YAML:
+Add a `controller` field to any CRUD endpoint in your resource YAML:
 
 ```yaml
 resource: users
@@ -153,6 +160,8 @@ The `Context` struct is the single type passed to all controller functions:
 | `headers` | `HashMap<String, String>` | before + after | Read-only copy of the request headers. |
 | `response_headers` | `Vec<(String, String)>` | before + after | Push `(name, value)` pairs to add extra response headers. |
 | `tenant_id` | `Option<String>` | before + after | The tenant ID from the JWT claim, when the resource has `tenant_key` set. Use for tenant-specific business logic. |
+| `session` | `serde_json::Map<String, Value>` | before + after | Cross-phase scratch space. Anything written in `before:` is visible in `after:`. Never persisted, never serialized to the client. |
+| `response_extras` | `serde_json::Map<String, Value>` | before + after | Keys merged into the response's `data:` envelope after the after-hook returns. Never persisted. Use for one-time values like minted secrets that must reach the client exactly once. |
 
 ---
 
@@ -182,9 +191,58 @@ Key behaviors:
   with the corresponding error response. For before-controllers, the DB
   operation is skipped entirely.
 
+### Preserved-Context lifecycle
+
+The **same `Context` struct instance** is used for both the before- and
+after-phase of a single request. This means:
+
+- `ctx.input` is not reset between phases — modifications from the before-phase
+  are still visible in the after-phase.
+- State written to `ctx.session` in `before:` is readable in `after:`.
+- Keys placed in `ctx.response_extras` in either phase are merged into the
+  outgoing response's `data:` envelope before the HTTP response is sent. They
+  are never written to the database.
+
+Use `ctx.session` to communicate between the two phases without touching
+`ctx.input` or `ctx.data`.
+
 ---
 
 ## Common patterns
+
+### One-time secret on create
+
+Use `ctx.session` to pass a plaintext value from the before-phase to the
+after-phase without exposing it to the database or to intermediate log output.
+The after-phase then places it in `ctx.response_extras` so it appears in the
+response exactly once:
+
+```rust
+// resources/agents.controller.rs
+use shaperail_runtime::handlers::controller::{Context, ControllerResult};
+
+/// Mints a 32-byte secret on agent create:
+///  - before: stores the hash on the row, stashes plaintext in session
+///  - after:  moves plaintext from session into response_extras
+pub async fn mint_mcp_secret(ctx: &mut Context) -> ControllerResult {
+    if ctx.data.is_none() {
+        // before-phase: write hash to DB, stash plaintext for the after-hook
+        let plaintext = generate_random_secret_32_bytes();
+        let hash = hash_secret(&plaintext);
+        ctx.input.insert("mcp_secret_hash".into(), serde_json::json!(hash));
+        ctx.session.insert("plaintext".into(), serde_json::json!(plaintext));
+    } else {
+        // after-phase: hand the plaintext to the response
+        if let Some(plaintext) = ctx.session.remove("plaintext") {
+            ctx.response_extras.insert("mcp_secret".into(), plaintext);
+        }
+    }
+    Ok(())
+}
+```
+
+The response `data:` envelope will contain `"mcp_secret": "<value>"` for this
+one request. Subsequent reads of the agent record will not include it.
 
 ### Auto-fill `created_by` from token
 

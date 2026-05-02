@@ -204,3 +204,60 @@ schema:
   records separately. The framework only filters by the declared key.
 - **Auto-fill tenant_id in JWT** -- Your auth service must include `tenant_id`
   in the JWT claims. Shaperail reads it but does not generate it.
+
+## Custom handlers — opt-in tenant scoping
+
+Custom endpoints (those declaring `handler:` instead of one of the conventional
+CRUD actions) do **not** get automatic tenant isolation — the framework cannot
+infer your data flow. Use the `Subject` API in `shaperail_runtime::auth` to
+extract the role/tenant and apply scoping explicitly:
+
+### Cleaner alternative: a `before:` controller
+
+If you declare `controller: { before: ... }` on the endpoint, the runtime
+auto-populates `ctx.tenant_id` from the auth subject and the resource's
+`tenant_key`, runs your before-hook, and stashes the resulting Context
+in the request extensions. Your handler reads tenant context from there
+without manually calling `Subject::from_request`. See
+[Custom handlers](../agent_docs/custom-handlers.md)
+for the full pattern.
+
+~~~rust
+use shaperail_runtime::auth::Subject;
+use sqlx::{Postgres, QueryBuilder};
+
+pub async fn regenerate_secret(
+    req: actix_web::HttpRequest,
+    /* state, path params, etc. */
+) -> actix_web::HttpResponse {
+    let subject = match Subject::from_request(&req) {
+        Ok(s) => s,
+        Err(_) => return actix_web::HttpResponse::Unauthorized().finish(),
+    };
+
+    let mut q = QueryBuilder::<Postgres>::new("UPDATE agents SET mcp_secret_hash = ");
+    q.push_bind(/* new_hash */ "");
+    q.push(" WHERE id = ");
+    q.push_bind(/* agent_id */ uuid::Uuid::nil());
+
+    // No-op for super_admin; appends `AND org_id = $N` for everyone else.
+    if subject.scope_to_tenant(&mut q, "org_id").is_err() {
+        return actix_web::HttpResponse::Unauthorized().finish();
+    }
+
+    // execute q ...
+    actix_web::HttpResponse::Ok().finish()
+}
+~~~
+
+`Subject` exposes:
+
+| Method | Description |
+| --- | --- |
+| `is_super_admin()` | Returns `true` for the global `super_admin` role, which is exempt from tenant filtering. |
+| `tenant_filter()` | `Ok(None)` for super_admin; `Ok(Some(t))` for a normal user with a `tenant_id` claim; `Err(Unauthorized)` for a normal user with no `tenant_id` claim. |
+| `assert_tenant_match(record_tenant_id)` | For read-then-validate flows — returns an error if the record's tenant does not match the authenticated user's tenant. |
+| `scope_to_tenant(query_builder, column)` | Appends `AND <column> = $N` to a sqlx `QueryBuilder<Postgres>`; no-op for super_admin. |
+
+CRUD endpoints continue to apply this scoping automatically via `tenant_key`.
+You only need `Subject` when you write custom handlers.

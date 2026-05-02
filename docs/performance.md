@@ -39,11 +39,11 @@ The `pool_size` setting in `shaperail.config.yaml` controls the maximum number
 of connections in the sqlx pool:
 
 ```yaml
-database:
-  type: postgresql
-  host: localhost
-  name: my_db
-  pool_size: 20
+databases:
+  default:
+    engine: postgres
+    url: ${DATABASE_URL:postgresql://localhost/my_db}
+    pool_size: 20
 ```
 
 Guidelines for sizing:

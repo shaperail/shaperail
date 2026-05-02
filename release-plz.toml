@@ -1,0 +1,98 @@
+# Release-plz configuration. See https://release-plz.dev/docs/config
+#
+# Workspace-level defaults: every shaperail-* crate publishes together, all
+# share workspace.package.version, and the generated CHANGELOG.md and GitHub
+# Release notes are produced from conventional-commit messages.
+
+[workspace]
+# All crates share workspace.package.version, so they release as a single unit.
+dependencies_update = true
+
+# One release PR for the whole workspace, not one per crate.
+release_always = false
+pr_name = "chore(release): {{ version }}"
+
+# Use the existing CHANGELOG.md format.
+changelog_update = true
+
+# Create GitHub Releases. Binaries are attached by release-binaries.yml.
+git_release_enable = true
+git_release_type = "auto"
+
+# Keep all crates in semver lockstep.
+publish = true
+publish_features = []
+allow_dirty = false
+
+# Per-crate overrides: explicit publish=true and the dependency-driven
+# publish order is computed automatically by cargo.
+[[package]]
+name = "shaperail-core"
+publish = true
+
+[[package]]
+name = "shaperail-codegen"
+publish = true
+
+[[package]]
+name = "shaperail-runtime"
+publish = true
+
+[[package]]
+name = "shaperail-cli"
+publish = true
+
+# Conventional-commit changelog grouping. Headings and order match the
+# existing CHANGELOG.md sections (Breaking, Added, Changed, Fixed).
+[changelog]
+header = """# Changelog
+
+All notable changes to Shaperail will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+"""
+
+body = """
+
+## [{{ version | trim_start_matches(pat=\"v\") }}]{%- if release_link -%}({{ release_link }}){%- endif %} - {{ timestamp | date(format=\"%Y-%m-%d\") }}
+{% for group, commits in commits | group_by(attribute=\"group\") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}*{{ commit.scope }}*: {% endif %}{{ commit.message | upper_first }}{% if commit.links %} ({% for link in commit.links %}[#{{ link.text }}]({{ link.href }}){% if not loop.last %}, {% endif %}{% endfor %}){% endif %}\
+{% endfor %}
+{% endfor %}\n
+"""
+
+commit_parsers = [
+    # Breaking changes (highest priority).
+    { message = "^feat!", group = "Breaking" },
+    { message = ".*!:", group = "Breaking" },
+    { body = ".*BREAKING CHANGE", group = "Breaking" },
+
+    # Internal-only fixes that must NOT trigger a user-facing release.
+    # Anything scoped to ci/release/deps/build/examples is plumbing.
+    # These rules are evaluated first so they win against the generic
+    # `^fix` / `^feat` / `^perf` / `^refactor` rules below.
+    { message = "^(fix|feat|perf|refactor)\\(ci\\)", skip = true },
+    { message = "^(fix|feat|perf|refactor)\\(release\\)", skip = true },
+    { message = "^(fix|feat|perf|refactor)\\(deps\\)", skip = true },
+    { message = "^(fix|feat|perf|refactor)\\(build\\)", skip = true },
+    { message = "^(fix|feat|perf|refactor)\\(examples\\)", skip = true },
+
+    # User-facing changes.
+    { message = "^feat", group = "Added" },
+    { message = "^fix", group = "Fixed" },
+    { message = "^perf", group = "Changed" },
+    { message = "^refactor", group = "Changed" },
+
+    # Bookkeeping prefixes — never trigger a release.
+    { message = "^chore", skip = true },
+    { message = "^docs", skip = true },
+    { message = "^style", skip = true },
+    { message = "^test", skip = true },
+    { message = "^ci", skip = true },
+    { message = "^build", skip = true },
+]
+
+sort_commits = "newest"

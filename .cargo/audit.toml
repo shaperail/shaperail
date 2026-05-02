@@ -2,6 +2,19 @@
 # `sqlx` 0.8.6 still lists the MySQL backend in Cargo.lock even when the
 # workspace only enables PostgreSQL. The vulnerable `rsa` chain is therefore
 # present in audit metadata but not in compiled artifacts or runtime code.
-ignore = ["RUSTSEC-2023-0071"]
+#
+# RUSTSEC-2026-0118 / RUSTSEC-2026-0119 — hickory-proto 0.25.2 (CPU exhaustion
+# during message encoding; NSEC3 closest-encloser proof unbounded loop). Both
+# are transitive deps of `mongodb 3.6.0` (the latest mongodb release on
+# crates.io), which still pins `hickory-proto = "^0.25"`. Cannot upgrade
+# until mongodb publishes a release that bumps to 0.26+. Both advisories
+# affect DNS resolution paths only; the SQL- and Redis-backed default
+# configurations of Shaperail do not exercise hickory at all.
+# Track upstream: https://github.com/mongodb/mongo-rust-driver
+ignore = [
+    "RUSTSEC-2023-0071",
+    "RUSTSEC-2026-0118",
+    "RUSTSEC-2026-0119",
+]
 informational_warnings = ["unmaintained"]
 severity_threshold = "low"

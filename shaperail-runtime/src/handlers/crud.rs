@@ -17,7 +17,9 @@ use crate::jobs::{JobPriority, JobQueue};
 use crate::observability::MetricsState;
 use crate::storage::{parse_max_size, FileMetadata, StorageBackend, UploadHandler};
 
-use super::params::{parse_item_params, parse_list_params, query_map_public};
+use super::params::{
+    parse_item_params, parse_list_params, query_map_public, validate_filter_param_form,
+};
 use super::relations::load_relations;
 use super::response;
 use super::validate::{
@@ -127,7 +129,7 @@ fn user_role_for_cache(user: Option<&AuthenticatedUser>) -> &str {
 
 /// Returns the tenant_id for the current request, if the resource has `tenant_key` set
 /// and the user has a `tenant_id` claim.
-fn resolve_tenant_id(
+pub(crate) fn resolve_tenant_id(
     resource: &ResourceDefinition,
     user: Option<&AuthenticatedUser>,
 ) -> Option<String> {
@@ -353,6 +355,7 @@ async fn execute_list(
     endpoint: &EndpointSpec,
     user: Option<AuthenticatedUser>,
 ) -> Result<serde_json::Value, ShaperailError> {
+    validate_filter_param_form(req, endpoint)?;
     let mut params = parse_list_params(req, endpoint);
 
     // M18: Inject tenant filter — scopes all list queries to user's tenant
@@ -675,11 +678,48 @@ async fn invalidate_cache(state: &AppState, resource: &ResourceDefinition, actio
     }
 }
 
+/// Merges `ctx.response_extras` into `ctx.data` (when both are objects) and
+/// hands the resulting JSON to the given response builder. Logs a warning if
+/// extras are set but `data` is not a JSON object (e.g., a list endpoint).
+///
+/// Also applies any `ctx.response_headers` to the returned response.
+fn build_response_with_extras<F>(
+    ctx: super::controller::Context,
+    builder: F,
+) -> actix_web::HttpResponse
+where
+    F: FnOnce(serde_json::Value) -> actix_web::HttpResponse,
+{
+    let mut data = ctx.data.unwrap_or(serde_json::Value::Null);
+    if !ctx.response_extras.is_empty() {
+        if let Some(obj) = data.as_object_mut() {
+            for (k, v) in ctx.response_extras {
+                obj.insert(k, v);
+            }
+        } else {
+            tracing::warn!(
+                "response_extras set but record data is not a JSON object; dropping extras"
+            );
+        }
+    }
+    let mut resp = builder(data);
+    for (name, value) in ctx.response_headers {
+        if let (Ok(name), Ok(value)) = (
+            actix_web::http::header::HeaderName::from_bytes(name.as_bytes()),
+            actix_web::http::header::HeaderValue::from_str(&value),
+        ) {
+            resp.headers_mut().insert(name, value);
+        }
+    }
+    resp
+}
+
 /// Runs a before-controller if declared on the endpoint.
 ///
-/// Builds a `ControllerContext`, calls the named function, and returns the
-/// (potentially modified) input map. Returns the input unchanged if no
-/// before-controller is declared.
+/// Builds a `Context`, calls the named function, and returns the full `Context`
+/// so the caller can thread it through to the after-controller phase. Returns a
+/// freshly-built `Context` with the input unchanged if no before-controller is
+/// declared — the caller has one consistent code path either way.
 async fn run_before_controller(
     state: &AppState,
     resource: &ResourceDefinition,
@@ -687,21 +727,35 @@ async fn run_before_controller(
     input: serde_json::Map<String, serde_json::Value>,
     user: Option<&AuthenticatedUser>,
     req: &HttpRequest,
-) -> Result<serde_json::Map<String, serde_json::Value>, ShaperailError> {
+) -> Result<super::controller::Context, ShaperailError> {
+    let headers: std::collections::HashMap<String, String> = req
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+    let tenant_id = resolve_tenant_id(resource, user);
     let name = match endpoint
         .controller
         .as_ref()
         .and_then(|c| c.before.as_deref())
     {
         Some(n) => n,
-        None => return Ok(input),
+        None => {
+            // No before-controller — still build a Context so the after-hook (if any)
+            // sees consistent session/response_extras state. data is None at this point.
+            return Ok(super::controller::Context {
+                input,
+                data: None,
+                user: user.cloned(),
+                pool: state.pool.clone(),
+                headers,
+                response_headers: vec![],
+                tenant_id,
+                session: serde_json::Map::new(),
+                response_extras: serde_json::Map::new(),
+            });
+        }
     };
-    let headers = req
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
-    let tenant_id = resolve_tenant_id(resource, user);
     let mut ctx = super::controller::Context {
         input,
         data: None,
@@ -710,6 +764,8 @@ async fn run_before_controller(
         headers,
         response_headers: vec![],
         tenant_id,
+        session: serde_json::Map::new(),
+        response_extras: serde_json::Map::new(),
     };
     #[cfg(feature = "wasm-plugins")]
     let wasm_rt = state.wasm_runtime.as_ref();
@@ -723,43 +779,29 @@ async fn run_before_controller(
         wasm_rt,
     )
     .await?;
-    Ok(ctx.input)
+    Ok(ctx)
 }
 
 /// Runs an after-controller if declared on the endpoint.
 ///
-/// Passes the DB result data to the controller, which can modify it.
-/// Returns the (potentially modified) data.
+/// Takes ownership of the `Context` threaded from the before-phase, sets `data`
+/// to the persisted record, runs the after-controller (if declared), and returns
+/// the full `Context`. `session` and `response_extras` set in the before-phase
+/// are preserved and visible to the after-controller.
 async fn run_after_controller(
     state: &AppState,
     resource: &ResourceDefinition,
     endpoint: &EndpointSpec,
-    data: serde_json::Value,
-    user: Option<&AuthenticatedUser>,
-    req: &HttpRequest,
-) -> Result<serde_json::Value, ShaperailError> {
-    let name = match endpoint
+    mut ctx: super::controller::Context,
+    persisted: serde_json::Value,
+) -> Result<super::controller::Context, ShaperailError> {
+    ctx.data = Some(persisted);
+    let Some(name) = endpoint
         .controller
         .as_ref()
         .and_then(|c| c.after.as_deref())
-    {
-        Some(n) => n,
-        None => return Ok(data),
-    };
-    let headers = req
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
-    let tenant_id = resolve_tenant_id(resource, user);
-    let mut ctx = super::controller::Context {
-        input: serde_json::Map::new(),
-        data: Some(data),
-        user: user.cloned(),
-        pool: state.pool.clone(),
-        headers,
-        response_headers: vec![],
-        tenant_id,
+    else {
+        return Ok(ctx);
     };
     #[cfg(feature = "wasm-plugins")]
     let wasm_rt = state.wasm_runtime.as_ref();
@@ -773,7 +815,7 @@ async fn run_after_controller(
         wasm_rt,
     )
     .await?;
-    Ok(ctx.data.unwrap_or(serde_json::Value::Null))
+    Ok(ctx)
 }
 
 /// Generates an Actix-web create handler.
@@ -802,7 +844,7 @@ pub async fn handle_create(
         input_data.keys().cloned().collect();
 
     // Before-controller: can populate computed fields (e.g. password_hash from password)
-    let mut input_data = run_before_controller(
+    let mut ctx = run_before_controller(
         &state,
         &resource,
         &endpoint,
@@ -813,30 +855,31 @@ pub async fn handle_create(
     .await?;
 
     // PHASE 2: required-presence check + rule check on controller-injected keys
-    validate_required_present(&input_data, &resource, &pre_controller_keys)?;
+    validate_required_present(&ctx.input, &resource, &pre_controller_keys)?;
     // Drop transient input-only fields before persistence
-    strip_transient_fields(&mut input_data, &resource);
+    strip_transient_fields(&mut ctx.input, &resource);
 
     let store_opt = store_for_or_error(&state, &resource)?;
     let row = if let Some(store) = store_opt {
-        store.insert(&input_data).await?
+        store.insert(&ctx.input).await?
     } else {
         let rq = ResourceQuery::new(&resource, &state.pool);
-        rq.insert(&input_data).await?
+        rq.insert(&ctx.input).await?
     };
     let params = parse_item_params(&req);
     let side_effect_data = row.0.clone();
-    let mut data = row.0;
+    let persisted = row.0;
 
-    // After-controller: can modify response data
-    data = run_after_controller(&state, &resource, &endpoint, data, user.as_ref(), &req).await?;
+    // After-controller: can modify response data; threads the same Context through
+    let mut ctx = run_after_controller(&state, &resource, &endpoint, ctx, persisted).await?;
 
     if !params.fields.is_empty() {
-        data = response::select_fields(&data, &params.fields);
+        let data = ctx.data.take().unwrap_or(serde_json::Value::Null);
+        ctx.data = Some(response::select_fields(&data, &params.fields));
     }
 
     run_write_side_effects(&state, &resource, &endpoint, "created", &side_effect_data).await;
-    Ok(response::created(data))
+    Ok(build_response_with_extras(ctx, response::created))
 }
 
 /// Create handler for endpoints that declare `upload`.
@@ -927,7 +970,7 @@ pub async fn handle_update(
         input_data.keys().cloned().collect();
 
     // Before-controller: can populate computed fields
-    let mut input_data = run_before_controller(
+    let mut ctx = run_before_controller(
         &state,
         &resource,
         &endpoint,
@@ -938,30 +981,31 @@ pub async fn handle_update(
     .await?;
 
     // POST-CONTROLLER shape check: re-run rules on any keys the controller injected
-    validate_input_shape(&input_data, &resource)?;
+    validate_input_shape(&ctx.input, &resource)?;
     // Drop transient input-only fields before persistence
-    strip_transient_fields(&mut input_data, &resource);
+    strip_transient_fields(&mut ctx.input, &resource);
     let _ = pre_controller_keys; // reserved for future use (e.g. partial-update audit logging)
 
     let row = if let Some(store) = store_opt {
-        store.update_by_id(&id, &input_data).await?
+        store.update_by_id(&id, &ctx.input).await?
     } else {
         let rq = ResourceQuery::new(&resource, &state.pool);
-        rq.update_by_id(&id, &input_data).await?
+        rq.update_by_id(&id, &ctx.input).await?
     };
     let params = parse_item_params(&req);
     let side_effect_data = row.0.clone();
-    let mut data = row.0;
+    let persisted = row.0;
 
-    // After-controller: can modify response data
-    data = run_after_controller(&state, &resource, &endpoint, data, user.as_ref(), &req).await?;
+    // After-controller: can modify response data; threads the same Context through
+    let mut ctx = run_after_controller(&state, &resource, &endpoint, ctx, persisted).await?;
 
     if !params.fields.is_empty() {
-        data = response::select_fields(&data, &params.fields);
+        let data = ctx.data.take().unwrap_or(serde_json::Value::Null);
+        ctx.data = Some(response::select_fields(&data, &params.fields));
     }
 
     run_write_side_effects(&state, &resource, &endpoint, "updated", &side_effect_data).await;
-    Ok(response::single(data))
+    Ok(build_response_with_extras(ctx, response::single))
 }
 
 /// Update handler for endpoints that declare `upload`.
@@ -1784,5 +1828,61 @@ mod tests {
             ..Default::default()
         };
         let _ = endpoint.rate_limit.as_ref().unwrap();
+    }
+
+    // -- build_response_with_extras tests --
+
+    fn make_test_ctx() -> super::super::controller::Context {
+        super::super::controller::Context {
+            input: serde_json::Map::new(),
+            data: None,
+            user: None,
+            pool: sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap(),
+            headers: std::collections::HashMap::new(),
+            response_headers: vec![],
+            tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn build_response_with_extras_merges_into_object() {
+        let mut ctx = make_test_ctx();
+        ctx.data = Some(serde_json::json!({"id": "abc", "name": "Alice"}));
+        ctx.response_extras
+            .insert("token".into(), serde_json::json!("xyz"));
+        let resp = build_response_with_extras(ctx, response::created);
+        assert_eq!(resp.status(), actix_web::http::StatusCode::CREATED);
+        // Response is wrapped in { "data": { ... } } — inspect the inner data object.
+        let bytes = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let data = &envelope["data"];
+        assert_eq!(data.get("id").and_then(|v| v.as_str()), Some("abc"));
+        assert_eq!(data.get("name").and_then(|v| v.as_str()), Some("Alice"));
+        assert_eq!(
+            data.get("token").and_then(|v| v.as_str()),
+            Some("xyz"),
+            "response_extras key 'token' must appear in the data object"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_response_with_extras_warns_when_data_not_object() {
+        let mut ctx = make_test_ctx();
+        ctx.data = Some(serde_json::json!([1, 2, 3]));
+        ctx.response_extras
+            .insert("token".into(), serde_json::json!("xyz"));
+        let resp = build_response_with_extras(ctx, response::single);
+        // The response should still succeed (200 OK) and return the array unchanged.
+        assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+        let bytes = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        // The array is passed to single(), which wraps it: { "data": [...] }
+        let data = &envelope["data"];
+        assert!(
+            data.is_array(),
+            "non-object data should pass through unchanged, got: {data:?}"
+        );
     }
 }

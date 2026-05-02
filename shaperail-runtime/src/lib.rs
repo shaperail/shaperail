@@ -15,3 +15,6 @@ pub mod registry;
 pub mod sagas;
 pub mod storage;
 pub mod ws;
+
+#[cfg(feature = "test-support")]
+pub mod test_support;

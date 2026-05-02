@@ -7,7 +7,7 @@ nav_order: 1
 
 **Define your API as YAML resources. Shaperail generates the Rust backend — routes, database schema, validation, auth, migrations, and OpenAPI — from that one file.**
 
-*Documentation for v{{ site.release_version }}.*
+*Documentation tracks the [latest release](https://github.com/shaperail/shaperail/releases/latest) on GitHub.*
 
 ---
 

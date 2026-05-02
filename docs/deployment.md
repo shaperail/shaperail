@@ -120,12 +120,11 @@ project: my-app
 port: ${SHAPERAIL_PORT:3000}
 workers: auto
 
-database:
-  type: postgresql
-  host: ${DB_HOST}
-  port: ${DB_PORT:5432}
-  name: ${DB_NAME}
-  pool_size: ${DB_POOL_SIZE:20}
+databases:
+  default:
+    engine: postgres
+    url: ${DATABASE_URL}
+    pool_size: ${DB_POOL_SIZE:20}
 
 cache:
   type: redis
@@ -169,12 +168,11 @@ migrations, monitoring, and admin connections.
 
 ```yaml
 # For a 4-replica deployment with Postgres max_connections=100
-database:
-  type: postgresql
-  host: ${DB_HOST}
-  port: 5432
-  name: my_app
-  pool_size: 20  # 4 replicas x 20 = 80 connections, leaving 20 for admin
+databases:
+  default:
+    engine: postgres
+    url: ${DATABASE_URL}
+    pool_size: 20  # 4 replicas x 20 = 80 connections, leaving 20 for admin
 ```
 
 For multi-database setups, configure each connection independently:

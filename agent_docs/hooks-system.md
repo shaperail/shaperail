@@ -94,23 +94,37 @@ pub struct ControllerContext {
 
 ## Before / After Semantics
 
+### Lifecycle: before → DB → after
+
+```text
+request ─▶ [before-hook(ctx)] ─▶ [DB op fills ctx.data] ─▶ [after-hook(ctx)] ─▶ response
+                     │                                              │
+                     └── ctx.session, ctx.response_extras shared ──┘
+```
+
+The `Context` is **the same struct instance** in both phases. Anything written to `ctx.session` in `before:` is visible in `after:`. `ctx.response_extras` is merged into the response's `data:` envelope after `after:` returns and before serialization — never persisted, never re-readable, perfect for one-time secrets like a freshly-minted token whose plaintext form must reach the client exactly once.
+
 ### Before controller
 - Runs **before** the DB write.
 - `ctx.input` is mutable — you can validate, transform, or reject the request.
-- `ctx.output` is `None` (the write has not happened yet).
+- `ctx.data` is `None` (the write has not happened yet).
+- May write to `ctx.session` for state the after-hook will need.
+- May write to `ctx.response_extras` for fields that should appear in the response but never persist.
 - Returning `Err` aborts the DB write and returns the error to the client.
 
 ### After controller
 - Runs **after** the DB write.
-- `ctx.output` contains the response data.
-- `ctx.input` is read-only at this point.
+- `ctx.data` contains the persisted record.
+- `ctx.input` and `ctx.session` carry whatever the before-hook left there.
+- `ctx.response_extras` keys (from either phase) are merged into the response's `data:` envelope.
 - Returning `Err` is logged but the response is still 200 (configurable).
 
 ## Execution Order
 1. `before` controller function runs (if declared)
 2. DB write executes
-3. `after` controller function runs (if declared)
-4. Response returned to client
+3. `after` controller function runs (if declared) — receives the same `ctx`
+4. `ctx.response_extras` are merged into `ctx.data`
+5. Response returned to client
 
 ## Common Patterns
 

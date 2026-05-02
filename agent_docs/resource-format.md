@@ -152,7 +152,7 @@ endpoints:
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `auth` | string or array | No | Roles allowed to call this endpoint, or `public` |
-| `filters` | array | No | Query-param filters exposed on list endpoints |
+| `filters` | array | No | Query-param filters exposed on list endpoints. Runtime convention is `?filter[<field>]=<value>`. Bare-field params (`?<field>=<value>`) that match a declared filter return 422 `INVALID_FILTER_FORM` — see `shaperail-runtime/src/handlers/params.rs::validate_filter_param_form`. |
 | `search` | array | No | Fields included in full-text search |
 | `pagination` | string | No | `cursor` or `offset` |
 | `sort` | array | No | Fields available for `?sort=` |

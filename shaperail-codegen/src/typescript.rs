@@ -172,7 +172,6 @@ mod tests {
             project: "test-api".to_string(),
             port: 3000,
             workers: shaperail_core::WorkerCount::Auto,
-            database: None,
             databases: None,
             cache: None,
             auth: None,

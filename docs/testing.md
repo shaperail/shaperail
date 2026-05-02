@@ -883,6 +883,137 @@ ON CONFLICT DO NOTHING;
 
 ---
 
+## Integration tests with `test_support`
+
+`shaperail-runtime` ships a `test-support` cargo feature that provides
+`TestServer`, `spawn_with_listener`, and `ensure_migrations_run`. These let you
+spin up the full Actix server in-process on an ephemeral port and make real HTTP
+requests against it — without mocking any layer.
+
+> **Note:** Future versions of `shaperail init` will generate the lib/bin split
+> described here automatically. Until then, the steps below are a one-time edit
+> per project.
+
+### Step 1 — split `src/main.rs` into a library + binary
+
+Add an explicit `[lib]` target to `Cargo.toml` alongside the binary, and pull
+in the dev-dependencies:
+
+```toml
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "my-app"
+path = "src/main.rs"
+
+[dev-dependencies]
+shaperail-runtime = { workspace = true, features = ["test-support"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+```
+
+### Step 2 — expose `build_server` from `src/lib.rs`
+
+Move the existing bootstrap logic (config, pool, registry, route registration)
+into a public async function that accepts a `TcpListener` and returns the
+unawaited `actix_web::dev::Server`. The function is async because realistic
+bootstrap code connects a sqlx pool, generates OpenAPI docs, builds resource
+registries, etc., all of which are async operations:
+
+```rust
+// src/lib.rs
+use std::net::TcpListener;
+use actix_web::dev::Server;
+
+pub async fn build_server(listener: TcpListener) -> std::io::Result<Server> {
+    // ... async config, pool setup, resource registry, middleware ...
+    let server = actix_web::HttpServer::new(move || {
+        // ... App::new().route(...) ...
+    })
+    .listen(listener)?
+    .run();
+    Ok(server)
+}
+```
+
+### Step 3 — collapse `src/main.rs` to a thin caller
+
+```rust
+// src/main.rs
+use std::net::TcpListener;
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3000);
+    let listener = TcpListener::bind(("0.0.0.0", port))?;
+    my_app::build_server(listener)?.await
+}
+```
+
+### Step 4 — write `tests/integration.rs`
+
+```rust
+// tests/integration.rs
+use std::net::TcpListener;
+
+#[tokio::test]
+async fn health_responds_200() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = shaperail_runtime::test_support::spawn_with_listener(
+        listener,
+        |l| async move { my_app::build_server(l).await },
+    )
+    .await
+    .unwrap();
+
+    let resp = reqwest::get(server.url("/health")).await.unwrap();
+    assert_eq!(resp.status(), 200);
+}
+```
+
+If your `build_server` is synchronous (no async work in bootstrap), wrap it:
+
+```rust
+    let server = shaperail_runtime::test_support::spawn_with_listener(
+        listener,
+        |l| async move { my_app::build_server(l) },
+    )
+    .await
+    .unwrap();
+```
+
+`spawn_with_listener` binds to port 0 (OS assigns an ephemeral port) and
+returns a `TestServer` whose `Drop` aborts the spawned task. Tests that start
+multiple server instances will each get a unique port with no conflicts.
+
+### Running migrations once per test process
+
+For database-backed integration tests, call `ensure_migrations_run` before your
+first query. The helper is gated on a `tokio::sync::OnceCell`, so parallel
+tests share a single migration sweep instead of contending on the Postgres
+advisory lock.
+
+Pass the path to your project's own `migrations/` directory. Use
+`std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"))` for
+an absolute path that works regardless of where `cargo test` is invoked from:
+
+```rust
+use std::path::Path;
+use shaperail_runtime::test_support::ensure_migrations_run;
+
+#[tokio::test]
+async fn test_create_user(pool: sqlx::PgPool) {
+    let migrations = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"));
+    ensure_migrations_run(&pool, migrations).await.expect("migrations");
+    // ... test body ...
+}
+```
+
+---
+
 ## CI/CD testing patterns
 
 ### Docker-based CI
