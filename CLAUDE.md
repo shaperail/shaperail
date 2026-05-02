@@ -162,13 +162,37 @@ shaperail resource create <name> --archetype <type>  # archetypes: basic, user, 
 - agent_docs/release.md           → crates.io publish + GitHub Releases
 
 ## Documentation Rule
-After every code change that alters behavior, CLI commands, APIs, or test
-infrastructure, update the relevant docs BEFORE committing:
-- `docs/` — user-facing documentation (CLI reference, guides, examples)
-- `agent_docs/` — internal developer docs (architecture, testing strategy, milestones)
-- `CLAUDE.md` — if the change affects project-level conventions or workflows
+
+After every code change that alters behavior, CLI commands, APIs, configuration, error semantics, or test infrastructure, update the relevant docs BEFORE committing:
+
+- `docs/` — **user-facing public documentation** (rendered to https://shaperail.io). CLI reference, guides, examples, recipes. Has Jekyll front matter (`title`, `parent`, `nav_order`).
+- `agent_docs/` — **internal developer docs** (architecture, testing strategy, codegen patterns, hooks system). No front matter.
+- `CLAUDE.md` — **project-level conventions and workflows** (this file). Update when the change affects how future Claude sessions should approach the codebase.
 
 If docs and code disagree, fix the disagreement immediately (AI-First rule).
+
+### Public-mirror requirement
+
+`docs/` and `agent_docs/` are not optional alternatives — they're parallel audiences. **Every behavior change documented in `agent_docs/X.md` MUST have a corresponding update in `docs/`**, either in an existing user-facing page or as a new mirror page (`docs/X.md`). The internal note isn't enough; users reading the public site at shaperail.io need the same information in public-voice form.
+
+Concretely, the checklist when you finish a code change:
+
+1. ✅ Code change committed with tests.
+2. ✅ `agent_docs/<relevant>.md` updated.
+3. ✅ **Corresponding `docs/<page>.md` updated** — either an existing page got a new section, or a new mirror page was created with Jekyll front matter. If no public page is appropriate, write a one-line justification in the commit message saying so (very rare — most user-visible changes belong in public docs).
+4. ✅ `CHANGELOG.md` `[Unreleased]` (or current version) section names the change.
+5. ✅ If the change affects a release-process, validation rule, or codebase convention, update `CLAUDE.md`.
+
+Examples of the mirror requirement in action:
+
+| Change | `agent_docs/` page | `docs/` page |
+|---|---|---|
+| New runtime API (`Subject`, `Context.session`, `test_support`) | `agent_docs/auth-claims.md`, `agent_docs/custom-handlers.md`, `agent_docs/testing-strategy.md` | `docs/security.md`, `docs/custom-handlers.md`, `docs/testing.md` |
+| Custom-handler body extraction (v0.11.2) | `agent_docs/custom-handlers.md` "Reading the request body" | `docs/custom-handlers.md` "Reading the request body" + callout in `docs/controllers.md` |
+| New validator rule | `agent_docs/codegen-patterns.md` | inline note in `docs/resource-guide.md` |
+| Breaking config change | `agent_docs/architecture.md` if structural | `docs/configuration.md` migration section |
+
+When unsure where the public version belongs, default to creating a new `docs/<topic>.md` page with the same structure as `agent_docs/<topic>.md`, adapted for end-user voice (less internal jargon, more "how do I do this in my project" framing).
 
 ## Git Workflow
 - Never start new feature work on `main`. Create and switch to a fresh branch first.

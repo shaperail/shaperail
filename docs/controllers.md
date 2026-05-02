@@ -15,13 +15,12 @@ For background work that should not block the response, use
 
 ---
 
-> **Note:** `controller: { before, after }` is only valid on conventional CRUD
-> endpoints (`list` / `get` / `create` / `update` / `delete` / `bulk_create` /
-> `bulk_delete`). Declaring `controller:` on a custom endpoint (one that uses
-> `handler:`) now fails `shaperail check` with a clear error. For shared logic
-> on custom handlers, use the `Subject` API from `shaperail_runtime::auth`
-> directly inside your handler — see [Multi-tenancy]({{ '/multi-tenancy/' | relative_url }})
-> for the pattern.
+> **Custom endpoints (`handler:`):**
+> - `controller: { before: <name> }` IS supported on custom endpoints (v0.11.1+). The runtime builds a `Context` with auto-populated `tenant_id`, runs the before-hook, and stashes the result in `req.extensions()` so the handler can read it via `req.extensions().get::<Context>().cloned()`.
+> - `controller: { after: <name> }` is rejected at validation time — custom handlers own their response shape, so there is no place for the runtime to merge `response_extras` after the handler returns. Factor after-logic into a helper called from inside the handler.
+> - Custom handlers read the request body via `req.extensions().get::<actix_web::web::Bytes>().cloned()` (v0.11.2+) — `req.take_payload()` returns `Payload::None` because actix doesn't extract the payload unless an extractor is declared in the dispatch closure.
+>
+> See [Custom handlers]({{ '/custom-handlers/' | relative_url }}) for the full pattern.
 
 ## Declaring controllers
 
