@@ -156,4 +156,88 @@ schema:
         let required = check_required_features(&[rd]);
         assert!(required.iter().any(|f| f.feature == "multi-db"));
     }
+
+    #[test]
+    fn features_are_deduplicated_across_resources() {
+        // Two resources both using WASM → only one wasm-plugins entry
+        let yaml1 = r#"
+resource: a
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    method: POST
+    path: /a
+    input: [name]
+    controller: { before: "wasm:./plugins/validator_a.wasm" }
+"#;
+        let yaml2 = r#"
+resource: b
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    method: POST
+    path: /b
+    input: [name]
+    controller: { before: "wasm:./plugins/validator_b.wasm" }
+"#;
+        let rd1 = parse_resource(yaml1).unwrap();
+        let rd2 = parse_resource(yaml2).unwrap();
+        let required = check_required_features(&[rd1, rd2]);
+        let wasm_count = required
+            .iter()
+            .filter(|f| f.feature == "wasm-plugins")
+            .count();
+        assert_eq!(wasm_count, 1, "WASM feature should be deduplicated");
+    }
+
+    #[test]
+    fn wasm_after_controller_requires_wasm_plugins_feature() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  create:
+    method: POST
+    path: /items
+    input: [name]
+    controller: { after: "wasm:./plugins/enricher.wasm" }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let required = check_required_features(&[rd]);
+        assert!(
+            required.iter().any(|f| f.feature == "wasm-plugins"),
+            "wasm-plugins should be required for wasm after controller"
+        );
+    }
+
+    #[test]
+    fn format_feature_warnings_no_features() {
+        let s = format_feature_warnings(&[]);
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn format_feature_warnings_with_features() {
+        let yaml = r#"
+resource: events
+version: 1
+db: analytics
+schema:
+  id: { type: uuid, primary: true, generated: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let required = check_required_features(&[rd]);
+        let s = format_feature_warnings(&required);
+        assert!(s.contains("multi-db"), "Expected multi-db in warnings");
+        assert!(s.contains("Feature requirements"), "Expected header");
+    }
 }

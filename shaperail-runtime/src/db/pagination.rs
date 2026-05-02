@@ -262,4 +262,66 @@ mod tests {
         assert_eq!(sql, "SELECT * FROM users LIMIT 10 OFFSET 20");
         assert_eq!(offset, 1);
     }
+
+    #[test]
+    fn cursor_page_serde_roundtrip() {
+        let page = CursorPage {
+            cursor: Some("abc123".to_string()),
+            has_more: true,
+        };
+        let json = serde_json::to_string(&page).unwrap();
+        let back: CursorPage = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.cursor.as_deref(), Some("abc123"));
+        assert!(back.has_more);
+    }
+
+    #[test]
+    fn cursor_page_no_cursor_serde() {
+        let page = CursorPage {
+            cursor: None,
+            has_more: false,
+        };
+        let json = serde_json::to_string(&page).unwrap();
+        let back: CursorPage = serde_json::from_str(&json).unwrap();
+        assert!(back.cursor.is_none());
+        assert!(!back.has_more);
+    }
+
+    #[test]
+    fn offset_page_serde_roundtrip() {
+        let page = OffsetPage {
+            offset: 40,
+            limit: 20,
+            total: 100,
+        };
+        let json = serde_json::to_string(&page).unwrap();
+        let back: OffsetPage = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.offset, 40);
+        assert_eq!(back.limit, 20);
+        assert_eq!(back.total, 100);
+    }
+
+    #[test]
+    fn base64_roundtrip_various_lengths() {
+        // Verify encode/decode for strings of different lengths (1, 2, 3 bytes boundary)
+        for s in [
+            "a",
+            "ab",
+            "abc",
+            "abcd",
+            "hello world",
+            "550e8400-e29b-41d4-a716-446655440000",
+        ] {
+            let encoded = encode_cursor(s);
+            let decoded = decode_cursor(&encoded).unwrap();
+            assert_eq!(decoded, s, "Failed roundtrip for: {s}");
+        }
+    }
+
+    #[test]
+    fn invalid_base64_length_returns_error() {
+        // Not a multiple of 4 characters
+        let result = decode_cursor("abc");
+        assert!(result.is_err(), "Expected error for length-3 base64");
+    }
 }

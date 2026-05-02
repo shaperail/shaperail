@@ -1325,6 +1325,67 @@ mod tests {
     }
 
     #[test]
+    fn to_pascal_case_converts_snake_case() {
+        assert_eq!(to_pascal_case("users"), "Users");
+        assert_eq!(to_pascal_case("blog_posts"), "BlogPosts");
+        assert_eq!(
+            to_pascal_case("user_profile_settings"),
+            "UserProfileSettings"
+        );
+        assert_eq!(to_pascal_case(""), "");
+        assert_eq!(to_pascal_case("single"), "Single");
+    }
+
+    #[test]
+    fn generate_with_no_resources_still_valid() {
+        let config = test_config();
+        let spec = generate(&config, &[]);
+        assert_eq!(spec["openapi"], "3.1.0");
+        let paths = spec["paths"].as_object().expect("paths object");
+        assert!(paths.is_empty(), "No paths for empty resources");
+        // ErrorResponse schema is always present
+        let schemas = spec["components"]["schemas"].as_object().unwrap();
+        assert!(schemas.contains_key("ErrorResponse"));
+    }
+
+    #[test]
+    fn generate_is_sorted_by_resource_name() {
+        // Resources added in reverse order — schema keys must be in alpha order
+        let config = test_config();
+        let mut b_resource = sample_resource();
+        b_resource.resource = "zorders".to_string();
+        b_resource.endpoints = None;
+        let mut a_resource = sample_resource();
+        a_resource.resource = "aaccounts".to_string();
+        a_resource.endpoints = None;
+
+        let spec = generate(&config, &[b_resource, a_resource]);
+        let schemas = spec["components"]["schemas"].as_object().unwrap();
+        let mut resource_keys: Vec<&str> = schemas
+            .keys()
+            .map(|k| k.as_str())
+            .filter(|k| !k.contains("Input") && *k != "ErrorResponse")
+            .collect();
+        resource_keys.sort();
+
+        // Aaccounts must appear before Zorders in alphabetical order
+        assert!(
+            schemas.contains_key("Aaccounts"),
+            "Expected Aaccounts schema"
+        );
+        assert!(schemas.contains_key("Zorders"), "Expected Zorders schema");
+        let pos_a = resource_keys
+            .iter()
+            .position(|&k| k == "Aaccounts")
+            .unwrap();
+        let pos_z = resource_keys.iter().position(|&k| k == "Zorders").unwrap();
+        assert!(
+            pos_a < pos_z,
+            "Aaccounts ({pos_a}) must come before Zorders ({pos_z})"
+        );
+    }
+
+    #[test]
     fn openapi_array_items_emits_element_constraints() {
         let mut items = shaperail_core::ItemsSpec::of(shaperail_core::FieldType::String);
         items.min = Some(serde_json::json!(3));

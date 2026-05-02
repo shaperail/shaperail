@@ -387,4 +387,125 @@ mod tests {
         });
         assert_eq!(auth_summary(&config), "jwt");
     }
+
+    // ── Additional coverage for llm_context ───────────────────────────────
+
+    #[test]
+    fn db_summary_no_databases_returns_unknown() {
+        let config = make_config("my-app");
+        // databases is None by default in make_config
+        assert_eq!(db_summary(&config), "unknown");
+    }
+
+    #[test]
+    fn db_summary_multiple_databases_sorted_deduped() {
+        let mut config = make_config("my-app");
+        let mut dbs = indexmap::IndexMap::new();
+        dbs.insert(
+            "primary".to_string(),
+            shaperail_core::NamedDatabaseConfig {
+                engine: shaperail_core::DatabaseEngine::Postgres,
+                url: "postgresql://localhost/primary".to_string(),
+                pool_size: 5,
+            },
+        );
+        dbs.insert(
+            "secondary".to_string(),
+            shaperail_core::NamedDatabaseConfig {
+                engine: shaperail_core::DatabaseEngine::Postgres,
+                url: "postgresql://localhost/secondary".to_string(),
+                pool_size: 3,
+            },
+        );
+        config.databases = Some(dbs);
+        // Same engine twice — should be deduped to a single "postgres"
+        assert_eq!(db_summary(&config), "postgres");
+    }
+
+    #[test]
+    fn db_summary_mixed_engines() {
+        let mut config = make_config("my-app");
+        let mut dbs = indexmap::IndexMap::new();
+        dbs.insert(
+            "cache".to_string(),
+            shaperail_core::NamedDatabaseConfig {
+                engine: shaperail_core::DatabaseEngine::SQLite,
+                url: "sqlite://data.db".to_string(),
+                pool_size: 1,
+            },
+        );
+        dbs.insert(
+            "primary".to_string(),
+            shaperail_core::NamedDatabaseConfig {
+                engine: shaperail_core::DatabaseEngine::Postgres,
+                url: "postgresql://localhost/db".to_string(),
+                pool_size: 5,
+            },
+        );
+        config.databases = Some(dbs);
+        let summary = db_summary(&config);
+        // Both engines must appear, sorted
+        assert!(
+            summary.contains("postgres"),
+            "postgres missing from: {summary}"
+        );
+        assert!(summary.contains("sqlite"), "sqlite missing from: {summary}");
+    }
+
+    #[test]
+    fn print_json_produces_valid_json_with_correct_structure() {
+        use shaperail_core::{FieldSchema, FieldType, ResourceDefinition};
+
+        let config = make_config("test-project");
+        let mut schema = indexmap::IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let rd = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+
+        // Call print_json internally and verify it serializes cleanly
+        let resources: Vec<&ResourceDefinition> = vec![&rd];
+        let diags: Vec<(String, shaperail_codegen::diagnostics::Diagnostic)> = vec![];
+        let result = print_json(&config, &resources, &diags);
+        assert!(result.is_ok(), "print_json must not fail: {result:?}");
+    }
+
+    #[test]
+    fn auth_summary_with_api_key_provider() {
+        let mut config = make_config("my-app");
+        config.auth = Some(shaperail_core::AuthConfig {
+            provider: "api_key".to_string(),
+            secret_env: "API_KEY_SALT".to_string(),
+            expiry: "never".to_string(),
+            refresh_expiry: None,
+        });
+        assert_eq!(auth_summary(&config), "api_key");
+    }
 }

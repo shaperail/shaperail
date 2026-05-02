@@ -1246,6 +1246,490 @@ endpoints:
         }
     }
 
+    // ── Additional tests from coverage-improvement pass ───────────────────
+
+    #[test]
+    fn empty_resource_name_is_rejected() {
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldSchema, FieldType, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let rd = ResourceDefinition {
+            resource: String::new(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        };
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("resource name must not be empty")),
+            "Expected empty name error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn version_zero_is_rejected() {
+        let yaml = r#"
+resource: items
+version: 0
+schema:
+  id: { type: uuid, primary: true, generated: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("version must be >= 1")),
+            "Expected version error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn multiple_primary_keys_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:  { type: uuid, primary: true, generated: true }
+  alt: { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("exactly one primary key")),
+            "Expected multiple-PK error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn non_enum_field_with_values_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true, values: ["a", "b"] }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("has values but is not type enum")),
+            "Expected non-enum-with-values error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn array_field_without_items_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  tags: { type: array }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("type array but has no items")),
+            "Expected array-no-items error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn format_on_non_string_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:  { type: uuid, primary: true, generated: true }
+  age: { type: integer, required: true, format: email }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("has format but is not type string")),
+            "Expected format-on-non-string error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn primary_key_not_generated_or_required_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("must be generated or required")),
+            "Expected primary-not-generated-or-required error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn filter_field_not_in_schema_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  list:
+    auth: public
+    filters: [name, nonexistent_filter]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors.iter().any(|e| e
+                .message
+                .contains("filter field 'nonexistent_filter' not found")),
+            "Expected filter-field error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn search_field_not_in_schema_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  list:
+    auth: public
+    search: [name, missing_search_field]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors.iter().any(|e| e
+                .message
+                .contains("search field 'missing_search_field' not found")),
+            "Expected search-field error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn sort_field_not_in_schema_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  name: { type: string, required: true }
+endpoints:
+  list:
+    auth: public
+    sort: [name, unknown_sort]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("sort field 'unknown_sort' not found")),
+            "Expected sort-field error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn relation_key_not_in_schema_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+relations:
+  org: { resource: organizations, type: belongs_to, key: missing_key }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("key 'missing_key' not found in schema")),
+            "Expected relation-key error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn index_empty_fields_rejected() {
+        use indexmap::IndexMap;
+        use shaperail_core::{FieldSchema, FieldType, IndexSpec, ResourceDefinition};
+
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let rd = ResourceDefinition {
+            resource: "items".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: Some(vec![IndexSpec {
+                fields: vec![],
+                unique: false,
+                order: None,
+            }]),
+        };
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("index 0 has no fields")),
+            "Expected empty-index error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn index_invalid_order_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  created_at: { type: timestamp, generated: true }
+indexes:
+  - fields: [created_at]
+    order: INVALID
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("invalid order 'INVALID'")),
+            "Expected invalid-order error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn valid_index_asc_and_desc_accepted() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  created_at: { type: timestamp, generated: true }
+  name:       { type: string, required: true }
+indexes:
+  - fields: [created_at]
+    order: desc
+  - fields: [name]
+    order: asc
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors.is_empty(),
+            "Expected no errors for valid indexes, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn ref_missing_dot_separator_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id:     { type: uuid, primary: true, generated: true }
+  org_id: { type: uuid, ref: organizations }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'resource.field' format")),
+            "Expected bad-ref-format error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn has_one_without_foreign_key_rejected() {
+        let yaml = r#"
+resource: users
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+relations:
+  profile: { resource: profiles, type: has_one }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("has_one but has no foreign_key")),
+            "Expected has_one error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn empty_event_name_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    method: POST
+    path: /items
+    events: [""]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("empty event name")),
+            "Expected empty-event error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn empty_job_name_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    method: POST
+    path: /items
+    jobs: [""]
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors.iter().any(|e| e.message.contains("empty job name")),
+            "Expected empty-job error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn upload_missing_from_input_rejected() {
+        let yaml = r#"
+resource: assets
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  file: { type: file, required: true }
+endpoints:
+  upload:
+    method: POST
+    path: /assets/upload
+    input: []
+    upload:
+      field: file
+      storage: s3
+      max_size: 5mb
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors.iter().any(|e| e
+                .message
+                .contains("upload field 'file' must appear in input")),
+            "Expected upload-not-in-input error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn upload_invalid_storage_rejected() {
+        let yaml = r#"
+resource: assets
+version: 1
+schema:
+  id:   { type: uuid, primary: true, generated: true }
+  file: { type: file, required: true }
+endpoints:
+  upload:
+    method: POST
+    path: /assets/upload
+    input: [file]
+    upload:
+      field: file
+      storage: dropbox
+      max_size: 5mb
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("upload storage 'dropbox' is invalid")),
+            "Expected invalid-storage error, got: {errors:?}"
+        );
+    }
+
     #[test]
     fn items_nested_array_rejected() {
         let field = array_field(shaperail_core::ItemsSpec::of(

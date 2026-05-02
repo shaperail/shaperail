@@ -63,4 +63,34 @@ mod tests {
         let e: DatabaseEngine = serde_json::from_str(&s).unwrap();
         assert_eq!(e, DatabaseEngine::Postgres);
     }
+
+    #[test]
+    fn engine_is_mongo() {
+        assert!(DatabaseEngine::MongoDB.is_mongo());
+        assert!(!DatabaseEngine::Postgres.is_mongo());
+        assert!(!DatabaseEngine::MySQL.is_mongo());
+        assert!(!DatabaseEngine::SQLite.is_mongo());
+    }
+
+    #[test]
+    fn engine_default_is_postgres() {
+        assert_eq!(DatabaseEngine::default(), DatabaseEngine::Postgres);
+        assert_eq!(DatabaseEngine::default_engine(), DatabaseEngine::Postgres);
+    }
+
+    #[test]
+    fn all_engine_variants_serde() {
+        let pairs = [
+            (DatabaseEngine::Postgres, "postgres"),
+            (DatabaseEngine::MySQL, "mysql"),
+            (DatabaseEngine::SQLite, "sqlite"),
+            (DatabaseEngine::MongoDB, "mongodb"),
+        ];
+        for (engine, expected_str) in pairs {
+            let json = serde_json::to_string(&engine).unwrap();
+            assert_eq!(json, format!("\"{expected_str}\""));
+            let back: DatabaseEngine = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, engine);
+        }
+    }
 }

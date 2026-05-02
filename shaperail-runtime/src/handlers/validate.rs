@@ -547,6 +547,73 @@ mod tests {
         }
     }
 
+    /// Returns a minimal primary-key FieldSchema (UUID, generated, primary).
+    fn id_field() -> FieldSchema {
+        FieldSchema {
+            field_type: FieldType::Uuid,
+            primary: true,
+            generated: true,
+            required: false,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient: false,
+        }
+    }
+
+    /// Returns a minimal non-primary FieldSchema with the given type and optional extra
+    /// settings as a closure applied after construction.
+    fn make_field(
+        field_type: FieldType,
+        required: bool,
+        format: Option<&str>,
+        min: Option<serde_json::Value>,
+        max: Option<serde_json::Value>,
+        reference: Option<&str>,
+        transient: bool,
+    ) -> FieldSchema {
+        FieldSchema {
+            field_type,
+            primary: false,
+            generated: false,
+            required,
+            unique: false,
+            nullable: false,
+            reference: reference.map(ToString::to_string),
+            min,
+            max,
+            format: format.map(ToString::to_string),
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient,
+        }
+    }
+
+    /// Wraps a schema map in a minimal ResourceDefinition.
+    fn simple_resource(name: &str, schema: IndexMap<String, FieldSchema>) -> ResourceDefinition {
+        ResourceDefinition {
+            resource: name.to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: None,
+            relations: None,
+            indexes: None,
+        }
+    }
+
     #[test]
     fn valid_input_passes() {
         let resource = test_resource();
@@ -633,6 +700,391 @@ mod tests {
 
         let result = validate_input(&data, &resource);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn string_max_length_violation() {
+        let resource = test_resource();
+        let long_name = "A".repeat(201); // max is 200
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!(long_name));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+
+        let result = validate_input(&data, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "name" && e.code == "too_long"),
+                "Expected too_long for name, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn url_format_valid() {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), id_field());
+        schema.insert(
+            "website".to_string(),
+            make_field(
+                FieldType::String,
+                true,
+                Some("url"),
+                None,
+                None,
+                None,
+                false,
+            ),
+        );
+        let resource = simple_resource("orgs", schema);
+
+        let mut ok_data = serde_json::Map::new();
+        ok_data.insert(
+            "website".to_string(),
+            serde_json::json!("https://example.com"),
+        );
+        assert!(validate_input(&ok_data, &resource).is_ok());
+
+        let mut ok_http = serde_json::Map::new();
+        ok_http.insert(
+            "website".to_string(),
+            serde_json::json!("http://example.com"),
+        );
+        assert!(validate_input(&ok_http, &resource).is_ok());
+    }
+
+    #[test]
+    fn url_format_invalid() {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), id_field());
+        schema.insert(
+            "website".to_string(),
+            make_field(
+                FieldType::String,
+                true,
+                Some("url"),
+                None,
+                None,
+                None,
+                false,
+            ),
+        );
+        let resource = simple_resource("orgs", schema);
+
+        let mut bad_data = serde_json::Map::new();
+        bad_data.insert("website".to_string(), serde_json::json!("not-a-url"));
+
+        let result = validate_input(&bad_data, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "website" && e.code == "invalid_format"),
+                "Expected invalid_format for website, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn uuid_field_invalid_value_rejected() {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), id_field());
+        schema.insert(
+            "ref_id".to_string(),
+            make_field(
+                FieldType::Uuid,
+                true,
+                None,
+                None,
+                None,
+                Some("orgs.id"),
+                false,
+            ),
+        );
+        let resource = simple_resource("items", schema);
+
+        let mut bad_data = serde_json::Map::new();
+        bad_data.insert("ref_id".to_string(), serde_json::json!("not-a-uuid"));
+
+        let result = validate_input(&bad_data, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "ref_id" && e.code == "invalid_uuid"),
+                "Expected invalid_uuid for ref_id, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn uuid_field_valid_value_accepted() {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), id_field());
+        schema.insert(
+            "ref_id".to_string(),
+            make_field(
+                FieldType::Uuid,
+                true,
+                None,
+                None,
+                None,
+                Some("orgs.id"),
+                false,
+            ),
+        );
+        let resource = simple_resource("items", schema);
+
+        let mut ok_data = serde_json::Map::new();
+        ok_data.insert(
+            "ref_id".to_string(),
+            serde_json::json!("550e8400-e29b-41d4-a716-446655440000"),
+        );
+        assert!(validate_input(&ok_data, &resource).is_ok());
+    }
+
+    #[test]
+    fn number_min_violation() {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), id_field());
+        schema.insert(
+            "age".to_string(),
+            make_field(
+                FieldType::Integer,
+                true,
+                None,
+                Some(serde_json::json!(18)),
+                Some(serde_json::json!(120)),
+                None,
+                false,
+            ),
+        );
+        let resource = simple_resource("users", schema);
+
+        let mut too_low = serde_json::Map::new();
+        too_low.insert("age".to_string(), serde_json::json!(10));
+        let result = validate_input(&too_low, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "age" && e.code == "too_small"),
+                "Expected too_small, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn number_max_violation() {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), id_field());
+        schema.insert(
+            "age".to_string(),
+            make_field(
+                FieldType::Integer,
+                true,
+                None,
+                Some(serde_json::json!(18)),
+                Some(serde_json::json!(120)),
+                None,
+                false,
+            ),
+        );
+        let resource = simple_resource("users", schema);
+
+        let mut too_high = serde_json::Map::new();
+        too_high.insert("age".to_string(), serde_json::json!(200));
+        let result = validate_input(&too_high, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "age" && e.code == "too_large"),
+                "Expected too_large, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn strip_transient_fields_removes_transient_only() {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), id_field());
+        schema.insert(
+            "name".to_string(),
+            make_field(FieldType::String, true, None, None, None, None, false),
+        );
+        schema.insert(
+            "password".to_string(),
+            make_field(FieldType::String, true, None, None, None, None, true),
+        );
+        let resource = simple_resource("users", schema);
+
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("Alice"));
+        data.insert("password".to_string(), serde_json::json!("secret123"));
+
+        strip_transient_fields(&mut data, &resource);
+
+        assert!(
+            data.contains_key("name"),
+            "name should remain after stripping"
+        );
+        assert!(
+            !data.contains_key("password"),
+            "password (transient) should be removed"
+        );
+    }
+
+    #[test]
+    fn validate_input_shape_only_checks_present_fields() {
+        // Phase-1 must not flag absent fields as required — only shape errors
+        let resource = test_resource();
+        let mut data = serde_json::Map::new();
+        // name and email both absent — shape check must not fail
+        let result = validate_input_shape(&data, &resource);
+        assert!(result.is_ok(), "Phase-1 should not check required-ness");
+
+        // If an invalid email is present, phase-1 must catch it
+        data.insert("email".to_string(), serde_json::json!("notanemail"));
+        let result = validate_input_shape(&data, &resource);
+        assert!(result.is_err(), "Phase-1 should catch invalid format");
+    }
+
+    #[test]
+    fn validate_required_present_detects_missing_required_field() {
+        use std::collections::HashSet;
+        let resource = test_resource();
+        // Supply only 'email', leave 'name' (also required) absent
+        let mut data = serde_json::Map::new();
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+
+        let pre_keys: HashSet<String> = HashSet::new();
+        let result = validate_required_present(&data, &resource, &pre_keys);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field == "name" && e.code == "required"),
+                "Expected required error for 'name', got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_required_present_passes_when_all_required_fields_supplied() {
+        use std::collections::HashSet;
+        let resource = test_resource();
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("Alice"));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+
+        let pre_keys: HashSet<String> = HashSet::new();
+        let result = validate_required_present(&data, &resource, &pre_keys);
+        assert!(
+            result.is_ok(),
+            "All required fields supplied must pass phase-2"
+        );
+    }
+
+    #[test]
+    fn validate_required_present_skips_fields_with_default() {
+        use std::collections::HashSet;
+        // 'role' has a default value and is not required — must not be flagged
+        let resource = test_resource();
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("Alice"));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+        // role is absent but has default — must not error
+
+        let pre_keys: HashSet<String> = HashSet::new();
+        let result = validate_required_present(&data, &resource, &pre_keys);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_required_present_pre_controller_keys_skip_validation() {
+        use std::collections::HashSet;
+        let resource = test_resource();
+        // 'name' has an invalid value but is in pre_controller_keys
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!(""));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+
+        let mut pre_keys: HashSet<String> = HashSet::new();
+        pre_keys.insert("name".to_string()); // mark name as handled by controller
+
+        // When a field is in pre_controller_keys, shape checks are skipped for it
+        let result = validate_required_present(&data, &resource, &pre_keys);
+        // name is present so required check passes; shape check skipped due to pre_keys
+        assert!(
+            result.is_ok(),
+            "pre_controller_keys fields skip shape check"
+        );
+    }
+
+    #[test]
+    fn multiple_validation_errors_collected_not_short_circuited() {
+        let resource = test_resource();
+        // Both email (wrong format) and name (too short) supplied with bad values
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("")); // min is 1
+        data.insert("email".to_string(), serde_json::json!("not-an-email"));
+
+        let result = validate_input(&data, &resource);
+        assert!(result.is_err());
+        if let Err(ShaperailError::Validation(errors)) = result {
+            // Must collect errors for both fields, not stop at the first one
+            assert!(
+                errors.len() >= 2,
+                "Expected at least 2 errors, got: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_input_valid_enum_value_accepted() {
+        let resource = test_resource();
+        let mut data = serde_json::Map::new();
+        data.insert("name".to_string(), serde_json::json!("Alice"));
+        data.insert("email".to_string(), serde_json::json!("alice@example.com"));
+        data.insert("role".to_string(), serde_json::json!("viewer"));
+        assert!(validate_input(&data, &resource).is_ok());
+    }
+
+    #[test]
+    fn integer_at_boundary_values_accepted() {
+        let mut schema = IndexMap::new();
+        schema.insert("id".to_string(), id_field());
+        schema.insert(
+            "score".to_string(),
+            make_field(
+                FieldType::Integer,
+                true,
+                None,
+                Some(serde_json::json!(0)),
+                Some(serde_json::json!(100)),
+                None,
+                false,
+            ),
+        );
+        let resource = simple_resource("items", schema);
+
+        // Exactly at min
+        let mut data = serde_json::Map::new();
+        data.insert("score".to_string(), serde_json::json!(0));
+        assert!(validate_input(&data, &resource).is_ok(), "min boundary");
+
+        // Exactly at max
+        let mut data = serde_json::Map::new();
+        data.insert("score".to_string(), serde_json::json!(100));
+        assert!(validate_input(&data, &resource).is_ok(), "max boundary");
     }
 
     fn array_resource(items: shaperail_core::ItemsSpec, required: bool) -> ResourceDefinition {

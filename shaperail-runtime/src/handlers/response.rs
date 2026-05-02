@@ -113,4 +113,29 @@ mod tests {
         let result = select_fields(&value, &[]);
         assert_eq!(result, value);
     }
+
+    #[test]
+    fn single_value_returns_data_wrapper() {
+        let data = serde_json::json!({"id": "abc", "name": "Alice"});
+        let resp = single_value(data.clone());
+        assert_eq!(resp.status(), 200);
+    }
+
+    #[test]
+    fn select_fields_non_object_returns_unchanged() {
+        let value = serde_json::json!([1, 2, 3]);
+        let fields = vec!["x".to_string()];
+        let result = select_fields(&value, &fields);
+        assert_eq!(result, serde_json::json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn select_fields_unknown_field_name_excluded() {
+        let value = serde_json::json!({"id": "abc", "name": "Alice"});
+        let fields = vec!["id".to_string(), "missing".to_string()];
+        let result = select_fields(&value, &fields);
+        // Only "id" is in the object — "missing" is silently absent
+        assert_eq!(result.as_object().map(|o| o.len()), Some(1));
+        assert_eq!(result["id"], "abc");
+    }
 }

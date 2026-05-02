@@ -202,4 +202,88 @@ mod tests {
         assert!(sql.starts_with("SELECT 1 AND "));
         assert!(sql.contains("org_id = $1"));
     }
+
+    // ── Additional coverage ────────────────────────────────────────────────
+
+    #[test]
+    fn is_super_admin_true() {
+        assert!(super_admin().is_super_admin());
+    }
+
+    #[test]
+    fn is_super_admin_false_for_member() {
+        assert!(!member("org-1").is_super_admin());
+    }
+
+    #[test]
+    fn is_super_admin_false_for_admin_role() {
+        let s = Subject {
+            id: "u1".into(),
+            role: "admin".into(),
+            tenant_id: Some("org-1".into()),
+        };
+        assert!(!s.is_super_admin(), "'admin' role is not 'super_admin'");
+    }
+
+    #[test]
+    fn empty_string_tenant_id_treated_as_missing() {
+        // tenant_id = Some("") is semantically "not set"
+        let s = Subject {
+            id: "u1".into(),
+            role: "member".into(),
+            tenant_id: Some(String::new()),
+        };
+        assert!(
+            matches!(s.tenant_filter(), Err(ShaperailError::Unauthorized)),
+            "empty-string tenant_id must be treated as Unauthorized"
+        );
+    }
+
+    #[test]
+    fn scope_to_tenant_error_propagates_when_no_tenant() {
+        let mut b = sqlx::QueryBuilder::<sqlx::Postgres>::new("SELECT 1");
+        let result = member_no_tenant().scope_to_tenant(&mut b, "org_id");
+        assert!(
+            matches!(result, Err(ShaperailError::Unauthorized)),
+            "scope_to_tenant must propagate Unauthorized for tenant-less member"
+        );
+        // Query must be unmodified on error
+        assert_eq!(b.sql(), "SELECT 1");
+    }
+
+    #[test]
+    fn from_authenticated_user_conversion() {
+        use super::super::extractor::AuthenticatedUser;
+
+        let user = AuthenticatedUser {
+            id: "u-99".into(),
+            role: "viewer".into(),
+            tenant_id: Some("org-42".into()),
+        };
+        let subject = Subject::from(user);
+        assert_eq!(subject.id, "u-99");
+        assert_eq!(subject.role, "viewer");
+        assert_eq!(subject.tenant_id.as_deref(), Some("org-42"));
+    }
+
+    #[test]
+    fn subject_clone() {
+        let s = member("org-1");
+        let c = s.clone();
+        assert_eq!(c.id, s.id);
+        assert_eq!(c.role, s.role);
+        assert_eq!(c.tenant_id, s.tenant_id);
+    }
+
+    #[test]
+    fn assert_tenant_match_empty_string_record_tenant() {
+        // Even if record_tenant is empty, it must match if subject tenant is also empty
+        let s = Subject {
+            id: "u1".into(),
+            role: "super_admin".into(),
+            tenant_id: None,
+        };
+        // super_admin skips the check for any value
+        s.assert_tenant_match("").unwrap();
+    }
 }

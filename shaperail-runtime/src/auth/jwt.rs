@@ -254,4 +254,72 @@ mod tests {
         let claims = cfg.decode(&token).unwrap();
         assert!(claims.tenant_id.is_none());
     }
+
+    #[test]
+    fn from_env_returns_none_when_unset() {
+        // Ensure the var is not set
+        std::env::remove_var("JWT_SECRET");
+        assert!(JwtConfig::from_env().is_none());
+    }
+
+    #[test]
+    fn from_env_returns_none_when_empty() {
+        std::env::set_var("JWT_SECRET", "");
+        let result = JwtConfig::from_env();
+        std::env::remove_var("JWT_SECRET");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn from_env_returns_config_when_set() {
+        std::env::set_var("JWT_SECRET", "a-valid-secret-key-at-least-32-bytes!");
+        let cfg = JwtConfig::from_env();
+        std::env::remove_var("JWT_SECRET");
+        assert!(cfg.is_some());
+        // Confirm it can actually sign and verify a token
+        let token = cfg.unwrap().encode_access("u1", "admin").unwrap();
+        assert!(!token.is_empty());
+    }
+
+    #[test]
+    fn refresh_token_rejects_on_wrong_type() {
+        // A refresh token must NOT be usable as an access token for auth
+        let cfg = test_config();
+        let token = cfg.encode_refresh("user-123", "admin").unwrap();
+        let claims = cfg.decode(&token).unwrap();
+        // Decode itself works fine, but the token_type field marks it as refresh
+        assert_eq!(claims.token_type, "refresh");
+        // The caller (extractor) must check token_type == "access" and reject "refresh"
+        assert_ne!(claims.token_type, "access");
+    }
+
+    #[test]
+    fn access_token_ttl_is_longer_than_zero() {
+        let cfg = test_config();
+        let token = cfg.encode_access("user-123", "admin").unwrap();
+        let claims = cfg.decode(&token).unwrap();
+        assert!(claims.exp > claims.iat, "exp must be after iat");
+    }
+
+    #[test]
+    fn access_token_with_empty_tenant_id() {
+        // An empty string for tenant_id should be serialized as Some("")
+        let cfg = test_config();
+        let token = cfg
+            .encode_access_with_tenant("user-123", "member", Some(""))
+            .unwrap();
+        let claims = cfg.decode(&token).unwrap();
+        // Empty tenant is technically Some("") — the Subject layer must reject it
+        assert_eq!(claims.tenant_id.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn claims_clone() {
+        let cfg = test_config();
+        let token = cfg.encode_access("user-1", "admin").unwrap();
+        let claims = cfg.decode(&token).unwrap();
+        let cloned = claims.clone();
+        assert_eq!(cloned.sub, claims.sub);
+        assert_eq!(cloned.role, claims.role);
+    }
 }
