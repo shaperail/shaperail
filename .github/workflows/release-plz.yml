@@ -23,6 +23,10 @@ name: Release-plz
 on:
   push:
     branches: [main]
+  # Manual trigger for re-runs after a transient failure (e.g. release-plz's
+  # action wrapper swallowed a 422 from the GitHub API) without needing to
+  # push an empty commit. No inputs.
+  workflow_dispatch: {}
 
 permissions:
   contents: write
