@@ -7,18 +7,16 @@
 //! ```no_run
 //! # use std::net::TcpListener;
 //! # async fn run() -> std::io::Result<()> {
-//! // Provide a factory that builds your `actix_web::dev::Server` from a listener.
 //! let listener = TcpListener::bind("127.0.0.1:0")?;
 //! let server = shaperail_runtime::test_support::spawn_with_listener(
 //!     listener,
-//!     |listener| {
-//!         // Replace with your project's `build_server(listener)`.
+//!     |listener| async move {
+//!         // Replace with your project's async `build_server(listener)`.
 //!         unimplemented!()
 //!     },
 //! )
 //! .await?;
-//! // Hit it via reqwest, etc.
-//! drop(server); // shuts the server down
+//! drop(server);
 //! # Ok(()) }
 //! ```
 
@@ -74,19 +72,24 @@ impl Drop for TestServer {
 
 /// Spawns the server returned by `factory` on `listener` and returns a `TestServer`.
 ///
-/// The factory closure receives the listener (consumed) and must return the configured
-/// `actix_web::dev::Server`. Typical usage: pass your project's `build_server(listener)`
-/// function directly.
-pub async fn spawn_with_listener<F>(
+/// The factory closure receives the listener (consumed) and must return a future
+/// that resolves to the configured `actix_web::dev::Server`. This supports async
+/// factories — the common case — which connect a sqlx pool, generate OpenAPI docs,
+/// build resource registries, etc. before handing back the server.
+///
+/// Sync builders still work via `|l| async move { sync_build(l) }` or
+/// `|l| std::future::ready(sync_build(l))`.
+pub async fn spawn_with_listener<F, Fut>(
     listener: TcpListener,
     factory: F,
 ) -> std::io::Result<TestServer>
 where
-    F: FnOnce(TcpListener) -> std::io::Result<Server> + Send + 'static,
+    F: FnOnce(TcpListener) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = std::io::Result<Server>> + Send + 'static,
 {
     listener.set_nonblocking(true)?;
     let addr = listener.local_addr()?;
-    let server = factory(listener)?;
+    let server = factory(listener).await?;
     let handle = tokio::spawn(server);
     Ok(TestServer {
         addr,
@@ -145,7 +148,7 @@ mod tests {
     async fn spawn_with_listener_returns_bound_address() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let original_port = listener.local_addr().unwrap().port();
-        let server = spawn_with_listener(listener, trivial_factory)
+        let server = spawn_with_listener(listener, |l| async move { trivial_factory(l) })
             .await
             .unwrap();
         assert_eq!(server.port(), original_port);
@@ -155,7 +158,7 @@ mod tests {
     #[tokio::test]
     async fn spawn_with_listener_serves_requests() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let server = spawn_with_listener(listener, trivial_factory)
+        let server = spawn_with_listener(listener, |l| async move { trivial_factory(l) })
             .await
             .unwrap();
         let resp = reqwest::get(server.url("/health")).await.unwrap();
