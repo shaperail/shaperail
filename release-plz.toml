@@ -65,13 +65,28 @@ body = """
 """
 
 commit_parsers = [
+    # Breaking changes (highest priority).
     { message = "^feat!", group = "Breaking" },
     { message = ".*!:", group = "Breaking" },
     { body = ".*BREAKING CHANGE", group = "Breaking" },
+
+    # Internal-only fixes that must NOT trigger a user-facing release.
+    # Anything scoped to ci/release/deps/build/examples is plumbing.
+    # These rules are evaluated first so they win against the generic
+    # `^fix` / `^feat` / `^perf` / `^refactor` rules below.
+    { message = "^(fix|feat|perf|refactor)\\(ci\\)", skip = true },
+    { message = "^(fix|feat|perf|refactor)\\(release\\)", skip = true },
+    { message = "^(fix|feat|perf|refactor)\\(deps\\)", skip = true },
+    { message = "^(fix|feat|perf|refactor)\\(build\\)", skip = true },
+    { message = "^(fix|feat|perf|refactor)\\(examples\\)", skip = true },
+
+    # User-facing changes.
     { message = "^feat", group = "Added" },
     { message = "^fix", group = "Fixed" },
     { message = "^perf", group = "Changed" },
     { message = "^refactor", group = "Changed" },
+
+    # Bookkeeping prefixes — never trigger a release.
     { message = "^chore", skip = true },
     { message = "^docs", skip = true },
     { message = "^style", skip = true },

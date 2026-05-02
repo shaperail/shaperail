@@ -204,7 +204,8 @@ When unsure where the public version belongs, default to creating a new `docs/<t
   - `feat!: ...` or `BREAKING CHANGE:` in the body → breaking (pre-1.0 minor, post-1.0 major)
   - `perf: ...` / `refactor: ...` → patch bump, listed under **Changed**
   - `chore: ...` / `docs: ...` / `style: ...` / `test: ...` / `ci: ...` / `build: ...` → bookkeeping, **does not trigger a release**
-  - Scope (the `(shaperail-core)` part) is optional but encouraged for crate-specific changes.
+  - **Internal-scoped fixes do not trigger a release.** `fix(ci)`, `fix(release)`, `fix(deps)`, `fix(build)`, `fix(examples)` (and the same scopes with `feat`/`perf`/`refactor`) are skipped by the release-plz parsers. Use these scopes for plumbing changes that have no user-visible effect — e.g. fixing a workflow file, bumping a dev dependency, refreshing an example's lockfile.
+  - Scope (the `(shaperail-core)` part) is optional but encouraged for crate-specific changes. Crate-name scopes (`shaperail-core`, `shaperail-codegen`, `shaperail-runtime`, `shaperail-cli`) on `fix:`/`feat:` commits **do** trigger releases — they signal user-facing crate changes.
   - PR titles MUST follow the same convention — auto-merge squashes the PR title into the merge commit, so the PR title is what release-plz sees.
 - **Never push more commits to a branch with an open PR you intend to merge as-is.** PRs auto-merge as soon as CI is green; follow-up commits frequently land too late and end up stranded on the merged branch. Open a new PR for follow-ups.
 
