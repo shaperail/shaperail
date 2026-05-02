@@ -94,23 +94,31 @@ where
     })
 }
 
-/// Runs database migrations exactly once per process, regardless of how many tests
-/// invoke this helper concurrently.
+/// Runs database migrations exactly once per process, regardless of how many
+/// tests invoke this helper concurrently.
 ///
-/// Tests running in parallel typically all want migrations applied before any of
-/// them touches the database. Calling `sqlx::migrate!()` from each test wastes
-/// time and serializes on the migration advisory lock; calling it once via this
-/// helper is O(1) for every subsequent caller.
+/// `migrations_dir` should point at the consumer's own `migrations/` directory.
+/// Use a relative path like `Path::new("./migrations")` from the consumer's
+/// crate root, or an absolute path computed via `env!("CARGO_MANIFEST_DIR")`.
 ///
-/// The migration source is the workspace `migrations/` directory, the same
-/// directory the runtime uses in production.
-pub async fn ensure_migrations_run(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+/// # Why this is not `sqlx::migrate!()`
+///
+/// The compile-time `sqlx::migrate!()` macro resolves its path against the
+/// caller's manifest dir at the macro's expansion site. If a helper crate
+/// expanded the macro, the path would point at that helper's dir, not the
+/// final consumer's. Taking the path at runtime via `Migrator::new` lets the
+/// consumer point at its own migrations.
+pub async fn ensure_migrations_run(
+    pool: &sqlx::PgPool,
+    migrations_dir: &std::path::Path,
+) -> Result<(), sqlx::migrate::MigrateError> {
     use tokio::sync::OnceCell;
     static MIGRATED: OnceCell<()> = OnceCell::const_new();
     MIGRATED
         .get_or_try_init(|| async {
-            sqlx::migrate!("../migrations").run(pool).await?;
-            Ok::<_, sqlx::Error>(())
+            let migrator = sqlx::migrate::Migrator::new(migrations_dir).await?;
+            migrator.run(pool).await?;
+            Ok::<_, sqlx::migrate::MigrateError>(())
         })
         .await?;
     Ok(())
