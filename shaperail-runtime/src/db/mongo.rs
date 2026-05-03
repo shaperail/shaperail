@@ -157,8 +157,7 @@ fn build_json_schema(resource: &ResourceDefinition) -> Document {
 fn field_type_to_bson_type(ft: &FieldType) -> &'static str {
     match ft {
         FieldType::Uuid | FieldType::String | FieldType::Enum | FieldType::File => "string",
-        FieldType::Integer => "int",
-        FieldType::Bigint => "long",
+        FieldType::Integer => "long",
         FieldType::Number => "double",
         FieldType::Boolean => "bool",
         FieldType::Timestamp | FieldType::Date => "string",
@@ -176,8 +175,7 @@ fn json_to_bson(value: &Value, field: &FieldSchema) -> Bson {
         FieldType::Uuid | FieldType::String | FieldType::Enum | FieldType::File => {
             Bson::String(value.as_str().unwrap_or(&value.to_string()).to_string())
         }
-        FieldType::Integer => Bson::Int32(value.as_i64().unwrap_or(0) as i32),
-        FieldType::Bigint => Bson::Int64(value.as_i64().unwrap_or(0)),
+        FieldType::Integer => Bson::Int64(value.as_i64().unwrap_or(0)),
         FieldType::Number => Bson::Double(value.as_f64().unwrap_or(0.0)),
         FieldType::Boolean => Bson::Boolean(value.as_bool().unwrap_or(false)),
         FieldType::Timestamp | FieldType::Date => {

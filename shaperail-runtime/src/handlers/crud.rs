@@ -1451,16 +1451,10 @@ fn coerce_form_value(
         | shaperail_core::FieldType::Timestamp
         | shaperail_core::FieldType::Date => Ok(serde_json::Value::String(raw.to_string())),
         shaperail_core::FieldType::Integer => raw
-            .parse::<i32>()
-            .map(serde_json::Value::from)
-            .map_err(|_| {
-                multipart_field_error(field_name, "must be a valid integer", "invalid_integer")
-            }),
-        shaperail_core::FieldType::Bigint => raw
             .parse::<i64>()
             .map(serde_json::Value::from)
             .map_err(|_| {
-                multipart_field_error(field_name, "must be a valid integer", "invalid_bigint")
+                multipart_field_error(field_name, "must be a valid integer", "invalid_integer")
             }),
         shaperail_core::FieldType::Number => raw
             .parse::<f64>()

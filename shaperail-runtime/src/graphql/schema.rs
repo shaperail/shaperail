@@ -41,7 +41,6 @@ fn field_type_to_type_ref(ft: &FieldType, _required: bool) -> TypeRef {
         FieldType::Uuid => TypeRef::named("String"),
         FieldType::String | FieldType::Enum | FieldType::File => TypeRef::named("String"),
         FieldType::Integer => TypeRef::named("Int"),
-        FieldType::Bigint => TypeRef::named("Int"),
         FieldType::Number => TypeRef::named("Float"),
         FieldType::Boolean => TypeRef::named("Boolean"),
         FieldType::Timestamp | FieldType::Date => TypeRef::named("String"),

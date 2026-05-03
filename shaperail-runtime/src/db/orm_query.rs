@@ -49,11 +49,6 @@ fn get_column_value(
                 .unwrap_or(serde_json::Value::Null))
         }
         FieldType::Integer => {
-            let v: Option<i32> = row.try_get("", name).map_err(map_err)?;
-            Ok(v.map(|n| serde_json::Value::Number(n.into()))
-                .unwrap_or(serde_json::Value::Null))
-        }
-        FieldType::Bigint => {
             let v: Option<i64> = row.try_get("", name).map_err(map_err)?;
             Ok(v.map(|n| serde_json::Value::Number(n.into()))
                 .unwrap_or(serde_json::Value::Null))
@@ -101,8 +96,7 @@ fn json_to_sea_value(value: &serde_json::Value, field: &FieldSchema) -> sea_quer
         FieldType::String | FieldType::Enum | FieldType::File => sea_query::Value::String(Some(
             Box::new(value.as_str().unwrap_or(&value.to_string()).to_string()),
         )),
-        FieldType::Integer => sea_query::Value::Int(Some(value.as_i64().unwrap_or(0) as i32)),
-        FieldType::Bigint => sea_query::Value::BigInt(Some(value.as_i64().unwrap_or(0))),
+        FieldType::Integer => sea_query::Value::BigInt(Some(value.as_i64().unwrap_or(0))),
         FieldType::Number => sea_query::Value::Double(Some(value.as_f64().unwrap_or(0.0))),
         FieldType::Boolean => sea_query::Value::Bool(Some(value.as_bool().unwrap_or(false))),
         FieldType::Timestamp => sea_query::Value::String(Some(Box::new(
@@ -122,11 +116,6 @@ fn coerce_filter_to_sea_value(value: &str, field: &FieldSchema) -> sea_query::Va
             sea_query::Value::String(Some(Box::new(value.to_string())))
         }
         FieldType::Integer => value
-            .parse::<i32>()
-            .ok()
-            .map(|n| sea_query::Value::Int(Some(n)))
-            .unwrap_or_else(|| sea_query::Value::String(Some(Box::new(value.to_string())))),
-        FieldType::Bigint => value
             .parse::<i64>()
             .ok()
             .map(|n| sea_query::Value::BigInt(Some(n)))

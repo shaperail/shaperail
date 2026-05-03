@@ -199,7 +199,7 @@ fn test_asset_resource() -> ResourceDefinition {
     schema.insert(
         "attachment_size".to_string(),
         FieldSchema {
-            field_type: FieldType::Bigint,
+            field_type: FieldType::Integer,
             primary: false,
             generated: false,
             required: false,

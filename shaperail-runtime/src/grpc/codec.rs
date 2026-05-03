@@ -44,12 +44,6 @@ pub fn encode_field(
                 encode_varint(buf, v as u64);
             }
         }
-        (FieldType::Bigint, serde_json::Value::Number(n)) => {
-            if let Some(v) = n.as_i64() {
-                encode_varint(buf, encode_tag(field_number, WIRE_VARINT) as u64);
-                encode_varint(buf, v as u64);
-            }
-        }
         (FieldType::Number, serde_json::Value::Number(n)) => {
             if let Some(v) = n.as_f64() {
                 encode_varint(buf, encode_tag(field_number, WIRE_64BIT) as u64);
@@ -176,7 +170,7 @@ pub fn decode_resource_message(
                         FieldType::Integer => {
                             obj.insert(
                                 name.to_string(),
-                                serde_json::Value::Number(serde_json::Number::from(val as i32)),
+                                serde_json::Value::Number(serde_json::Number::from(val as i64)),
                             );
                         }
                         _ => {
