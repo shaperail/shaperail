@@ -458,7 +458,7 @@ fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
         format!(
             "\n\n/// Re-exports of every controller module under one path so integration\n\
              /// tests can reach `pub` helpers via `crate::resources::<name>_controller::*`.\n\
-             #[doc(hidden)]\npub mod resources {{\n{}\n}}",
+             #[doc(hidden)]\n#[allow(unused_imports)]\npub mod resources {{\n{}\n}}",
             lines.join("\n")
         )
     };
