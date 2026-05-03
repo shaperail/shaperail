@@ -36,7 +36,7 @@ pub async fn open_incident(ctx: &mut Context) -> ControllerResult {
         .and_then(|value| value.as_str())
         .ok_or_else(|| validation_error("created_by", "created_by is required", "required"))?;
 
-    if created_by != user.id.as_str() {
+    if created_by != user.sub.as_str() {
         return Err(validation_error(
             "created_by",
             "created_by must match the authenticated user",
@@ -196,7 +196,7 @@ pub async fn write_incident_audit(ctx: &mut Context) -> ControllerResult {
     let created_by = ctx
         .user
         .as_ref()
-        .map(|user| user.id.clone())
+        .map(|user| user.sub.clone())
         .unwrap_or_else(|| "system".to_string());
 
     sqlx::query(

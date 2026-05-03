@@ -19,15 +19,15 @@ pub struct AlertsRecord {
     pub incident_id: Option<uuid::Uuid>,
     pub external_id: String,
     pub source: String,
-    pub severity: Option<String>,
-    pub status: Option<String>,
+    pub severity: String,
+    pub status: String,
     pub fingerprint: String,
     pub summary: String,
     pub payload: serde_json::Value,
     pub created_by: Option<uuid::Uuid>,
-    pub received_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub received_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 pub struct AlertsStore {
@@ -46,30 +46,49 @@ impl AlertsStore {
         sort: &SortParam,
         page: &PageRequest,
     ) -> Result<(Vec<ResourceRow>, Value), shaperail_core::ShaperailError> {
-                let filter_service_id = parse_filter(filters, "service_id", "invalid_filter", |text| uuid::Uuid::parse_str(text).map_err(|_| shaperail_core::ShaperailError::Internal("invalid uuid filter".to_string())))?;
-                let filter_incident_id = parse_filter(filters, "incident_id", "invalid_filter", |text| uuid::Uuid::parse_str(text).map_err(|_| shaperail_core::ShaperailError::Internal("invalid uuid filter".to_string())))?;
-                let filter_source = parse_filter(filters, "source", "invalid_filter", |text| Ok(text.to_string()))?;
-                let filter_severity = parse_filter(filters, "severity", "invalid_filter", |text| Ok(text.to_string()))?;
-                let filter_status = parse_filter(filters, "status", "invalid_filter", |text| Ok(text.to_string()))?;
-                let search_term = search.map(|value| value.term.clone());
-                let sort_field_0 = sort_field_at(sort, 0);
-                let sort_direction_0 = sort_direction_at(sort, 0);
-                let sort_field_1 = sort_field_at(sort, 1);
-                let sort_direction_1 = sort_direction_at(sort, 1);
+        let filter_service_id = parse_filter(filters, "service_id", "invalid_filter", |text| {
+            uuid::Uuid::parse_str(text).map_err(|_| {
+                shaperail_core::ShaperailError::Internal("invalid uuid filter".to_string())
+            })
+        })?;
+        let filter_incident_id = parse_filter(filters, "incident_id", "invalid_filter", |text| {
+            uuid::Uuid::parse_str(text).map_err(|_| {
+                shaperail_core::ShaperailError::Internal("invalid uuid filter".to_string())
+            })
+        })?;
+        let filter_source = parse_filter(filters, "source", "invalid_filter", |text| {
+            Ok(text.to_string())
+        })?;
+        let filter_severity = parse_filter(filters, "severity", "invalid_filter", |text| {
+            Ok(text.to_string())
+        })?;
+        let filter_status = parse_filter(filters, "status", "invalid_filter", |text| {
+            Ok(text.to_string())
+        })?;
+        let search_term = search.map(|value| value.term.clone());
+        let sort_field_0 = sort_field_at(sort, 0);
+        let sort_direction_0 = sort_direction_at(sort, 0);
+        let sort_field_1 = sort_field_at(sort, 1);
+        let sort_direction_1 = sort_direction_at(sort, 1);
 
         match page {
             PageRequest::Cursor { after, limit } => {
                 let cursor = match after {
-                    Some(cursor_value) => Some(uuid::Uuid::parse_str(
-                        &shaperail_runtime::db::decode_cursor(cursor_value)?
-                    ).map_err(|_| shaperail_core::ShaperailError::Validation(vec![shaperail_core::FieldError {
-                        field: "cursor".to_string(),
-                        message: "Invalid cursor value".to_string(),
-                        code: "invalid_cursor".to_string(),
-                    }]))?),
+                    Some(cursor_value) => Some(
+                        uuid::Uuid::parse_str(&shaperail_runtime::db::decode_cursor(cursor_value)?)
+                            .map_err(|_| {
+                                shaperail_core::ShaperailError::Validation(vec![
+                                    shaperail_core::FieldError {
+                                        field: "cursor".to_string(),
+                                        message: "Invalid cursor value".to_string(),
+                                        code: "invalid_cursor".to_string(),
+                                    },
+                                ])
+                            })?,
+                    ),
                     None => None,
                 };
-                                let rows = sqlx::query_as!(
+                let rows = sqlx::query_as!(
                                     AlertsRecord,
                                     r#"
                                     SELECT
@@ -79,15 +98,15 @@ impl AlertsStore {
                                 "incident_id" as "incident_id?: uuid::Uuid",
                                 "external_id" as "external_id!: String",
                                 "source" as "source!: String",
-                                "severity" as "severity?: String",
-                                "status" as "status?: String",
+                                "severity" as "severity!: String",
+                                "status" as "status!: String",
                                 "fingerprint" as "fingerprint!: String",
                                 "summary" as "summary!: String",
                                 "payload" as "payload!: serde_json::Value",
                                 "created_by" as "created_by?: uuid::Uuid",
-                                "received_at" as "received_at?: chrono::DateTime<chrono::Utc>",
-                                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                                "received_at" as "received_at!: chrono::DateTime<chrono::Utc>",
+                                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>"
                                     FROM "alerts"
                                     WHERE TRUE
 
@@ -127,34 +146,34 @@ impl AlertsStore {
                                 .fetch_all(&self.pool)
                                 .await?;
 
-                                let has_more = rows.len() as i64 > *limit;
-                                let mut result_rows = rows;
-                                if has_more {
-                                    result_rows.truncate(*limit as usize);
-                                }
+                let has_more = rows.len() as i64 > *limit;
+                let mut result_rows = rows;
+                if has_more {
+                    result_rows.truncate(*limit as usize);
+                }
 
-                                let data = result_rows
-                                    .iter()
-                                    .map(row_from_model)
-                                    .collect::<Result<Vec<_>, _>>()?;
-                                let cursor = if has_more {
-                                    result_rows
-                                        .last()
-                                        .map(|row| shaperail_runtime::db::encode_cursor(&row.id.to_string()))
-                                } else {
-                                    None
-                                };
+                let data = result_rows
+                    .iter()
+                    .map(row_from_model)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let cursor = if has_more {
+                    result_rows
+                        .last()
+                        .map(|row| shaperail_runtime::db::encode_cursor(&row.id.to_string()))
+                } else {
+                    None
+                };
 
-                                Ok((
-                                    data,
-                                    serde_json::json!({
-                                        "cursor": cursor,
-                                        "has_more": has_more
-                                    })
-                                ))
+                Ok((
+                    data,
+                    serde_json::json!({
+                        "cursor": cursor,
+                        "has_more": has_more
+                    }),
+                ))
             }
             PageRequest::Offset { offset, limit } => {
-                                let total = sqlx::query_scalar!(
+                let total = sqlx::query_scalar!(
                                     r#"
                                     SELECT COUNT(*) as "count!"
                                     FROM "alerts"
@@ -178,7 +197,7 @@ impl AlertsStore {
                                 .fetch_one(&self.pool)
                                 .await?;
 
-                                let rows = sqlx::query_as!(
+                let rows = sqlx::query_as!(
                                     AlertsRecord,
                                     r#"
                                     SELECT
@@ -188,15 +207,15 @@ impl AlertsStore {
                                 "incident_id" as "incident_id?: uuid::Uuid",
                                 "external_id" as "external_id!: String",
                                 "source" as "source!: String",
-                                "severity" as "severity?: String",
-                                "status" as "status?: String",
+                                "severity" as "severity!: String",
+                                "status" as "status!: String",
                                 "fingerprint" as "fingerprint!: String",
                                 "summary" as "summary!: String",
                                 "payload" as "payload!: serde_json::Value",
                                 "created_by" as "created_by?: uuid::Uuid",
-                                "received_at" as "received_at?: chrono::DateTime<chrono::Utc>",
-                                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                                "received_at" as "received_at!: chrono::DateTime<chrono::Utc>",
+                                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>"
                                     FROM "alerts"
                                     WHERE TRUE
 
@@ -236,19 +255,19 @@ impl AlertsStore {
                                 .fetch_all(&self.pool)
                                 .await?;
 
-                                let data = rows
-                                    .iter()
-                                    .map(row_from_model)
-                                    .collect::<Result<Vec<_>, _>>()?;
+                let data = rows
+                    .iter()
+                    .map(row_from_model)
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                                Ok((
-                                    data,
-                                    serde_json::json!({
-                                        "offset": offset,
-                                        "limit": limit,
-                                        "total": total
-                                    })
-                                ))
+                Ok((
+                    data,
+                    serde_json::json!({
+                        "offset": offset,
+                        "limit": limit,
+                        "total": total
+                    }),
+                ))
             }
         }
     }
@@ -260,7 +279,10 @@ impl ResourceStore for AlertsStore {
         "alerts"
     }
 
-    async fn find_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn find_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let row = sqlx::query_as!(
             AlertsRecord,
             r#"
@@ -271,15 +293,15 @@ impl ResourceStore for AlertsStore {
                 "incident_id" as "incident_id?: uuid::Uuid",
                 "external_id" as "external_id!: String",
                 "source" as "source!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "fingerprint" as "fingerprint!: String",
                 "summary" as "summary!: String",
                 "payload" as "payload!: serde_json::Value",
                 "created_by" as "created_by?: uuid::Uuid",
-                "received_at" as "received_at?: chrono::DateTime<chrono::Utc>",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "received_at" as "received_at!: chrono::DateTime<chrono::Utc>",
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>"
             FROM "alerts"
             WHERE "id" = $1
             "#,
@@ -302,26 +324,62 @@ impl ResourceStore for AlertsStore {
     ) -> Result<(Vec<ResourceRow>, Value), shaperail_core::ShaperailError> {
         match endpoint.path() {
             "/alerts" => self.find_all_list(filters, search, sort, page).await,
-            _ => Err(shaperail_core::ShaperailError::Internal(format!("No generated list query for {}", endpoint.path()))),
+            _ => Err(shaperail_core::ShaperailError::Internal(format!(
+                "No generated list query for {}",
+                endpoint.path()
+            ))),
         }
     }
 
-    async fn insert(&self, data: &Map<String, Value>) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn insert(
+        &self,
+        data: &Map<String, Value>,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let id = uuid::Uuid::new_v4();
-        let org_id = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "org_id")?, "org_id")?;
-        let service_id = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "service_id")?, "service_id")?;
-        let incident_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "incident_id")?;
-        let external_id = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "external_id")?, "external_id")?;
-        let source = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "source")?, "source")?;
-        let severity = match shaperail_runtime::db::parse_optional_json::<String>(data, "severity")? { Some(value) => Some(value), None => Some("sev3".to_string()) };
-        let status = match shaperail_runtime::db::parse_optional_json::<String>(data, "status")? { Some(value) => Some(value), None => Some("received".to_string()) };
-        let fingerprint = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "fingerprint")?, "fingerprint")?;
-        let summary = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "summary")?, "summary")?;
-        let payload = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<serde_json::Value>(data, "payload")?, "payload")?;
-        let created_by = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?;
-        let received_at = Some(chrono::Utc::now());
-        let created_at = Some(chrono::Utc::now());
-        let updated_at = Some(chrono::Utc::now());
+        let org_id = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "org_id")?,
+            "org_id",
+        )?;
+        let service_id = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "service_id")?,
+            "service_id",
+        )?;
+        let incident_id =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "incident_id")?;
+        let external_id = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "external_id")?,
+            "external_id",
+        )?;
+        let source = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "source")?,
+            "source",
+        )?;
+        let severity = match shaperail_runtime::db::parse_optional_json::<String>(data, "severity")?
+        {
+            Some(value) => value,
+            None => "sev3".to_string(),
+        };
+        let status = match shaperail_runtime::db::parse_optional_json::<String>(data, "status")? {
+            Some(value) => value,
+            None => "received".to_string(),
+        };
+        let fingerprint = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "fingerprint")?,
+            "fingerprint",
+        )?;
+        let summary = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "summary")?,
+            "summary",
+        )?;
+        let payload = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<serde_json::Value>(data, "payload")?,
+            "payload",
+        )?;
+        let created_by =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?;
+        let received_at = chrono::Utc::now();
+        let created_at = chrono::Utc::now();
+        let updated_at = chrono::Utc::now();
         let row = sqlx::query_as!(
             AlertsRecord,
             r#"
@@ -334,15 +392,15 @@ impl ResourceStore for AlertsStore {
                 "incident_id" as "incident_id?: uuid::Uuid",
                 "external_id" as "external_id!: String",
                 "source" as "source!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "fingerprint" as "fingerprint!: String",
                 "summary" as "summary!: String",
                 "payload" as "payload!: serde_json::Value",
                 "created_by" as "created_by?: uuid::Uuid",
-                "received_at" as "received_at?: chrono::DateTime<chrono::Utc>",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "received_at" as "received_at!: chrono::DateTime<chrono::Utc>",
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             org_id,
@@ -374,11 +432,14 @@ impl ResourceStore for AlertsStore {
         let org_id_present = data.contains_key("org_id");
         let org_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "org_id")?;
         let service_id_present = data.contains_key("service_id");
-        let service_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "service_id")?;
+        let service_id =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "service_id")?;
         let incident_id_present = data.contains_key("incident_id");
-        let incident_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "incident_id")?;
+        let incident_id =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "incident_id")?;
         let external_id_present = data.contains_key("external_id");
-        let external_id = shaperail_runtime::db::parse_optional_json::<String>(data, "external_id")?;
+        let external_id =
+            shaperail_runtime::db::parse_optional_json::<String>(data, "external_id")?;
         let source_present = data.contains_key("source");
         let source = shaperail_runtime::db::parse_optional_json::<String>(data, "source")?;
         let severity_present = data.contains_key("severity");
@@ -386,20 +447,36 @@ impl ResourceStore for AlertsStore {
         let status_present = data.contains_key("status");
         let status = shaperail_runtime::db::parse_optional_json::<String>(data, "status")?;
         let fingerprint_present = data.contains_key("fingerprint");
-        let fingerprint = shaperail_runtime::db::parse_optional_json::<String>(data, "fingerprint")?;
+        let fingerprint =
+            shaperail_runtime::db::parse_optional_json::<String>(data, "fingerprint")?;
         let summary_present = data.contains_key("summary");
         let summary = shaperail_runtime::db::parse_optional_json::<String>(data, "summary")?;
         let payload_present = data.contains_key("payload");
-        let payload = shaperail_runtime::db::parse_optional_json::<serde_json::Value>(data, "payload")?;
+        let payload =
+            shaperail_runtime::db::parse_optional_json::<serde_json::Value>(data, "payload")?;
         let created_by_present = data.contains_key("created_by");
-        let created_by = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?;
+        let created_by =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?;
         let updated_at = chrono::Utc::now();
-        if !(org_id_present || service_id_present || incident_id_present || external_id_present || source_present || severity_present || status_present || fingerprint_present || summary_present || payload_present || created_by_present) {
-            return Err(shaperail_core::ShaperailError::Validation(vec![shaperail_core::FieldError {
-                field: "body".to_string(),
-                message: "No valid fields to update".to_string(),
-                code: "empty_update".to_string(),
-            }]));
+        if !(org_id_present
+            || service_id_present
+            || incident_id_present
+            || external_id_present
+            || source_present
+            || severity_present
+            || status_present
+            || fingerprint_present
+            || summary_present
+            || payload_present
+            || created_by_present)
+        {
+            return Err(shaperail_core::ShaperailError::Validation(vec![
+                shaperail_core::FieldError {
+                    field: "body".to_string(),
+                    message: "No valid fields to update".to_string(),
+                    code: "empty_update".to_string(),
+                },
+            ]));
         }
         let row = sqlx::query_as!(
             AlertsRecord,
@@ -414,15 +491,15 @@ impl ResourceStore for AlertsStore {
                 "incident_id" as "incident_id?: uuid::Uuid",
                 "external_id" as "external_id!: String",
                 "source" as "source!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "fingerprint" as "fingerprint!: String",
                 "summary" as "summary!: String",
                 "payload" as "payload!: serde_json::Value",
                 "created_by" as "created_by?: uuid::Uuid",
-                "received_at" as "received_at?: chrono::DateTime<chrono::Utc>",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "received_at" as "received_at!: chrono::DateTime<chrono::Utc>",
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             org_id_present,
@@ -456,7 +533,10 @@ impl ResourceStore for AlertsStore {
         row_from_model(&row)
     }
 
-    async fn soft_delete_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn soft_delete_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let row = sqlx::query_as!(
             AlertsRecord,
             r#"
@@ -469,15 +549,15 @@ impl ResourceStore for AlertsStore {
                 "incident_id" as "incident_id?: uuid::Uuid",
                 "external_id" as "external_id!: String",
                 "source" as "source!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "fingerprint" as "fingerprint!: String",
                 "summary" as "summary!: String",
                 "payload" as "payload!: serde_json::Value",
                 "created_by" as "created_by?: uuid::Uuid",
-                "received_at" as "received_at?: chrono::DateTime<chrono::Utc>",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "received_at" as "received_at!: chrono::DateTime<chrono::Utc>",
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>"
             "#,
             id
         )
@@ -488,7 +568,10 @@ impl ResourceStore for AlertsStore {
         row_from_model(&row)
     }
 
-    async fn hard_delete_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn hard_delete_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let row = sqlx::query_as!(
             AlertsRecord,
             r#"
@@ -501,15 +584,15 @@ impl ResourceStore for AlertsStore {
                 "incident_id" as "incident_id?: uuid::Uuid",
                 "external_id" as "external_id!: String",
                 "source" as "source!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "fingerprint" as "fingerprint!: String",
                 "summary" as "summary!: String",
                 "payload" as "payload!: serde_json::Value",
                 "created_by" as "created_by?: uuid::Uuid",
-                "received_at" as "received_at?: chrono::DateTime<chrono::Utc>",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "received_at" as "received_at!: chrono::DateTime<chrono::Utc>",
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>"
             "#,
             id
         )

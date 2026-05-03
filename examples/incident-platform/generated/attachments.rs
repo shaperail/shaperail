@@ -22,8 +22,9 @@ pub struct AttachmentsRecord {
     pub file_url_mime_type: Option<String>,
     pub file_url_size: Option<i64>,
     pub created_by: uuid::Uuid,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub struct AttachmentsStore {
@@ -42,25 +43,36 @@ impl AttachmentsStore {
         sort: &SortParam,
         page: &PageRequest,
     ) -> Result<(Vec<ResourceRow>, Value), shaperail_core::ShaperailError> {
-                let filter_incident_id = parse_filter(filters, "incident_id", "invalid_filter", |text| uuid::Uuid::parse_str(text).map_err(|_| shaperail_core::ShaperailError::Internal("invalid uuid filter".to_string())))?;
-                let filter_kind = parse_filter(filters, "kind", "invalid_filter", |text| Ok(text.to_string()))?;
+        let filter_incident_id = parse_filter(filters, "incident_id", "invalid_filter", |text| {
+            uuid::Uuid::parse_str(text).map_err(|_| {
+                shaperail_core::ShaperailError::Internal("invalid uuid filter".to_string())
+            })
+        })?;
+        let filter_kind = parse_filter(filters, "kind", "invalid_filter", |text| {
+            Ok(text.to_string())
+        })?;
 
-                let sort_field_0 = sort_field_at(sort, 0);
-                let sort_direction_0 = sort_direction_at(sort, 0);
+        let sort_field_0 = sort_field_at(sort, 0);
+        let sort_direction_0 = sort_direction_at(sort, 0);
 
         match page {
             PageRequest::Cursor { after, limit } => {
                 let cursor = match after {
-                    Some(cursor_value) => Some(uuid::Uuid::parse_str(
-                        &shaperail_runtime::db::decode_cursor(cursor_value)?
-                    ).map_err(|_| shaperail_core::ShaperailError::Validation(vec![shaperail_core::FieldError {
-                        field: "cursor".to_string(),
-                        message: "Invalid cursor value".to_string(),
-                        code: "invalid_cursor".to_string(),
-                    }]))?),
+                    Some(cursor_value) => Some(
+                        uuid::Uuid::parse_str(&shaperail_runtime::db::decode_cursor(cursor_value)?)
+                            .map_err(|_| {
+                                shaperail_core::ShaperailError::Validation(vec![
+                                    shaperail_core::FieldError {
+                                        field: "cursor".to_string(),
+                                        message: "Invalid cursor value".to_string(),
+                                        code: "invalid_cursor".to_string(),
+                                    },
+                                ])
+                            })?,
+                    ),
                     None => None,
                 };
-                                let rows = sqlx::query_as!(
+                let rows = sqlx::query_as!(
                                     AttachmentsRecord,
                                     r#"
                                     SELECT
@@ -73,8 +85,9 @@ impl AttachmentsStore {
                                 "file_url_mime_type" as "file_url_mime_type?: String",
                                 "file_url_size" as "file_url_size?: i64",
                                 "created_by" as "created_by!: uuid::Uuid",
-                                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
                                     FROM "attachments"
                                     WHERE TRUE
                                         AND "deleted_at" IS NULL
@@ -99,35 +112,35 @@ impl AttachmentsStore {
                                 .fetch_all(&self.pool)
                                 .await?;
 
-                                let has_more = rows.len() as i64 > *limit;
-                                let mut result_rows = rows;
-                                if has_more {
-                                    result_rows.truncate(*limit as usize);
-                                }
+                let has_more = rows.len() as i64 > *limit;
+                let mut result_rows = rows;
+                if has_more {
+                    result_rows.truncate(*limit as usize);
+                }
 
-                                let data = result_rows
-                                    .iter()
-                                    .map(row_from_model)
-                                    .collect::<Result<Vec<_>, _>>()?;
-                                let cursor = if has_more {
-                                    result_rows
-                                        .last()
-                                        .map(|row| shaperail_runtime::db::encode_cursor(&row.id.to_string()))
-                                } else {
-                                    None
-                                };
+                let data = result_rows
+                    .iter()
+                    .map(row_from_model)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let cursor = if has_more {
+                    result_rows
+                        .last()
+                        .map(|row| shaperail_runtime::db::encode_cursor(&row.id.to_string()))
+                } else {
+                    None
+                };
 
-                                Ok((
-                                    data,
-                                    serde_json::json!({
-                                        "cursor": cursor,
-                                        "has_more": has_more
-                                    })
-                                ))
+                Ok((
+                    data,
+                    serde_json::json!({
+                        "cursor": cursor,
+                        "has_more": has_more
+                    }),
+                ))
             }
             PageRequest::Offset { offset, limit } => {
-                                let total = sqlx::query_scalar!(
-                                    r#"
+                let total = sqlx::query_scalar!(
+                    r#"
                                     SELECT COUNT(*) as "count!"
                                     FROM "attachments"
                                     WHERE TRUE
@@ -137,13 +150,13 @@ impl AttachmentsStore {
                                 AND ($2::text IS NULL OR "kind" = $2)
 
                                     "#,
-                                    filter_incident_id,
-                                    filter_kind.as_deref()
-                                )
-                                .fetch_one(&self.pool)
-                                .await?;
+                    filter_incident_id,
+                    filter_kind.as_deref()
+                )
+                .fetch_one(&self.pool)
+                .await?;
 
-                                let rows = sqlx::query_as!(
+                let rows = sqlx::query_as!(
                                     AttachmentsRecord,
                                     r#"
                                     SELECT
@@ -156,8 +169,9 @@ impl AttachmentsStore {
                                 "file_url_mime_type" as "file_url_mime_type?: String",
                                 "file_url_size" as "file_url_size?: i64",
                                 "created_by" as "created_by!: uuid::Uuid",
-                                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
                                     FROM "attachments"
                                     WHERE TRUE
                                         AND "deleted_at" IS NULL
@@ -182,19 +196,19 @@ impl AttachmentsStore {
                                 .fetch_all(&self.pool)
                                 .await?;
 
-                                let data = rows
-                                    .iter()
-                                    .map(row_from_model)
-                                    .collect::<Result<Vec<_>, _>>()?;
+                let data = rows
+                    .iter()
+                    .map(row_from_model)
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                                Ok((
-                                    data,
-                                    serde_json::json!({
-                                        "offset": offset,
-                                        "limit": limit,
-                                        "total": total
-                                    })
-                                ))
+                Ok((
+                    data,
+                    serde_json::json!({
+                        "offset": offset,
+                        "limit": limit,
+                        "total": total
+                    }),
+                ))
             }
         }
     }
@@ -206,7 +220,10 @@ impl ResourceStore for AttachmentsStore {
         "attachments"
     }
 
-    async fn find_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn find_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let row = sqlx::query_as!(
             AttachmentsRecord,
             r#"
@@ -220,8 +237,9 @@ impl ResourceStore for AttachmentsStore {
                 "file_url_mime_type" as "file_url_mime_type?: String",
                 "file_url_size" as "file_url_size?: i64",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             FROM "attachments"
             WHERE "id" = $1 AND "deleted_at" IS NULL
             "#,
@@ -244,27 +262,55 @@ impl ResourceStore for AttachmentsStore {
     ) -> Result<(Vec<ResourceRow>, Value), shaperail_core::ShaperailError> {
         match endpoint.path() {
             "/attachments" => self.find_all_list(filters, search, sort, page).await,
-            _ => Err(shaperail_core::ShaperailError::Internal(format!("No generated list query for {}", endpoint.path()))),
+            _ => Err(shaperail_core::ShaperailError::Internal(format!(
+                "No generated list query for {}",
+                endpoint.path()
+            ))),
         }
     }
 
-    async fn insert(&self, data: &Map<String, Value>) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn insert(
+        &self,
+        data: &Map<String, Value>,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let id = uuid::Uuid::new_v4();
-        let org_id = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "org_id")?, "org_id")?;
-        let incident_id = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "incident_id")?, "incident_id")?;
-        let kind = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "kind")?, "kind")?;
-        let file_url = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "file_url")?, "file_url")?;
-        let file_url_filename = shaperail_runtime::db::parse_optional_json::<String>(data, "file_url_filename")?;
-        let file_url_mime_type = shaperail_runtime::db::parse_optional_json::<String>(data, "file_url_mime_type")?;
-        let file_url_size = shaperail_runtime::db::parse_optional_json::<i64>(data, "file_url_size")?;
-        let created_by = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?, "created_by")?;
-        let created_at = Some(chrono::Utc::now());
-        let updated_at = Some(chrono::Utc::now());
+        let org_id = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "org_id")?,
+            "org_id",
+        )?;
+        let incident_id = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "incident_id")?,
+            "incident_id",
+        )?;
+        let kind = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "kind")?,
+            "kind",
+        )?;
+        let file_url = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "file_url")?,
+            "file_url",
+        )?;
+        let file_url_filename =
+            shaperail_runtime::db::parse_optional_json::<String>(data, "file_url_filename")?;
+        let file_url_mime_type =
+            shaperail_runtime::db::parse_optional_json::<String>(data, "file_url_mime_type")?;
+        let file_url_size =
+            shaperail_runtime::db::parse_optional_json::<i64>(data, "file_url_size")?;
+        let created_by = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?,
+            "created_by",
+        )?;
+        let created_at = chrono::Utc::now();
+        let updated_at = chrono::Utc::now();
+        let deleted_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(
+            data,
+            "deleted_at",
+        )?;
         let row = sqlx::query_as!(
             AttachmentsRecord,
             r#"
-            INSERT INTO "attachments" ("id", "org_id", "incident_id", "kind", "file_url", "file_url_filename", "file_url_mime_type", "file_url_size", "created_by", "created_at", "updated_at")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO "attachments" ("id", "org_id", "incident_id", "kind", "file_url", "file_url_filename", "file_url_mime_type", "file_url_size", "created_by", "created_at", "updated_at", "deleted_at")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING
                 "id" as "id!: uuid::Uuid",
                 "org_id" as "org_id!: uuid::Uuid",
@@ -275,8 +321,9 @@ impl ResourceStore for AttachmentsStore {
                 "file_url_mime_type" as "file_url_mime_type?: String",
                 "file_url_size" as "file_url_size?: i64",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             org_id,
@@ -288,7 +335,8 @@ impl ResourceStore for AttachmentsStore {
             file_url_size,
             created_by,
             created_at,
-            updated_at
+            updated_at,
+            deleted_at
         )
         .fetch_one(&self.pool)
         .await?;
@@ -304,32 +352,53 @@ impl ResourceStore for AttachmentsStore {
         let org_id_present = data.contains_key("org_id");
         let org_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "org_id")?;
         let incident_id_present = data.contains_key("incident_id");
-        let incident_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "incident_id")?;
+        let incident_id =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "incident_id")?;
         let kind_present = data.contains_key("kind");
         let kind = shaperail_runtime::db::parse_optional_json::<String>(data, "kind")?;
         let file_url_present = data.contains_key("file_url");
         let file_url = shaperail_runtime::db::parse_optional_json::<String>(data, "file_url")?;
         let file_url_filename_present = data.contains_key("file_url_filename");
-        let file_url_filename = shaperail_runtime::db::parse_optional_json::<String>(data, "file_url_filename")?;
+        let file_url_filename =
+            shaperail_runtime::db::parse_optional_json::<String>(data, "file_url_filename")?;
         let file_url_mime_type_present = data.contains_key("file_url_mime_type");
-        let file_url_mime_type = shaperail_runtime::db::parse_optional_json::<String>(data, "file_url_mime_type")?;
+        let file_url_mime_type =
+            shaperail_runtime::db::parse_optional_json::<String>(data, "file_url_mime_type")?;
         let file_url_size_present = data.contains_key("file_url_size");
-        let file_url_size = shaperail_runtime::db::parse_optional_json::<i64>(data, "file_url_size")?;
+        let file_url_size =
+            shaperail_runtime::db::parse_optional_json::<i64>(data, "file_url_size")?;
         let created_by_present = data.contains_key("created_by");
-        let created_by = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?;
+        let created_by =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?;
+        let deleted_at_present = data.contains_key("deleted_at");
+        let deleted_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(
+            data,
+            "deleted_at",
+        )?;
         let updated_at = chrono::Utc::now();
-        if !(org_id_present || incident_id_present || kind_present || file_url_present || file_url_filename_present || file_url_mime_type_present || file_url_size_present || created_by_present) {
-            return Err(shaperail_core::ShaperailError::Validation(vec![shaperail_core::FieldError {
-                field: "body".to_string(),
-                message: "No valid fields to update".to_string(),
-                code: "empty_update".to_string(),
-            }]));
+        if !(org_id_present
+            || incident_id_present
+            || kind_present
+            || file_url_present
+            || file_url_filename_present
+            || file_url_mime_type_present
+            || file_url_size_present
+            || created_by_present
+            || deleted_at_present)
+        {
+            return Err(shaperail_core::ShaperailError::Validation(vec![
+                shaperail_core::FieldError {
+                    field: "body".to_string(),
+                    message: "No valid fields to update".to_string(),
+                    code: "empty_update".to_string(),
+                },
+            ]));
         }
         let row = sqlx::query_as!(
             AttachmentsRecord,
             r#"
             UPDATE "attachments"
-            SET "org_id" = CASE WHEN $2 THEN $3 ELSE "org_id" END, "incident_id" = CASE WHEN $4 THEN $5 ELSE "incident_id" END, "kind" = CASE WHEN $6 THEN $7 ELSE "kind" END, "file_url" = CASE WHEN $8 THEN $9 ELSE "file_url" END, "file_url_filename" = CASE WHEN $10 THEN $11 ELSE "file_url_filename" END, "file_url_mime_type" = CASE WHEN $12 THEN $13 ELSE "file_url_mime_type" END, "file_url_size" = CASE WHEN $14 THEN $15 ELSE "file_url_size" END, "created_by" = CASE WHEN $16 THEN $17 ELSE "created_by" END, "updated_at" = $18
+            SET "org_id" = CASE WHEN $2 THEN $3 ELSE "org_id" END, "incident_id" = CASE WHEN $4 THEN $5 ELSE "incident_id" END, "kind" = CASE WHEN $6 THEN $7 ELSE "kind" END, "file_url" = CASE WHEN $8 THEN $9 ELSE "file_url" END, "file_url_filename" = CASE WHEN $10 THEN $11 ELSE "file_url_filename" END, "file_url_mime_type" = CASE WHEN $12 THEN $13 ELSE "file_url_mime_type" END, "file_url_size" = CASE WHEN $14 THEN $15 ELSE "file_url_size" END, "created_by" = CASE WHEN $16 THEN $17 ELSE "created_by" END, "deleted_at" = CASE WHEN $18 THEN $19 ELSE "deleted_at" END, "updated_at" = $20
             WHERE "id" = $1 AND "deleted_at" IS NULL
             RETURNING
                 "id" as "id!: uuid::Uuid",
@@ -341,8 +410,9 @@ impl ResourceStore for AttachmentsStore {
                 "file_url_mime_type" as "file_url_mime_type?: String",
                 "file_url_size" as "file_url_size?: i64",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             org_id_present,
@@ -361,6 +431,8 @@ impl ResourceStore for AttachmentsStore {
             file_url_size,
             created_by_present,
             created_by,
+            deleted_at_present,
+            deleted_at,
             updated_at
         )
         .fetch_optional(&self.pool)
@@ -370,7 +442,10 @@ impl ResourceStore for AttachmentsStore {
         row_from_model(&row)
     }
 
-    async fn soft_delete_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn soft_delete_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let deleted_at = chrono::Utc::now();
         let row = sqlx::query_as!(
             AttachmentsRecord,
@@ -388,8 +463,9 @@ impl ResourceStore for AttachmentsStore {
                 "file_url_mime_type" as "file_url_mime_type?: String",
                 "file_url_size" as "file_url_size?: i64",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             deleted_at
@@ -401,7 +477,10 @@ impl ResourceStore for AttachmentsStore {
         row_from_model(&row)
     }
 
-    async fn hard_delete_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn hard_delete_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let row = sqlx::query_as!(
             AttachmentsRecord,
             r#"
@@ -417,8 +496,9 @@ impl ResourceStore for AttachmentsStore {
                 "file_url_mime_type" as "file_url_mime_type?: String",
                 "file_url_size" as "file_url_size?: i64",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id
         )

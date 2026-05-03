@@ -12,8 +12,10 @@ fn validation_error(field: &str, message: &str, code: &str) -> ShaperailError {
 pub async fn ingest_alert(ctx: &mut Context) -> ControllerResult {
     let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
 
-    ctx.input
-        .insert("created_by".to_string(), serde_json::json!(user.id.clone()));
+    ctx.input.insert(
+        "created_by".to_string(),
+        serde_json::json!(user.sub.clone()),
+    );
 
     let org_id = ctx
         .tenant_id
