@@ -380,7 +380,7 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
                 for (suffix, expected_types) in [
                     ("filename", &[FieldType::String][..]),
                     ("mime_type", &[FieldType::String][..]),
-                    ("size", &[FieldType::Integer, FieldType::Bigint][..]),
+                    ("size", &[FieldType::Integer][..]),
                 ] {
                     let companion = format!("{}_{}", upload.field, suffix);
                     if let Some(field) = rd.schema.get(&companion) {
@@ -826,7 +826,7 @@ schema:
   file: { type: file, required: true }
   file_filename: { type: string }
   file_mime_type: { type: string }
-  file_size: { type: bigint }
+  file_size: { type: integer }
   updated_at: { type: timestamp, generated: true }
 endpoints:
   upload:
@@ -1793,5 +1793,30 @@ endpoints:
         let errors = validate_resource(&rd);
         // No errors related to this field.
         assert!(errors.iter().all(|e| !e.message.contains("tags")));
+    }
+
+    #[test]
+    fn bigint_type_produces_friendly_error() {
+        let yaml = r#"
+resource: invoices
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+  amount_cents: { type: bigint, required: true }
+"#;
+        let err = parse_resource(yaml).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("removed in v0.13.0"),
+            "Expected removal message, got: {msg}"
+        );
+        assert!(
+            msg.contains("use 'integer'"),
+            "Expected migration hint, got: {msg}"
+        );
+        assert!(
+            msg.contains("E_BIGINT_REMOVED"),
+            "Expected error code, got: {msg}"
+        );
     }
 }
