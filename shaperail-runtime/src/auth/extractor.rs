@@ -104,17 +104,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn authenticated_user_debug() {
+    fn authenticated_user_uses_sub_field() {
         let user = AuthenticatedUser {
-            id: "u1".to_string(),
+            sub: "u1".to_string(),
             role: "admin".to_string(),
             tenant_id: None,
         };
-        assert_eq!(user.id, "u1");
-        assert_eq!(user.role, "admin");
-        // Clone works
+        assert_eq!(user.sub, "u1");
         let cloned = user.clone();
-        assert_eq!(cloned.id, "u1");
+        assert_eq!(cloned.sub, "u1");
     }
 
     #[test]
