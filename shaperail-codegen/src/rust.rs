@@ -396,7 +396,7 @@ fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
     let ctrl_path_decls: Vec<String> = ctrl_hooks
         .iter()
         .map(|(name, _)| {
-            format!("#[path = \"../resources/{name}.controller.rs\"]\nmod {name}_controller;")
+            format!("#[path = \"../resources/{name}.controller.rs\"]\npub mod {name}_controller;")
         })
         .collect();
 
@@ -448,10 +448,25 @@ fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
     }
     let preamble = preamble_parts.join("\n\n");
 
+    let resources_aggregator = if ctrl_hooks.is_empty() {
+        String::new()
+    } else {
+        let lines: Vec<String> = ctrl_hooks
+            .iter()
+            .map(|(name, _)| format!("    pub use super::{name}_controller;"))
+            .collect();
+        format!(
+            "\n\n/// Re-exports of every controller module under one path so integration\n\
+             /// tests can reach `pub` helpers via `crate::resources::<name>_controller::*`.\n\
+             #[doc(hidden)]\npub mod resources {{\n{}\n}}",
+            lines.join("\n")
+        )
+    };
+
     format!(
         r#"#![allow(dead_code)]
 
-{preamble}
+{preamble}{resources_aggregator}
 
 pub fn build_store_registry(pool: sqlx::PgPool) -> shaperail_runtime::db::StoreRegistry {{
     let mut stores: std::collections::HashMap<
@@ -470,6 +485,7 @@ pub fn build_controller_map() -> shaperail_runtime::handlers::controller::Contro
 
 {handler_map_fn}
 "#,
+        resources_aggregator = resources_aggregator,
         job_registry_fn = generate_job_registry(resources),
         handler_map_fn = generate_handler_map_fn(resources),
     )
@@ -1801,5 +1817,45 @@ mod tests {
     fn model_optional_for_primary_key_is_false() {
         let f = field(FieldType::Uuid, true, false, false, true, None);
         assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn generated_mod_rs_emits_pub_resources_aggregator() {
+        let mut resource = sample_resource();
+        // Add a controller hook so a `*_controller` module is emitted.
+        let endpoint = resource
+            .endpoints
+            .as_mut()
+            .unwrap()
+            .get_mut("list")
+            .unwrap();
+        endpoint.controller = Some(shaperail_core::ControllerSpec {
+            before: Some(shaperail_core::HookList::Single("validate".to_string())),
+            after: None,
+        });
+
+        let project = generate_project(std::slice::from_ref(&resource)).unwrap();
+        // The mod.rs is in `project.mod_rs` (matching the existing
+        // `assert!(project.mod_rs.contains("pub mod users;"));` assertion).
+        assert!(
+            project.mod_rs.contains("pub mod users_controller;"),
+            "controller module must be `pub mod`, not `mod`. Got:\n{}",
+            project.mod_rs
+        );
+        assert!(
+            project.mod_rs.contains("#[doc(hidden)]"),
+            "expected #[doc(hidden)] guard on resources aggregator. Got:\n{}",
+            project.mod_rs
+        );
+        assert!(
+            project.mod_rs.contains("pub mod resources"),
+            "expected `pub mod resources` aggregator. Got:\n{}",
+            project.mod_rs
+        );
+        assert!(
+            project.mod_rs.contains("pub use super::users_controller;"),
+            "expected re-export of users_controller in resources aggregator. Got:\n{}",
+            project.mod_rs
+        );
     }
 }
