@@ -75,6 +75,18 @@ pub struct Context {
     /// signed download tokens). Keys here will **shadow** any same-named field on
     /// the persisted record.
     pub response_extras: serde_json::Map<String, serde_json::Value>,
+    /// URL path parameters extracted by the runtime before any controller runs.
+    /// For conventional CRUD endpoints (`/resource/:id`), populated as
+    /// `{"id": "<value>"}`. Empty for endpoints with no path variables.
+    pub path_params: std::collections::HashMap<String, String>,
+}
+
+impl Context {
+    /// Returns the path parameter `name`, or `None` if the endpoint has no such
+    /// segment in its path template. Idiomatic in update/delete before-hooks.
+    pub fn path_param(&self, name: &str) -> Option<&str> {
+        self.path_params.get(name).map(String::as_str)
+    }
 }
 
 /// Type alias for controller function results.
@@ -322,6 +334,7 @@ mod tests {
             tenant_id: None,
             session: serde_json::Map::new(),
             response_extras: serde_json::Map::new(),
+            path_params: HashMap::new(),
         };
 
         map.call("users", "normalize_email", &mut ctx)
@@ -343,6 +356,7 @@ mod tests {
             tenant_id: None,
             session: serde_json::Map::new(),
             response_extras: serde_json::Map::new(),
+            path_params: HashMap::new(),
         };
 
         let result = map.call("users", "nonexistent", &mut ctx).await;
@@ -392,6 +406,7 @@ mod tests {
             tenant_id: None,
             session: serde_json::Map::new(),
             response_extras: serde_json::Map::new(),
+            path_params: HashMap::new(),
         };
 
         // Simulate the run_before_controller loop: dispatch each name in order.
@@ -437,6 +452,7 @@ mod tests {
             tenant_id: None,
             session: serde_json::Map::new(),
             response_extras: serde_json::Map::new(),
+            path_params: HashMap::new(),
         };
 
         // Simulate the run_before_controller short-circuit.
@@ -495,10 +511,68 @@ mod tests {
             tenant_id: None,
             session: serde_json::Map::new(),
             response_extras: serde_json::Map::new(),
+            path_params: HashMap::new(),
         };
 
         for name in &["derive", "assert_derived"] {
             map.call("users", name, &mut ctx).await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn path_param_helper_reads_from_map() {
+        let mut params = HashMap::new();
+        params.insert("id".to_string(), "abc-123".to_string());
+        let ctx = Context {
+            input: serde_json::Map::new(),
+            data: None,
+            user: None,
+            pool: test_pool(),
+            headers: HashMap::new(),
+            response_headers: vec![],
+            tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
+            path_params: params,
+        };
+        assert_eq!(ctx.path_param("id"), Some("abc-123"));
+        assert_eq!(ctx.path_param("missing"), None);
+    }
+
+    #[tokio::test]
+    async fn path_param_visible_to_dispatched_controller() {
+        // Simulates the dispatch path: a controller registered in ControllerMap
+        // reads ctx.path_param("id") through the public API used by run_before_controller.
+        let mut map = ControllerMap::new();
+
+        async fn assert_id(ctx: &mut Context) -> ControllerResult {
+            assert_eq!(ctx.path_param("id"), Some("expected"));
+            ctx.session
+                .insert("saw_id".to_string(), serde_json::json!(true));
+            Ok(())
+        }
+
+        map.register("users", "assert_id", assert_id);
+
+        let mut params = HashMap::new();
+        params.insert("id".to_string(), "expected".to_string());
+        let mut ctx = Context {
+            input: serde_json::Map::new(),
+            data: None,
+            user: None,
+            pool: test_pool(),
+            headers: HashMap::new(),
+            response_headers: vec![],
+            tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
+            path_params: params,
+        };
+
+        map.call("users", "assert_id", &mut ctx).await.unwrap();
+        assert_eq!(
+            ctx.session.get("saw_id").and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 }

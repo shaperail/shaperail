@@ -225,8 +225,7 @@ pub fn register_resource(
                                         .collect();
                                     let tenant_id =
                                         crud::resolve_tenant_id(&r, user.as_ref());
-                                    // Task 5 will add path_params; for now collect but discard.
-                                    let _path_params: HashMap<String, String> = req
+                                    let path_params: HashMap<String, String> = req
                                         .match_info()
                                         .iter()
                                         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -241,6 +240,7 @@ pub fn register_resource(
                                         tenant_id,
                                         session: serde_json::Map::new(),
                                         response_extras: serde_json::Map::new(),
+                                        path_params,
                                     };
                                     #[cfg(feature = "wasm-plugins")]
                                     let wasm_rt = state.wasm_runtime.as_ref();
@@ -443,6 +443,7 @@ mod tests {
             tenant_id: Some("org-1".to_string()),
             session: serde_json::Map::new(),
             response_extras: serde_json::Map::new(),
+            path_params: HashMap::new(),
         };
         ctx.session
             .insert("ran".to_string(), serde_json::json!(true));

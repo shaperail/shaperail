@@ -728,8 +728,7 @@ async fn run_before_controller(
     input: serde_json::Map<String, serde_json::Value>,
     user: Option<&AuthenticatedUser>,
     req: &HttpRequest,
-    // Task 5 will rename this to `path_params` and store it on Context.
-    _path_params: std::collections::HashMap<String, String>,
+    path_params: std::collections::HashMap<String, String>,
 ) -> Result<super::controller::Context, ShaperailError> {
     let headers: std::collections::HashMap<String, String> = req
         .headers()
@@ -747,6 +746,7 @@ async fn run_before_controller(
         tenant_id,
         session: serde_json::Map::new(),
         response_extras: serde_json::Map::new(),
+        path_params,
     };
 
     let names: &[String] = endpoint
@@ -947,7 +947,10 @@ pub async fn handle_update(
         &format!("{}:update", resource.resource),
     )
     .await?;
+    let id_str = path.as_str().to_string();
     let id = parse_uuid(&path)?;
+    let mut path_params = std::collections::HashMap::new();
+    path_params.insert("id".to_string(), id_str);
     let input_data = extract_input(&body, &resource, &endpoint)?;
     let store_opt = store_for_or_error(&state, &resource)?;
 
@@ -982,7 +985,7 @@ pub async fn handle_update(
         input_data,
         user.as_ref(),
         &req,
-        std::collections::HashMap::new(),
+        path_params,
     )
     .await?;
 
@@ -1094,7 +1097,10 @@ pub async fn handle_delete(
         &format!("{}:delete", resource.resource),
     )
     .await?;
+    let id_str = path.as_str().to_string();
     let id = parse_uuid(&path)?;
+    let mut path_params = std::collections::HashMap::new();
+    path_params.insert("id".to_string(), id_str);
     let store_opt = store_for_or_error(&state, &resource)?;
 
     // M18 tenant check + owner check: fetch record first
@@ -1124,7 +1130,7 @@ pub async fn handle_delete(
         input,
         user.as_ref(),
         &req,
-        std::collections::HashMap::new(),
+        path_params,
     )
     .await?;
 
@@ -1855,6 +1861,7 @@ mod tests {
             tenant_id: None,
             session: serde_json::Map::new(),
             response_extras: serde_json::Map::new(),
+            path_params: std::collections::HashMap::new(),
         }
     }
 
