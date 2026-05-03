@@ -9,7 +9,20 @@
 dependencies_update = true
 
 # One release PR for the whole workspace, not one per crate.
-pr_name = "chore(release): {{ version }}"
+#
+# Do NOT use `{{ version }}` in this template. release-plz only populates the
+# `version` variable when every crate in the workspace has the SAME next
+# version, but that is not always true mid-computation: a crate that has no
+# commit matching `release_commits` and whose only change is a `dependencies
+# changed` bump (e.g. `shaperail-cli` when only the lib crates have feat!:
+# commits) gets its next version computed independently (e.g. 0.12.2) before
+# `version_group = "workspace"` lifts it to match the others (0.13.0). The
+# pr_name template renders during that intermediate state — `{{ version }}`
+# is undefined and the action fails with `Variable 'version' not found in
+# context while rendering 'pr_name'`. A literal title sidesteps this. The PR
+# body still lists each crate with its bumped version, so the missing version
+# in the title costs nothing.
+pr_name = "chore(release): version bump"
 
 # `release_always = true` (the default) tells release-plz to publish on
 # every push to main when the workspace version is ahead of the latest
