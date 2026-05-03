@@ -1322,11 +1322,14 @@ fn model_field_type(field: &FieldSchema) -> String {
 }
 
 fn model_field_is_optional(field: &FieldSchema) -> bool {
-    !(field.primary || (field.required && !field.nullable))
+    if field.nullable {
+        return true;
+    }
+    !(field.primary || field.required || field.generated || field.default.is_some())
 }
 
 fn field_is_required(field: &FieldSchema) -> bool {
-    field.primary || (field.required && !field.nullable)
+    !model_field_is_optional(field)
 }
 
 fn generated_value_expression(field: &FieldSchema) -> String {
@@ -1702,5 +1705,105 @@ mod tests {
         let output = generate_handler_map_fn(&resources);
         assert!(output.contains("items_handlers::archive_item"));
         assert!(output.contains(r#"handler_key("items", "archive")"#));
+    }
+
+    fn field(
+        ty: FieldType,
+        primary: bool,
+        required: bool,
+        nullable: bool,
+        generated: bool,
+        default: Option<serde_json::Value>,
+    ) -> FieldSchema {
+        FieldSchema {
+            field_type: ty,
+            primary,
+            generated,
+            required,
+            unique: false,
+            nullable,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient: false,
+        }
+    }
+
+    #[test]
+    fn model_optional_for_required_only_field_is_false() {
+        let f = field(FieldType::Integer, false, true, false, false, None);
+        assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_required_with_default_is_false() {
+        let f = field(
+            FieldType::Integer,
+            false,
+            true,
+            false,
+            false,
+            Some(serde_json::json!(0)),
+        );
+        assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_unrequired_with_default_is_false() {
+        // The bug-report case: NOT NULL DEFAULT must produce non-Option output.
+        let f = field(
+            FieldType::Integer,
+            false,
+            false,
+            false,
+            false,
+            Some(serde_json::json!(0)),
+        );
+        assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_generated_without_required_is_false() {
+        // created_at: { type: timestamp, generated: true }
+        let f = field(FieldType::Timestamp, false, false, false, true, None);
+        assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_nullable_is_true() {
+        let f = field(FieldType::String, false, false, true, false, None);
+        assert!(model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_nullable_with_default_is_true() {
+        // nullable wins, even with a default.
+        let f = field(
+            FieldType::String,
+            false,
+            false,
+            true,
+            false,
+            Some(serde_json::json!("x")),
+        );
+        assert!(model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_plain_optional_field_is_true() {
+        let f = field(FieldType::String, false, false, false, false, None);
+        assert!(model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_primary_key_is_false() {
+        let f = field(FieldType::Uuid, true, false, false, true, None);
+        assert!(!model_field_is_optional(&f));
     }
 }
