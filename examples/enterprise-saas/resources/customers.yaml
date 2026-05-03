@@ -8,7 +8,7 @@ schema:
   name:               { type: string, min: 1, max: 200, required: true }
   email:              { type: string, format: email, required: true }
   plan:               { type: enum, values: [free, starter, pro, enterprise], default: free }
-  credit_limit_cents: { type: bigint, default: 0 }
+  credit_limit_cents: { type: integer, default: 0 }
   stripe_customer_id: { type: string, nullable: true }
   status:             { type: enum, values: [active, suspended, closed], default: active }
   created_by:         { type: uuid, required: true }

@@ -10,7 +10,7 @@ schema:
   file_url:            { type: file, required: true }
   file_url_filename:   { type: string, nullable: true }
   file_url_mime_type:  { type: string, nullable: true }
-  file_url_size:       { type: bigint, nullable: true }
+  file_url_size:       { type: integer, nullable: true }
   created_by:          { type: uuid, required: true }
   created_at:          { type: timestamp, generated: true }
   updated_at:          { type: timestamp, generated: true }
