@@ -14,12 +14,7 @@ use shaperail_runtime::handlers::ControllerMap;
 use shaperail_runtime::jobs::{JobHandler, JobRegistry};
 use shaperail_runtime::ws::{PubSubMessage, RedisPubSub, RoomManager};
 
-#[path = "../resources/alerts.controller.rs"]
-mod alerts_controller;
-#[path = "../resources/incidents.controller.rs"]
-mod incidents_controller;
-#[path = "../resources/services.controller.rs"]
-mod services_controller;
+use crate::generated::{alerts_controller, incidents_controller, services_controller};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct EventPayload {
