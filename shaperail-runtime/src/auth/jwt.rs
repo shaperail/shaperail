@@ -255,30 +255,28 @@ mod tests {
         assert!(claims.tenant_id.is_none());
     }
 
+    // The three JWT_SECRET behaviors below are exercised in a single test
+    // because cargo runs tests within a binary in parallel; splitting into
+    // three races set_var/remove_var between threads and makes the unset
+    // assertion flaky.
     #[test]
-    fn from_env_returns_none_when_unset() {
-        // Ensure the var is not set
+    fn from_env_behavior() {
+        // unset → None
         std::env::remove_var("JWT_SECRET");
-        assert!(JwtConfig::from_env().is_none());
-    }
+        assert!(JwtConfig::from_env().is_none(), "unset must yield None");
 
-    #[test]
-    fn from_env_returns_none_when_empty() {
+        // empty → None
         std::env::set_var("JWT_SECRET", "");
-        let result = JwtConfig::from_env();
-        std::env::remove_var("JWT_SECRET");
-        assert!(result.is_none());
-    }
+        assert!(JwtConfig::from_env().is_none(), "empty must yield None");
 
-    #[test]
-    fn from_env_returns_config_when_set() {
+        // valid secret → Some, signs and verifies
         std::env::set_var("JWT_SECRET", "a-valid-secret-key-at-least-32-bytes!");
-        let cfg = JwtConfig::from_env();
-        std::env::remove_var("JWT_SECRET");
-        assert!(cfg.is_some());
-        // Confirm it can actually sign and verify a token
-        let token = cfg.unwrap().encode_access("u1", "admin").unwrap();
+        let cfg = JwtConfig::from_env().expect("valid secret must yield Some");
+        let token = cfg.encode_access("u1", "admin").unwrap();
         assert!(!token.is_empty());
+
+        // Cleanup so other tests in this binary don't observe a stray value.
+        std::env::remove_var("JWT_SECRET");
     }
 
     #[test]
