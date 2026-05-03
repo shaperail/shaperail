@@ -212,7 +212,7 @@ pub async fn dispatch_controller(
             input: ctx.input.clone(),
             data: ctx.data.clone(),
             user: ctx.user.as_ref().map(|u| PluginUser {
-                id: u.id.to_string(),
+                id: u.sub.to_string(),
                 role: u.role.clone(),
             }),
             headers: ctx.headers.clone(),

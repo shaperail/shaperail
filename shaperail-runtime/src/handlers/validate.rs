@@ -140,10 +140,7 @@ fn check_field_rules(
         }
     }
 
-    if field.field_type == FieldType::Integer
-        || field.field_type == FieldType::Bigint
-        || field.field_type == FieldType::Number
-    {
+    if field.field_type == FieldType::Integer || field.field_type == FieldType::Number {
         if let Some(n) = value.as_f64() {
             if let Some(min) = &field.min {
                 if let Some(min_val) = min.as_f64() {
@@ -260,10 +257,7 @@ fn check_item_rules(
     }
 
     // Numeric range checks
-    if matches!(
-        items.field_type,
-        FieldType::Integer | FieldType::Bigint | FieldType::Number
-    ) {
+    if matches!(items.field_type, FieldType::Integer | FieldType::Number) {
         if let Some(n) = value.as_f64() {
             if let Some(min) = items.min.as_ref().and_then(|v| v.as_f64()) {
                 if n < min {

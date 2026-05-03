@@ -50,7 +50,7 @@ pub fn enforce(
 
 /// Checks if the authenticated user owns the given resource record.
 ///
-/// Looks for a `created_by` field in the record and compares it to `user.id`.
+/// Looks for a `created_by` field in the record and compares it to `user.sub`.
 /// Returns `Ok(())` if the user is the owner, `Err(Forbidden)` otherwise.
 pub fn check_owner(
     user: &AuthenticatedUser,
@@ -59,7 +59,7 @@ pub fn check_owner(
     let created_by = record.get("created_by").and_then(|v| v.as_str());
 
     match created_by {
-        Some(owner_id) if owner_id == user.id => Ok(()),
+        Some(owner_id) if owner_id == user.sub => Ok(()),
         _ => Err(ShaperailError::Forbidden),
     }
 }
@@ -98,7 +98,7 @@ mod tests {
 
     fn admin_user() -> AuthenticatedUser {
         AuthenticatedUser {
-            id: "user-1".to_string(),
+            sub: "user-1".to_string(),
             role: "admin".to_string(),
             tenant_id: None,
         }
@@ -106,7 +106,7 @@ mod tests {
 
     fn member_user() -> AuthenticatedUser {
         AuthenticatedUser {
-            id: "user-2".to_string(),
+            sub: "user-2".to_string(),
             role: "member".to_string(),
             tenant_id: None,
         }
@@ -114,7 +114,7 @@ mod tests {
 
     fn viewer_user() -> AuthenticatedUser {
         AuthenticatedUser {
-            id: "user-3".to_string(),
+            sub: "user-3".to_string(),
             role: "viewer".to_string(),
             tenant_id: None,
         }
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn check_owner_matches() {
         let user = AuthenticatedUser {
-            id: "user-1".to_string(),
+            sub: "user-1".to_string(),
             role: "member".to_string(),
             tenant_id: None,
         };
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn check_owner_rejects_other() {
         let user = AuthenticatedUser {
-            id: "user-1".to_string(),
+            sub: "user-1".to_string(),
             role: "member".to_string(),
             tenant_id: None,
         };

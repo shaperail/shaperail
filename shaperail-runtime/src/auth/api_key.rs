@@ -24,7 +24,7 @@ impl ApiKeyStore {
         self.keys.insert(
             key,
             AuthenticatedUser {
-                id: user_id,
+                sub: user_id,
                 role,
                 tenant_id: None,
             },
@@ -68,7 +68,7 @@ mod tests {
         let user = store.lookup("sk-test-123");
         assert!(user.is_some());
         let user = user.unwrap();
-        assert_eq!(user.id, "user-1");
+        assert_eq!(user.sub, "user-1");
         assert_eq!(user.role, "admin");
     }
 

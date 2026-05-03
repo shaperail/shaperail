@@ -156,8 +156,7 @@ Schema fields use compact inline objects. Every attribute:
 | --- | --- | --- | --- |
 | `uuid` | `UUID` | `uuid::Uuid` | Use for primary keys and foreign keys |
 | `string` | `VARCHAR(max)` or `TEXT` | `String` | Supports `min`, `max`, `format` |
-| `integer` | `INTEGER` | `i32` | 32-bit signed |
-| `bigint` | `BIGINT` | `i64` | 64-bit signed |
+| `integer` | `BIGINT` | `i64` | 64-bit signed (range ±9.2 × 10¹⁸). Use for currency in minor units. |
 | `number` | `NUMERIC` | `f64` | 64-bit floating point |
 | `boolean` | `BOOLEAN` | `bool` | |
 | `timestamp` | `TIMESTAMPTZ` | `chrono::DateTime<Utc>` | Use `generated: true` for auto timestamps |
@@ -166,6 +165,8 @@ Schema fields use compact inline objects. Every attribute:
 | `json` | `JSONB` | `serde_json::Value` | Arbitrary JSON |
 | `array` | varies | `Vec<T>` | Requires `items` for element type |
 | `file` | `TEXT` | `String` | Stores file URL. Use with `upload:` on endpoints |
+
+> **Migrating from v0.12.** The `bigint` type was removed in v0.13.0. Use `integer` everywhere — it is now 64-bit by default. Resources still declaring `type: bigint` fail validation with `E_BIGINT_REMOVED`. Motivation: `i32::MAX` cents is ~$21M USD, which silently caps any money-shaped column.
 
 ### Array element constraints
 

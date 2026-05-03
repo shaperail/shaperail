@@ -420,11 +420,6 @@ impl<'a> ResourceQuery<'a> {
                     }
                 }
                 FieldType::Integer => {
-                    if let Ok(n) = value.parse::<i32>() {
-                        return BindValue::Int(n);
-                    }
-                }
-                FieldType::Bigint => {
                     if let Ok(n) = value.parse::<i64>() {
                         return BindValue::Bigint(n);
                     }
@@ -460,7 +455,6 @@ impl<'a> ResourceQuery<'a> {
         for bind in binds {
             query = match bind {
                 BindValue::Text(v) => query.bind(v),
-                BindValue::Int(v) => query.bind(v),
                 BindValue::Bigint(v) => query.bind(v),
                 BindValue::Float(v) => query.bind(v),
                 BindValue::Bool(v) => query.bind(v),
@@ -492,7 +486,6 @@ impl<'a> ResourceQuery<'a> {
         for bind in binds {
             query = match bind {
                 BindValue::Text(v) => query.bind(v),
-                BindValue::Int(v) => query.bind(v),
                 BindValue::Bigint(v) => query.bind(v),
                 BindValue::Float(v) => query.bind(v),
                 BindValue::Bool(v) => query.bind(v),
@@ -515,7 +508,6 @@ impl<'a> ResourceQuery<'a> {
 #[derive(Debug, Clone)]
 enum BindValue {
     Text(String),
-    Int(i32),
     Bigint(i64),
     Float(f64),
     Bool(bool),
@@ -543,8 +535,7 @@ fn json_to_bind(value: &serde_json::Value, field: &FieldSchema) -> BindValue {
         FieldType::String | FieldType::Enum | FieldType::File => {
             BindValue::Text(value.as_str().unwrap_or(&value.to_string()).to_string())
         }
-        FieldType::Integer => BindValue::Int(value.as_i64().unwrap_or(0) as i32),
-        FieldType::Bigint => BindValue::Bigint(value.as_i64().unwrap_or(0)),
+        FieldType::Integer => BindValue::Bigint(value.as_i64().unwrap_or(0)),
         FieldType::Number => BindValue::Float(value.as_f64().unwrap_or(0.0)),
         FieldType::Boolean => BindValue::Bool(value.as_bool().unwrap_or(false)),
         FieldType::Timestamp => {
@@ -588,11 +579,6 @@ fn extract_column_value(
                 .unwrap_or(serde_json::Value::Null))
         }
         FieldType::Integer => {
-            let v: Option<i32> = row.try_get(name).map_err(map_err)?;
-            Ok(v.map(|n| serde_json::Value::Number(n.into()))
-                .unwrap_or(serde_json::Value::Null))
-        }
-        FieldType::Bigint => {
             let v: Option<i64> = row.try_get(name).map_err(map_err)?;
             Ok(v.map(|n| serde_json::Value::Number(n.into()))
                 .unwrap_or(serde_json::Value::Null))
@@ -1012,8 +998,7 @@ fn field_type_to_sql(ft: &FieldType, field: &FieldSchema) -> String {
             }
             "TEXT".to_string()
         }
-        FieldType::Integer => "INTEGER".to_string(),
-        FieldType::Bigint => "BIGINT".to_string(),
+        FieldType::Integer => "BIGINT".to_string(),
         FieldType::Number => "NUMERIC".to_string(),
         FieldType::Boolean => "BOOLEAN".to_string(),
         FieldType::Timestamp => "TIMESTAMPTZ".to_string(),
@@ -1024,8 +1009,7 @@ fn field_type_to_sql(ft: &FieldType, field: &FieldSchema) -> String {
             if let Some(items) = &field.items {
                 let item_sql = match items.field_type {
                     FieldType::String | FieldType::Enum => "TEXT",
-                    FieldType::Integer => "INTEGER",
-                    FieldType::Bigint => "BIGINT",
+                    FieldType::Integer => "BIGINT",
                     FieldType::Number => "DOUBLE PRECISION",
                     FieldType::Boolean => "BOOLEAN",
                     FieldType::Timestamp => "TIMESTAMPTZ",
@@ -1053,8 +1037,7 @@ fn field_type_to_sql_mysql(ft: &FieldType, field: &FieldSchema) -> String {
             }
             "TEXT".to_string()
         }
-        FieldType::Integer => "INTEGER".to_string(),
-        FieldType::Bigint => "BIGINT".to_string(),
+        FieldType::Integer => "BIGINT".to_string(),
         FieldType::Number => "DECIMAL(65,30)".to_string(),
         FieldType::Boolean => "BOOLEAN".to_string(),
         FieldType::Timestamp => "DATETIME(6)".to_string(),
@@ -1078,7 +1061,6 @@ fn field_type_to_sql_sqlite(ft: &FieldType, field: &FieldSchema) -> String {
             "TEXT".to_string()
         }
         FieldType::Integer => "INTEGER".to_string(),
-        FieldType::Bigint => "INTEGER".to_string(),
         FieldType::Number => "REAL".to_string(),
         FieldType::Boolean => "INTEGER".to_string(),
         FieldType::Timestamp => "TEXT".to_string(),
@@ -1386,10 +1368,6 @@ mod tests {
         );
         assert_eq!(
             field_type_to_sql(&FieldType::Integer, &default_field),
-            "INTEGER"
-        );
-        assert_eq!(
-            field_type_to_sql(&FieldType::Bigint, &default_field),
             "BIGINT"
         );
         assert_eq!(
@@ -1487,5 +1465,33 @@ mod tests {
 
         let bind = json_to_bind(&serde_json::Value::Null, &str_field);
         assert!(matches!(bind, BindValue::Null));
+    }
+
+    fn default_field() -> FieldSchema {
+        FieldSchema {
+            field_type: FieldType::String,
+            primary: false,
+            generated: false,
+            required: false,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient: false,
+        }
+    }
+
+    #[test]
+    fn integer_field_emits_bigint() {
+        use shaperail_core::FieldType;
+        let f = default_field();
+        assert_eq!(field_type_to_sql(&FieldType::Integer, &f), "BIGINT");
     }
 }

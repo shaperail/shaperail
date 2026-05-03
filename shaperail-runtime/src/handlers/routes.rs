@@ -311,7 +311,7 @@ mod tests {
 
     fn user_with_tenant(tenant_id: &str) -> AuthenticatedUser {
         AuthenticatedUser {
-            id: "user-1".to_string(),
+            sub: "user-1".to_string(),
             role: "member".to_string(),
             tenant_id: Some(tenant_id.to_string()),
         }
@@ -413,7 +413,7 @@ mod tests {
     fn resolve_tenant_id_is_none_when_user_has_no_tenant_claim() {
         let resource = resource_with_tenant_key("org_id");
         let user = AuthenticatedUser {
-            id: "user-1".to_string(),
+            sub: "user-1".to_string(),
             role: "super_admin".to_string(),
             tenant_id: None,
         };

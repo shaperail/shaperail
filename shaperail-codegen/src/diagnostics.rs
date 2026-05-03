@@ -746,7 +746,7 @@ endpoints:
 
     #[test]
     fn format_feature_warnings_empty_returns_empty_string() {
-        use crate::feature_check::{format_feature_warnings, RequiredFeature};
+        use crate::feature_check::format_feature_warnings;
         let s = format_feature_warnings(&[]);
         assert!(s.is_empty());
     }

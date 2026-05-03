@@ -237,9 +237,6 @@ fn field_schema_to_openapi(schema: &FieldSchema) -> serde_json::Value {
         }
         FieldType::Integer => {
             obj.insert("type".to_string(), serde_json::json!("integer"));
-        }
-        FieldType::Bigint => {
-            obj.insert("type".to_string(), serde_json::json!("integer"));
             obj.insert("format".to_string(), serde_json::json!("int64"));
         }
         FieldType::Number => {
@@ -274,7 +271,6 @@ fn field_schema_to_openapi(schema: &FieldSchema) -> serde_json::Value {
                         "string"
                     }
                     FieldType::Integer => "integer",
-                    FieldType::Bigint => "integer",
                     FieldType::Number => "number",
                     FieldType::Boolean => "boolean",
                     FieldType::Timestamp | FieldType::Date => "string",
@@ -339,7 +335,7 @@ fn field_schema_to_openapi(schema: &FieldSchema) -> serde_json::Value {
             FieldType::String => {
                 obj.insert("minLength".to_string(), min.clone());
             }
-            FieldType::Integer | FieldType::Bigint | FieldType::Number => {
+            FieldType::Integer | FieldType::Number => {
                 obj.insert("minimum".to_string(), min.clone());
             }
             _ => {}
@@ -350,7 +346,7 @@ fn field_schema_to_openapi(schema: &FieldSchema) -> serde_json::Value {
             FieldType::String => {
                 obj.insert("maxLength".to_string(), max.clone());
             }
-            FieldType::Integer | FieldType::Bigint | FieldType::Number => {
+            FieldType::Integer | FieldType::Number => {
                 obj.insert("maximum".to_string(), max.clone());
             }
             _ => {}

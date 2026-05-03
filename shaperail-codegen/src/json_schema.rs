@@ -58,7 +58,7 @@ pub fn generate_resource_json_schema() -> Value {
         "$defs": {
             "FieldType": {
                 "type": "string",
-                "enum": ["uuid", "string", "integer", "bigint", "number", "boolean", "timestamp", "date", "enum", "json", "array", "file"],
+                "enum": ["uuid", "string", "integer", "number", "boolean", "timestamp", "date", "enum", "json", "array", "file"],
                 "description": "The data type of a field."
             },
             "FieldSchema": {
@@ -131,7 +131,7 @@ pub fn generate_resource_json_schema() -> Value {
                     "items": {
                         "type": "string",
                         "description": "Element type for array fields. Required when type is 'array'.",
-                        "enum": ["uuid", "string", "integer", "bigint", "number", "boolean", "timestamp", "date"]
+                        "enum": ["uuid", "string", "integer", "number", "boolean", "timestamp", "date"]
                     }
                 }
             },
@@ -342,7 +342,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len()
-                == 12
+                == 11
         );
     }
 

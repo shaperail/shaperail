@@ -12,6 +12,13 @@ pub enum ParseError {
     #[error("{0}")]
     ConfigInterpolation(String),
 
+    /// A removed field type was used. Provides a friendly migration message.
+    #[error("[{code}] {message}")]
+    RemovedType {
+        code: &'static str,
+        message: &'static str,
+    },
+
     #[error("{file}: {source}")]
     Context {
         file: String,
@@ -26,6 +33,15 @@ pub enum ParseError {
 /// endpoint names (list, get, create, update, delete), `method` and `path`
 /// are inferred from the resource name if not explicitly provided.
 pub fn parse_resource(yaml: &str) -> Result<ResourceDefinition, ParseError> {
+    // Pre-check: detect removed `bigint` field type before serde deserialization
+    // so we can emit a friendly error instead of an opaque "unknown variant" message.
+    if yaml.contains("type: bigint") {
+        return Err(ParseError::RemovedType {
+            code: "E_BIGINT_REMOVED",
+            message:
+                "type 'bigint' was removed in v0.13.0 — use 'integer' (now 64-bit by default).",
+        });
+    }
     let mut resource: ResourceDefinition = serde_yaml::from_str(yaml)?;
     shaperail_core::apply_endpoint_defaults(&mut resource);
     Ok(resource)

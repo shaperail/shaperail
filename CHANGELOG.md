@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+- **`integer` field type is now 64-bit.** `type: integer` maps to Postgres `BIGINT`, Rust `i64`, OpenAPI `format: int64`, Protobuf `int64`. The separate `bigint` field type has been removed — use `integer` everywhere. Resources still declaring `type: bigint` fail validation with `E_BIGINT_REMOVED` and a migration hint. Motivation: `i32::MAX` cents is ~$21M USD, far below practical money limits, and the framework can't tell which integer columns are money-shaped, so the safer default wins. Closes the integer-money codegen footgun reported on GitHub.
+- **`AuthenticatedUser.id` renamed to `AuthenticatedUser.sub`; `Subject.id` renamed to `Subject.sub`.** The field holds the JWT `sub` claim, which is opaque per RFC 7519 and has no defined relationship to any database row. The previous name read like a `users.id` and invited custom handlers to bind it to foreign-key columns, which silently fails for `super_admin` (whose `sub` is a platform identity, not a `users` row). Migration: rename `user.id` → `user.sub` at every call site. Doc comments now explicitly state that `sub` MUST NOT be bound to FK columns without verifying. Closes the super-admin FK-violation report on GitHub.
+
 ### Added
 - **Element-level constraints on array `items:`.** `items:` now accepts a constraint map (`{ type: string, min: 3, max: 3 }`, `{ type: enum, values: [...] }`, `{ type: uuid, ref: organizations.id }`) in addition to the bare-name shorthand. Element validation runs per element with `<field>[<index>]` error paths; `items.ref` performs a runtime existence check on Postgres.
 

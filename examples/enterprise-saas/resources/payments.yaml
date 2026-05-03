@@ -6,7 +6,7 @@ schema:
   id:               { type: uuid, primary: true, generated: true }
   org_id:           { type: uuid, required: true }
   invoice_id:       { type: uuid, ref: invoices.id, required: true }
-  amount_cents:     { type: bigint, required: true }
+  amount_cents:     { type: integer, required: true }
   method:           { type: enum, values: [card, bank_transfer, check], required: true }
   reference_number: { type: string, nullable: true }
   status:           { type: enum, values: [pending, completed, failed, refunded], default: pending }

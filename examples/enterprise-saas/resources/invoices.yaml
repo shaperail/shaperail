@@ -8,9 +8,9 @@ schema:
   customer_id:    { type: uuid, ref: customers.id, required: true }
   invoice_number: { type: string, unique: true, required: true }
   status:         { type: enum, values: [draft, pending, sent, paid, overdue, void], default: draft }
-  subtotal_cents: { type: bigint, required: true }
-  tax_cents:      { type: bigint, default: 0 }
-  total_cents:    { type: bigint, required: true }
+  subtotal_cents: { type: integer, required: true }
+  tax_cents:      { type: integer, default: 0 }
+  total_cents:    { type: integer, required: true }
   due_date:       { type: date, required: true }
   sent_at:        { type: timestamp, nullable: true }
   paid_at:        { type: timestamp, nullable: true }

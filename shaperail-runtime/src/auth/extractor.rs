@@ -8,7 +8,7 @@ use shaperail_core::ShaperailError;
 use super::api_key::ApiKeyStore;
 use super::jwt::JwtConfig;
 
-/// Authenticated user extracted from a valid JWT Bearer token or API key.
+/// Authenticated subject extracted from a valid JWT Bearer token or API key.
 ///
 /// Use as an Actix-web extractor in handler signatures:
 /// ```no_run
@@ -16,14 +16,17 @@ use super::jwt::JwtConfig;
 /// use shaperail_runtime::auth::AuthenticatedUser;
 ///
 /// async fn handler(user: AuthenticatedUser) -> impl Responder {
-///     format!("Hello, user {}", user.id)
+///     format!("Hello, subject {}", user.sub)
 /// }
 /// ```
 /// Returns 401 if no valid JWT or API key is present.
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
-    /// The user's unique ID (from JWT `sub` claim or API key mapping).
-    pub id: String,
+    /// The JWT `sub` claim (RFC 7519). **Opaque identifier** — do NOT bind this
+    /// directly to a foreign-key column without first verifying it maps to a row.
+    /// For platform-level roles like `super_admin`, `sub` is a routable identity
+    /// that does NOT exist in the `users` table.
+    pub sub: String,
     /// The user's role (from JWT `role` claim or API key mapping).
     pub role: String,
     /// The user's tenant ID (M18). Present when multi-tenancy is enabled.
@@ -70,7 +73,7 @@ fn extract_auth(req: &HttpRequest) -> Result<AuthenticatedUser, ShaperailError> 
                 return Err(ShaperailError::Unauthorized);
             }
             return Ok(AuthenticatedUser {
-                id: claims.sub,
+                sub: claims.sub,
                 role: claims.role,
                 tenant_id: claims.tenant_id,
             });
@@ -104,17 +107,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn authenticated_user_debug() {
+    fn authenticated_user_uses_sub_field() {
         let user = AuthenticatedUser {
-            id: "u1".to_string(),
+            sub: "u1".to_string(),
             role: "admin".to_string(),
             tenant_id: None,
         };
-        assert_eq!(user.id, "u1");
-        assert_eq!(user.role, "admin");
-        // Clone works
+        assert_eq!(user.sub, "u1");
         let cloned = user.clone();
-        assert_eq!(cloned.id, "u1");
+        assert_eq!(cloned.sub, "u1");
     }
 
     #[test]
@@ -168,7 +169,7 @@ mod tests {
             "valid JWT must yield an authenticated user"
         );
         let user = result.unwrap();
-        assert_eq!(user.id, "user-42");
+        assert_eq!(user.sub, "user-42");
         assert_eq!(user.role, "member");
     }
 
