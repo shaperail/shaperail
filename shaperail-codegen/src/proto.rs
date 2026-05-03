@@ -10,8 +10,7 @@ fn field_type_to_proto(ft: &FieldType) -> &'static str {
     match ft {
         FieldType::Uuid => "string",
         FieldType::String => "string",
-        FieldType::Integer => "int32",
-        FieldType::Bigint => "int64",
+        FieldType::Integer => "int64",
         FieldType::Number => "double",
         FieldType::Boolean => "bool",
         FieldType::Timestamp => "google.protobuf.Timestamp",
@@ -328,8 +327,7 @@ mod tests {
     fn field_type_mapping() {
         assert_eq!(field_type_to_proto(&FieldType::Uuid), "string");
         assert_eq!(field_type_to_proto(&FieldType::String), "string");
-        assert_eq!(field_type_to_proto(&FieldType::Integer), "int32");
-        assert_eq!(field_type_to_proto(&FieldType::Bigint), "int64");
+        assert_eq!(field_type_to_proto(&FieldType::Integer), "int64");
         assert_eq!(field_type_to_proto(&FieldType::Number), "double");
         assert_eq!(field_type_to_proto(&FieldType::Boolean), "bool");
         assert_eq!(

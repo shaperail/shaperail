@@ -1205,8 +1205,7 @@ fn generate_filter_declaration(field_name: &str, field: &FieldSchema) -> String 
     let parser = match field.field_type {
         FieldType::Uuid => "uuid::Uuid::parse_str(text).map_err(|_| shaperail_core::ShaperailError::Internal(\"invalid uuid filter\".to_string()))",
         FieldType::String | FieldType::Enum | FieldType::File => "Ok(text.to_string())",
-        FieldType::Integer => "text.parse::<i32>().map_err(|_| shaperail_core::ShaperailError::Internal(\"invalid integer filter\".to_string()))",
-        FieldType::Bigint => "text.parse::<i64>().map_err(|_| shaperail_core::ShaperailError::Internal(\"invalid bigint filter\".to_string()))",
+        FieldType::Integer => "text.parse::<i64>().map_err(|_| shaperail_core::ShaperailError::Internal(\"invalid integer filter\".to_string()))",
         FieldType::Number => "text.parse::<f64>().map_err(|_| shaperail_core::ShaperailError::Internal(\"invalid number filter\".to_string()))",
         FieldType::Boolean => "text.parse::<bool>().map_err(|_| shaperail_core::ShaperailError::Internal(\"invalid boolean filter\".to_string()))",
         FieldType::Timestamp => "chrono::DateTime::parse_from_rfc3339(text).map(|value| value.with_timezone(&chrono::Utc)).map_err(|_| shaperail_core::ShaperailError::Internal(\"invalid timestamp filter\".to_string()))",
@@ -1269,8 +1268,7 @@ fn sql_cast_type(field: &FieldSchema) -> String {
     match field.field_type {
         FieldType::Uuid => "uuid".to_string(),
         FieldType::String | FieldType::Enum | FieldType::File => "text".to_string(),
-        FieldType::Integer => "integer".to_string(),
-        FieldType::Bigint => "bigint".to_string(),
+        FieldType::Integer => "bigint".to_string(),
         FieldType::Number => "double precision".to_string(),
         FieldType::Boolean => "boolean".to_string(),
         FieldType::Timestamp => "timestamptz".to_string(),
@@ -1278,8 +1276,7 @@ fn sql_cast_type(field: &FieldSchema) -> String {
         FieldType::Json => "jsonb".to_string(),
         FieldType::Array => match field.items.as_ref().map(|i| &i.field_type) {
             Some(FieldType::Uuid) => "uuid[]".to_string(),
-            Some(FieldType::Integer) => "integer[]".to_string(),
-            Some(FieldType::Bigint) => "bigint[]".to_string(),
+            Some(FieldType::Integer) => "bigint[]".to_string(),
             Some(FieldType::Number) => "double precision[]".to_string(),
             Some(FieldType::Boolean) => "boolean[]".to_string(),
             Some(FieldType::Timestamp) => "timestamptz[]".to_string(),
@@ -1293,8 +1290,7 @@ fn query_type(field: &FieldSchema) -> String {
     match field.field_type {
         FieldType::Uuid => "uuid::Uuid".to_string(),
         FieldType::String | FieldType::Enum | FieldType::File => "String".to_string(),
-        FieldType::Integer => "i32".to_string(),
-        FieldType::Bigint => "i64".to_string(),
+        FieldType::Integer => "i64".to_string(),
         FieldType::Number => "f64".to_string(),
         FieldType::Boolean => "bool".to_string(),
         FieldType::Timestamp => "chrono::DateTime<chrono::Utc>".to_string(),
@@ -1302,8 +1298,7 @@ fn query_type(field: &FieldSchema) -> String {
         FieldType::Json => "serde_json::Value".to_string(),
         FieldType::Array => match field.items.as_ref().map(|i| &i.field_type) {
             Some(FieldType::Uuid) => "Vec<uuid::Uuid>".to_string(),
-            Some(FieldType::Integer) => "Vec<i32>".to_string(),
-            Some(FieldType::Bigint) => "Vec<i64>".to_string(),
+            Some(FieldType::Integer) => "Vec<i64>".to_string(),
             Some(FieldType::Number) => "Vec<f64>".to_string(),
             Some(FieldType::Boolean) => "Vec<bool>".to_string(),
             Some(FieldType::Timestamp) => "Vec<chrono::DateTime<chrono::Utc>>".to_string(),
@@ -1371,9 +1366,6 @@ fn default_expression(
             format!("{value:?}.to_string()")
         }
         FieldType::Integer => format!(
-            "parse_embedded_json::<i32>({field_name:?}, serde_json::json!({default}))?"
-        ),
-        FieldType::Bigint => format!(
             "parse_embedded_json::<i64>({field_name:?}, serde_json::json!({default}))?"
         ),
         FieldType::Number => format!(
