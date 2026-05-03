@@ -261,23 +261,6 @@ impl ControllerSpec {
         self.after.as_ref().is_some_and(|h| h.has_wasm())
     }
 
-    /// Returns the first WASM `before` hook path (without the `wasm:` prefix).
-    /// Useful for legacy callers that assume a single WASM hook per endpoint.
-    pub fn wasm_before_path(&self) -> Option<&str> {
-        self.before
-            .as_ref()
-            .and_then(|h| h.names().iter().find(|n| n.starts_with(WASM_HOOK_PREFIX)))
-            .map(|s| &s[WASM_HOOK_PREFIX.len()..])
-    }
-
-    /// Returns the first WASM `after` hook path (without the `wasm:` prefix).
-    pub fn wasm_after_path(&self) -> Option<&str> {
-        self.after
-            .as_ref()
-            .and_then(|h| h.names().iter().find(|n| n.starts_with(WASM_HOOK_PREFIX)))
-            .map(|s| &s[WASM_HOOK_PREFIX.len()..])
-    }
-
     /// Iterates `before` hook names; empty if no controller is declared.
     pub fn before_names(&self) -> &[String] {
         self.before.as_ref().map(|h| h.names()).unwrap_or(&[])
@@ -550,8 +533,6 @@ mod tests {
         let cs: ControllerSpec = serde_json::from_str(json).unwrap();
         assert!(cs.has_wasm_before());
         assert!(!cs.has_wasm_after());
-        assert_eq!(cs.wasm_before_path(), Some("./plugins/my_validator.wasm"));
-        assert_eq!(cs.wasm_after_path(), None);
     }
 
     #[test]
@@ -560,7 +541,6 @@ mod tests {
         let cs: ControllerSpec = serde_json::from_str(json).unwrap();
         assert!(!cs.has_wasm_before());
         assert!(cs.has_wasm_after());
-        assert_eq!(cs.wasm_after_path(), Some("./plugins/my_enricher.wasm"));
     }
 
     #[test]
@@ -568,7 +548,6 @@ mod tests {
         let json = r#"{"before": "validate_org"}"#;
         let cs: ControllerSpec = serde_json::from_str(json).unwrap();
         assert!(!cs.has_wasm_before());
-        assert_eq!(cs.wasm_before_path(), None);
     }
 
     #[test]
