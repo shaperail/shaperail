@@ -151,6 +151,38 @@ pub struct UploadSpec {
     pub types: Option<Vec<String>>,
 }
 
+/// One or more controller hook names declared under `before:` or `after:`.
+///
+/// YAML accepts both the scalar form (single hook) and the array form
+/// (chain of hooks). Rust callers iterate via `names()` regardless of shape.
+///
+/// ```yaml
+/// controller: { before: validate_org }                      # Single
+/// controller: { before: [check_currency, check_org_match] } # Multi
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HookList {
+    Single(String),
+    Multi(Vec<String>),
+}
+
+impl HookList {
+    /// Returns the hook names as a slice, regardless of whether the YAML
+    /// declared the single or multi form.
+    pub fn names(&self) -> &[String] {
+        match self {
+            HookList::Single(name) => std::slice::from_ref(name),
+            HookList::Multi(names) => names.as_slice(),
+        }
+    }
+
+    /// Returns `true` if any name in the list begins with `wasm:`.
+    pub fn has_wasm(&self) -> bool {
+        self.names().iter().any(|n| n.starts_with(WASM_HOOK_PREFIX))
+    }
+}
+
 /// Controller specification for synchronous in-request business logic.
 ///
 /// Declared per-endpoint in the resource YAML:
@@ -165,12 +197,14 @@ pub struct UploadSpec {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ControllerSpec {
-    /// Function to call before the DB operation.
+    /// Function(s) to call before the DB operation. Runs in declaration order;
+    /// first error short-circuits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before: Option<String>,
-    /// Function to call after the DB operation.
+    pub before: Option<HookList>,
+    /// Function(s) to call after the DB operation. Runs in declaration order;
+    /// first error short-circuits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<String>,
+    pub after: Option<HookList>,
 }
 
 /// Known endpoint conventions. When the endpoint action name matches one of these,
@@ -217,34 +251,41 @@ pub fn apply_endpoint_defaults(resource: &mut super::ResourceDefinition) {
 pub const WASM_HOOK_PREFIX: &str = "wasm:";
 
 impl ControllerSpec {
-    /// Returns `true` if the `before` controller references a WASM plugin.
+    /// Returns `true` if any `before` hook references a WASM plugin.
     pub fn has_wasm_before(&self) -> bool {
-        self.before
-            .as_ref()
-            .is_some_and(|s| s.starts_with(WASM_HOOK_PREFIX))
+        self.before.as_ref().is_some_and(|h| h.has_wasm())
     }
 
-    /// Returns `true` if the `after` controller references a WASM plugin.
+    /// Returns `true` if any `after` hook references a WASM plugin.
     pub fn has_wasm_after(&self) -> bool {
-        self.after
-            .as_ref()
-            .is_some_and(|s| s.starts_with(WASM_HOOK_PREFIX))
+        self.after.as_ref().is_some_and(|h| h.has_wasm())
     }
 
-    /// Extracts the WASM plugin path from a `before` controller, if present.
+    /// Returns the first WASM `before` hook path (without the `wasm:` prefix).
+    /// Useful for legacy callers that assume a single WASM hook per endpoint.
     pub fn wasm_before_path(&self) -> Option<&str> {
         self.before
             .as_ref()
-            .filter(|s| s.starts_with(WASM_HOOK_PREFIX))
+            .and_then(|h| h.names().iter().find(|n| n.starts_with(WASM_HOOK_PREFIX)))
             .map(|s| &s[WASM_HOOK_PREFIX.len()..])
     }
 
-    /// Extracts the WASM plugin path from an `after` controller, if present.
+    /// Returns the first WASM `after` hook path (without the `wasm:` prefix).
     pub fn wasm_after_path(&self) -> Option<&str> {
         self.after
             .as_ref()
-            .filter(|s| s.starts_with(WASM_HOOK_PREFIX))
+            .and_then(|h| h.names().iter().find(|n| n.starts_with(WASM_HOOK_PREFIX)))
             .map(|s| &s[WASM_HOOK_PREFIX.len()..])
+    }
+
+    /// Iterates `before` hook names; empty if no controller is declared.
+    pub fn before_names(&self) -> &[String] {
+        self.before.as_ref().map(|h| h.names()).unwrap_or(&[])
+    }
+
+    /// Iterates `after` hook names; empty if no controller is declared.
+    pub fn after_names(&self) -> &[String] {
+        self.after.as_ref().map(|h| h.names()).unwrap_or(&[])
     }
 }
 
@@ -476,7 +517,10 @@ mod tests {
         let ep: EndpointSpec = serde_json::from_str(json).unwrap();
         assert_eq!(*ep.method(), HttpMethod::Post);
         let ctrl = ep.controller.as_ref().unwrap();
-        assert_eq!(ctrl.before.as_deref(), Some("validate_org"));
+        assert_eq!(
+            ctrl.before.as_ref().unwrap().names(),
+            &["validate_org".to_string()]
+        );
         assert!(ctrl.after.is_none());
         assert_eq!(ep.jobs.as_ref().unwrap(), &["send_welcome_email"]);
     }
@@ -485,8 +529,11 @@ mod tests {
     fn controller_spec_full() {
         let json = r#"{"before": "check_input", "after": "enrich"}"#;
         let cs: ControllerSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(cs.before.as_deref(), Some("check_input"));
-        assert_eq!(cs.after.as_deref(), Some("enrich"));
+        assert_eq!(
+            cs.before.as_ref().unwrap().names(),
+            &["check_input".to_string()]
+        );
+        assert_eq!(cs.after.as_ref().unwrap().names(), &["enrich".to_string()]);
     }
 
     #[test]
@@ -494,7 +541,7 @@ mod tests {
         let json = r#"{"after": "enrich"}"#;
         let cs: ControllerSpec = serde_json::from_str(json).unwrap();
         assert!(cs.before.is_none());
-        assert_eq!(cs.after.as_deref(), Some("enrich"));
+        assert_eq!(cs.after.as_ref().unwrap().names(), &["enrich".to_string()]);
     }
 
     #[test]
@@ -886,5 +933,38 @@ handler: invite_user
             let back: HttpMethod = serde_json::from_str(&json).unwrap();
             assert_eq!(m, back);
         }
+    }
+
+    // -- HookList tests --
+
+    #[test]
+    fn controller_before_accepts_scalar_string() {
+        let json = r#"{"before": "validate_org"}"#;
+        let cs: ControllerSpec = serde_json::from_str(json).unwrap();
+        let names = cs.before.as_ref().unwrap().names();
+        assert_eq!(names, &["validate_org".to_string()]);
+    }
+
+    #[test]
+    fn controller_before_accepts_array() {
+        let json = r#"{"before": ["a", "b", "c"]}"#;
+        let cs: ControllerSpec = serde_json::from_str(json).unwrap();
+        let names = cs.before.as_ref().unwrap().names();
+        assert_eq!(names, &["a".to_string(), "b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn controller_after_accepts_array() {
+        let json = r#"{"after": ["enrich_a", "enrich_b"]}"#;
+        let cs: ControllerSpec = serde_json::from_str(json).unwrap();
+        let names = cs.after.as_ref().unwrap().names();
+        assert_eq!(names, &["enrich_a".to_string(), "enrich_b".to_string()]);
+    }
+
+    #[test]
+    fn hook_list_wasm_detection_works_for_array() {
+        let json = r#"{"before": ["validate_x", "wasm:./plugin.wasm"]}"#;
+        let cs: ControllerSpec = serde_json::from_str(json).unwrap();
+        assert!(cs.has_wasm_before());
     }
 }
