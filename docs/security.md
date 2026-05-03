@@ -147,7 +147,7 @@ re-exported from the auth module):
 
 | Claim | Required for | Notes |
 | --- | --- | --- |
-| `sub` | always | User ID, typically a UUID. |
+| `sub` | always | Opaque subject identifier per RFC 7519. For tenant roles this is conventionally a `users.id` UUID; for `super_admin` it is a routable identity that does NOT exist in `users`. **Do NOT bind `sub` to a foreign-key column without verifying.** Exposed in custom handlers as `AuthenticatedUser.sub` and `Subject.sub` (renamed from `.id` in v0.13.0). |
 | `role` | always | Must match a role in any endpoint's `auth:` list, or be `super_admin` for unrestricted access. |
 | `iat` / `exp` | always | Unix seconds. |
 | `token_type` | always | `"access"` for protected requests; `"refresh"` is only valid against the refresh endpoint. |

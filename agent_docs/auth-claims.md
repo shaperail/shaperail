@@ -4,7 +4,7 @@ Shaperail mints HS256 JWTs with the following claim shape:
 
 | Claim        | Required for | Notes |
 |--------------|--------------|-------|
-| `sub`        | always       | User ID (UUID). |
+| `sub`        | always       | Opaque subject identifier per RFC 7519. See "JWT `sub` is opaque" below. |
 | `role`       | always       | Must match a role in any endpoint's `auth:` list (or be `super_admin` for unrestricted access). |
 | `iat` / `exp`| always       | Unix seconds. |
 | `token_type` | always       | `"access"` for protected requests; `"refresh"` is valid only against the refresh endpoint. |
@@ -50,3 +50,36 @@ The 401 response body is unchanged across reasons; the audit signal is in the lo
 For a non-`super_admin` subject hitting a resource that declares `tenant_key:`, the runtime requires `tenant_id` to be present and uses it as the canonical tenant filter. CRUD endpoints inject the filter automatically; custom handlers must extract `Subject` and apply it explicitly (see `agent_docs/custom-handlers.md` once Batch 1 lands).
 
 A `super_admin` subject is exempt from tenant filtering — the runtime treats their `tenant_id` claim (if any) as advisory and applies no implicit `WHERE tenant_id = ...` filter.
+
+## JWT `sub` is opaque
+
+`AuthenticatedUser.sub` and `Subject.sub` (renamed from `.id` in v0.13.0) hold the unprocessed JWT `sub` claim. Per RFC 7519, `sub` is an opaque identifier — it has no defined relationship to any database row. Custom handlers MUST NOT bind it directly to foreign-key columns without first verifying the row exists.
+
+For tenant roles (e.g. `admin`, `member`, `viewer`) `sub` is conventionally the `users.id` UUID, so binding works. For platform-level roles like `super_admin`, `sub` is a routable identity that does NOT correspond to a `users` row, and binding it to `users(id)`-referencing columns triggers a foreign-key constraint violation at insert/update time.
+
+Pattern for handlers that need to record "who decided this":
+
+```rust
+let auth = try_extract_auth(&req);
+
+// WRONG — silently fails for super_admin, whose sub does not exist in `users`.
+let reviewer: Option<Uuid> = auth.as_ref().and_then(|u| Uuid::parse_str(&u.sub).ok());
+
+// RIGHT — narrow the FK assignment to roles whose sub is a users.id.
+let reviewer: Option<Uuid> = match auth.as_ref() {
+    Some(u) if u.role == "super_admin" => None,
+    Some(u) => Uuid::parse_str(&u.sub).ok(),
+    None => None,
+};
+```
+
+If your application has its own platform-vs-tenant role boundary, encode that boundary explicitly in your handler — the framework deliberately does not infer it.
+
+## Migrating from v0.12
+
+`AuthenticatedUser.id` was renamed to `AuthenticatedUser.sub`, and `Subject.id` to `Subject.sub`, to match RFC 7519 vocabulary. Mechanical rename at every call site:
+
+```diff
+- let reviewer = Uuid::parse_str(&auth.id).ok();
++ let reviewer = Uuid::parse_str(&auth.sub).ok();
+```

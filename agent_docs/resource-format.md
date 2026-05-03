@@ -33,8 +33,7 @@ schema:
 |-------------|-----------------|------------------------|------------------------------|
 | `uuid`      | UUID            | Uuid                   | use for all IDs              |
 | `string`    | TEXT/VARCHAR(n) | String                 | add `max:` for VARCHAR       |
-| `integer`   | INTEGER         | i32                    |                              |
-| `bigint`    | BIGINT          | i64                    |                              |
+| `integer`   | BIGINT          | i64                    | 64-bit signed; use for currency in minor units |
 | `number`    | NUMERIC(p,s)    | f64                    |                              |
 | `boolean`   | BOOLEAN         | bool                   |                              |
 | `timestamp` | TIMESTAMPTZ     | DateTime<Utc>          | always with timezone         |
@@ -43,6 +42,8 @@ schema:
 | `json`      | JSONB           | serde_json::Value      |                              |
 | `array`     | type[]          | Vec<T>                 | add `items: type`            |
 | `file`      | TEXT (URL)      | FileRef                | stored in storage backend    |
+
+> **Migrating from v0.12.** The `bigint` type was removed in v0.13.0. Use `integer` everywhere — it is now 64-bit by default. Resources still using `type: bigint` will fail validation with `E_BIGINT_REMOVED` and a migration hint. Motivation: i32::MAX cents is ~$21M USD, far below practical money limits, and the framework can't tell which integer columns are money-shaped, so the safer default wins.
 
 ### Array element constraints
 
