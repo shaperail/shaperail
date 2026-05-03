@@ -226,7 +226,6 @@ fn collect_controller_hooks(resources: &[ResourceDefinition]) -> Vec<(&str, Vec<
                                 .chain(c.after_names().iter())
                                 .map(String::as_str)
                                 .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX))
-                                .collect::<Vec<_>>()
                         })
                         .collect()
                 })
