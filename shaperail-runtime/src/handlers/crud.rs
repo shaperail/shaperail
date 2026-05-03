@@ -728,11 +728,9 @@ async fn run_before_controller(
     input: serde_json::Map<String, serde_json::Value>,
     user: Option<&AuthenticatedUser>,
     req: &HttpRequest,
-    path_params: std::collections::HashMap<String, String>,
+    // Task 5 will rename this to `path_params` and store it on Context.
+    _path_params: std::collections::HashMap<String, String>,
 ) -> Result<super::controller::Context, ShaperailError> {
-    // Task 4: path_params is threaded through but not yet stored on Context;
-    // Task 5 adds the field to Context and removes this discard.
-    let _ = path_params;
     let headers: std::collections::HashMap<String, String> = req
         .headers()
         .iter()
@@ -751,11 +749,11 @@ async fn run_before_controller(
         response_extras: serde_json::Map::new(),
     };
 
-    let names: Vec<String> = endpoint
+    let names: &[String] = endpoint
         .controller
         .as_ref()
-        .map(|c| c.before_names().to_vec())
-        .unwrap_or_default();
+        .map(|c| c.before_names())
+        .unwrap_or(&[]);
 
     if names.is_empty() {
         return Ok(ctx);
@@ -766,7 +764,7 @@ async fn run_before_controller(
     #[cfg(not(feature = "wasm-plugins"))]
     let wasm_rt = None;
 
-    for name in &names {
+    for name in names {
         super::controller::dispatch_controller(
             name,
             &resource.resource,
@@ -794,11 +792,11 @@ async fn run_after_controller(
 ) -> Result<super::controller::Context, ShaperailError> {
     ctx.data = Some(persisted);
 
-    let names: Vec<String> = endpoint
+    let names: &[String] = endpoint
         .controller
         .as_ref()
-        .map(|c| c.after_names().to_vec())
-        .unwrap_or_default();
+        .map(|c| c.after_names())
+        .unwrap_or(&[]);
 
     if names.is_empty() {
         return Ok(ctx);
@@ -809,7 +807,7 @@ async fn run_after_controller(
     #[cfg(not(feature = "wasm-plugins"))]
     let wasm_rt = None;
 
-    for name in &names {
+    for name in names {
         super::controller::dispatch_controller(
             name,
             &resource.resource,

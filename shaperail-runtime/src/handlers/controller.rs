@@ -356,4 +356,149 @@ mod tests {
         map.register("users", "check", noop);
         assert!(map.has("users", "check"));
     }
+
+    #[tokio::test]
+    async fn hook_chain_runs_in_declaration_order() {
+        // Two before-hooks: first writes "step1" into ctx.session, second
+        // reads it and writes "step2". Verifies both run and second sees first's mutation.
+        let mut map = ControllerMap::new();
+
+        async fn first(ctx: &mut Context) -> ControllerResult {
+            ctx.session
+                .insert("step1".to_string(), serde_json::json!("ran"));
+            Ok(())
+        }
+        async fn second(ctx: &mut Context) -> ControllerResult {
+            assert_eq!(
+                ctx.session.get("step1").and_then(|v| v.as_str()),
+                Some("ran"),
+                "second hook should see first hook's mutation"
+            );
+            ctx.session
+                .insert("step2".to_string(), serde_json::json!("ran"));
+            Ok(())
+        }
+
+        map.register("orders", "first", first);
+        map.register("orders", "second", second);
+
+        let mut ctx = Context {
+            input: serde_json::Map::new(),
+            data: None,
+            user: None,
+            pool: test_pool(),
+            headers: HashMap::new(),
+            response_headers: vec![],
+            tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
+        };
+
+        // Simulate the run_before_controller loop: dispatch each name in order.
+        for name in &["first", "second"] {
+            map.call("orders", name, &mut ctx).await.unwrap();
+        }
+
+        assert_eq!(
+            ctx.session.get("step1").and_then(|v| v.as_str()),
+            Some("ran")
+        );
+        assert_eq!(
+            ctx.session.get("step2").and_then(|v| v.as_str()),
+            Some("ran")
+        );
+    }
+
+    #[tokio::test]
+    async fn hook_chain_short_circuits_on_first_error() {
+        // Two before-hooks: first returns Err, second would mutate ctx.session.
+        // Verifies second is never called.
+        let mut map = ControllerMap::new();
+
+        async fn fails(_ctx: &mut Context) -> ControllerResult {
+            Err(ShaperailError::Internal("boom".to_string()))
+        }
+        async fn should_not_run(ctx: &mut Context) -> ControllerResult {
+            ctx.session
+                .insert("ran".to_string(), serde_json::json!(true));
+            Ok(())
+        }
+
+        map.register("orders", "fails", fails);
+        map.register("orders", "should_not_run", should_not_run);
+
+        let mut ctx = Context {
+            input: serde_json::Map::new(),
+            data: None,
+            user: None,
+            pool: test_pool(),
+            headers: HashMap::new(),
+            response_headers: vec![],
+            tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
+        };
+
+        // Simulate the run_before_controller short-circuit.
+        let mut last: ControllerResult = Ok(());
+        for name in &["fails", "should_not_run"] {
+            last = map.call("orders", name, &mut ctx).await;
+            if last.is_err() {
+                break;
+            }
+        }
+        assert!(last.is_err(), "first hook returned Err");
+        assert!(
+            ctx.session.get("ran").is_none(),
+            "second hook must not run after first errors"
+        );
+    }
+
+    #[tokio::test]
+    async fn hook_chain_threads_input_mutations_across_hooks() {
+        // First hook computes a derived field from the input;
+        // second asserts the derived field is present.
+        let mut map = ControllerMap::new();
+
+        async fn derive(ctx: &mut Context) -> ControllerResult {
+            let email = ctx
+                .input
+                .get("email")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            ctx.input
+                .insert("normalized_email".to_string(), serde_json::json!(email));
+            Ok(())
+        }
+        async fn assert_derived(ctx: &mut Context) -> ControllerResult {
+            assert_eq!(
+                ctx.input.get("normalized_email").and_then(|v| v.as_str()),
+                Some("user@example.com"),
+                "second hook should see first hook's input mutation"
+            );
+            Ok(())
+        }
+
+        map.register("users", "derive", derive);
+        map.register("users", "assert_derived", assert_derived);
+
+        let mut input = serde_json::Map::new();
+        input.insert("email".to_string(), serde_json::json!("USER@example.com"));
+        let mut ctx = Context {
+            input,
+            data: None,
+            user: None,
+            pool: test_pool(),
+            headers: HashMap::new(),
+            response_headers: vec![],
+            tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
+        };
+
+        for name in &["derive", "assert_derived"] {
+            map.call("users", name, &mut ctx).await.unwrap();
+        }
+    }
 }
