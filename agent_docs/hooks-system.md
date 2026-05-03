@@ -38,13 +38,43 @@ automatically.
 
 Valid shapes:
 ```yaml
-controller: { before: fn_name }
+controller: { before: fn_name }                              # scalar
 controller: { after: fn_name }
 controller: { before: fn_before, after: fn_after }
+controller: { before: [validate_currencies, validate_org] }  # array
+controller: { before: validate_x, after: [enrich_a, enrich_b] }
 ```
 
-Only one `before` and one `after` function per endpoint. If you need to compose
-multiple steps, call them from within your single controller function.
+`before:` and `after:` each accept either a single hook name (scalar) or a
+non-empty array of hook names. WASM hooks (entries starting with `wasm:`)
+may be freely mixed with Rust hook names. An empty array (`before: []` or
+`after: []`) is a validator error (SR063).
+
+## Hook chains
+
+When `before:` or `after:` is an array, hooks run in **declaration order**,
+sequentially, on the same `Context`. The first `Err(_)` short-circuits the
+chain — remaining hooks do not run, and (for `before:`) the DB write is
+skipped.
+
+```yaml
+endpoints:
+  create:
+    controller:
+      before:
+        - validate_currencies   # runs first; returns Err -> chain aborts
+        - validate_org          # runs only if validate_currencies returned Ok
+        - "wasm:./plugins/normalize.wasm"  # runs only if both Rust hooks passed
+```
+
+Rationale: chains let an endpoint compose small, single-purpose validators
+without each one having to call the next. The same `Context` flows through,
+so a hook can stash state in `ctx.session` for the next link in the chain.
+
+Internally, `ControllerSpec.before` and `ControllerSpec.after` parse to
+`Option<HookList>` — an untagged enum (`String | Vec<String>`) defined in
+`shaperail-core/src/endpoint.rs`. Code that walks the parsed AST iterates
+via `controller.before.as_ref().map(HookList::names).unwrap_or(&[])`.
 
 ## File Location
 Controller implementations live alongside resource YAML files:
@@ -91,6 +121,41 @@ pub struct ControllerContext {
     pub headers: HeaderMap,
 }
 ```
+
+## Path params
+
+`Context.path_params` is a `HashMap<String, String>` populated by the runtime
+from URL `:name` segments before any controller runs. Use the typed helper
+`ctx.path_param(name) -> Option<&str>` to read a value:
+
+```rust
+pub async fn check_owner(ctx: &mut Context) -> Result<(), ShaperailError> {
+    let id = ctx.path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("missing :id".into()))?;
+    let id: Uuid = id.parse().map_err(|_| ShaperailError::BadRequest("invalid id".into()))?;
+    // ... fetch + verify ownership ...
+    Ok(())
+}
+```
+
+Population coverage:
+
+| Endpoint | `path_params` |
+|---|---|
+| `list` (`GET /resource`) | `{}` |
+| `create` (`POST /resource`) | `{}` |
+| `update` (`PATCH /resource/:id`) | `{"id": "<...>"}` |
+| `delete` (`DELETE /resource/:id`) | `{"id": "<...>"}` |
+| custom endpoints with `:name` segments | one entry per `:name` |
+
+`get` and `update_upload` do not currently dispatch before-hooks, so
+`path_params` is not yet populated for those handlers — adding hook
+dispatch to them is a separate change.
+
+`ctx.input` is **not** auto-populated with `id` from the path. Authors who
+want id-in-input write `ctx.input.insert("id", json!(ctx.path_param("id")))`
+themselves; otherwise the explicit single-line read at the top of an update
+hook is honest about where the value came from.
 
 ## Before / After Semantics
 

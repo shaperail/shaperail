@@ -56,8 +56,40 @@ endpoints:
       before: normalize_name
 ```
 
-Each endpoint supports at most one `before` and one `after` function. Both are
-optional — you can declare just `before`, just `after`, or both.
+Both `before` and `after` are optional — you can declare just `before`, just
+`after`, or both.
+
+### Hook chains
+
+Each side accepts either a single hook name (scalar) or a non-empty array of
+hook names. Hooks in an array run in declaration order, sequentially, on the
+**same `Context`**. The first `Err(_)` short-circuits the chain — remaining
+hooks do not run, and (for `before:` chains) the DB write is skipped.
+
+```yaml
+endpoints:
+  create:
+    auth: [admin]
+    input: [email, name, role, org_id]
+    controller:
+      before:
+        - validate_currencies                   # runs first
+        - validate_org                          # runs only if validate_currencies returned Ok
+        - "wasm:./plugins/normalize.wasm"      # runs only if both Rust hooks passed
+      after:
+        - log_create
+        - notify_admins
+    events: [user.created]
+```
+
+Rust hook names and `"wasm:./plugins/<file>.wasm"` entries can be mixed
+freely. An empty array (`before: []` or `after: []`) is rejected at
+validation time with rule SR063.
+
+The same `Context` flows through every link in the chain, so a hook can
+stash state in `ctx.session` and the next link can read it. Chains let an
+endpoint compose small, single-purpose validators without each one having
+to call the next manually.
 
 ---
 
@@ -160,8 +192,33 @@ The `Context` struct is the single type passed to all controller functions:
 | `headers` | `HashMap<String, String>` | before + after | Read-only copy of the request headers. |
 | `response_headers` | `Vec<(String, String)>` | before + after | Push `(name, value)` pairs to add extra response headers. |
 | `tenant_id` | `Option<String>` | before + after | The tenant ID from the JWT claim, when the resource has `tenant_key` set. Use for tenant-specific business logic. |
+| `path_params` | `HashMap<String, String>` | before + after | URL path segments parsed from the route template. Populated by the runtime before any controller runs — `{"id": "<uuid>"}` for `update` / `delete` / custom endpoints with `:name` segments; empty for `list` and `create`. |
 | `session` | `serde_json::Map<String, Value>` | before + after | Cross-phase scratch space. Anything written in `before:` is visible in `after:`. Never persisted, never serialized to the client. |
 | `response_extras` | `serde_json::Map<String, Value>` | before + after | Keys merged into the response's `data:` envelope after the after-hook returns. Never persisted. Use for one-time values like minted secrets that must reach the client exactly once. |
+
+### Reading path params
+
+`Context.path_params` carries every `:name` segment from the route template.
+For convenience, `ctx.path_param(name) -> Option<&str>` returns the value
+already trimmed of `Option`/`String` wrapping:
+
+```rust
+pub async fn check_owner(ctx: &mut Context) -> ControllerResult {
+    let id = ctx.path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("missing :id".into()))?;
+    let id: uuid::Uuid = id.parse()
+        .map_err(|_| ShaperailError::BadRequest("invalid id".into()))?;
+    // ... fetch + verify ownership ...
+    Ok(())
+}
+```
+
+`ctx.input` is **not** auto-populated with `id` from the path. If you need
+the id inside `ctx.input` for the DB write, write
+`ctx.input.insert("id".into(), serde_json::json!(ctx.path_param("id")));`
+explicitly. Coverage today: `update`, `delete`, and custom endpoints with
+declared before-hooks. `get` and `update_upload` do not yet dispatch
+before-hooks, so `path_params` is not populated for those handlers.
 
 ---
 

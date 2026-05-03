@@ -1014,6 +1014,40 @@ async fn test_create_user(pool: sqlx::PgPool) {
 
 ---
 
+## Reaching controller helpers from integration tests
+
+The codegen exposes each `<resource>_controller` module under
+`crate::resources::*` via a `#[doc(hidden)] pub mod resources` aggregator
+in `generated/mod.rs`. Library projects publish this with one line in
+`src/lib.rs`:
+
+```rust
+mod generated;
+pub use generated::resources;
+```
+
+After this, integration tests in `tests/` import controller helpers
+directly:
+
+```rust
+// tests/users.rs
+use my_app::resources::users_controller::{create_user, NewUser};
+
+#[tokio::test]
+async fn create_user_normalizes_email() {
+    let input = NewUser { email: "Alice@Example.COM".into(), /* ... */ };
+    // ... call into the helper exactly as the runtime does ...
+}
+```
+
+The `#[doc(hidden)]` attribute keeps the aggregator off the docs.rs surface
+— it exists for test wiring, not as a public API. Binary-only projects
+with no `tests/` crate do not need to add the `pub use` line; the
+aggregator is still emitted but stays unreachable from outside
+`src/lib.rs`.
+
+---
+
 ## CI/CD testing patterns
 
 ### Docker-based CI

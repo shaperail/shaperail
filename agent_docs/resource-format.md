@@ -193,10 +193,20 @@ custom Rust functions that run before and/or after the default handler logic.
 
 ### YAML syntax
 ```yaml
-controller: { before: fn_name }              # before only
-controller: { after: fn_name }               # after only
-controller: { before: fn_before, after: fn_after }  # both
+controller: { before: fn_name }                       # scalar — single hook
+controller: { after: fn_name }
+controller: { before: fn_before, after: fn_after }    # both phases, one hook each
+controller: { before: [validate_a, validate_b] }      # array — hook chain
+controller: { before: validate_x, after: [enrich_a, enrich_b] }
 ```
+
+Both `before:` and `after:` accept either a single hook name (scalar) or a
+non-empty array of hook names. Hooks in an array run in declaration order,
+sequentially, on the same `Context`; the first `Err(_)` short-circuits the
+chain. Rust hook names and `wasm:./path.wasm` entries may be mixed freely.
+
+An empty array (`before: []` or `after: []`) is rejected by the validator
+with rule SR063.
 
 ### File location
 Controller implementations live in `resources/<resource>.controller.rs`.
@@ -221,6 +231,8 @@ WASM plugins use the same `controller` field with a `wasm:` prefix on the path:
 controller: { before: "wasm:./plugins/my_validator.wasm" }
 controller: { after: "wasm:./plugins/my_enricher.wasm" }
 controller: { before: "wasm:./plugins/validate.wasm", after: "wasm:./plugins/enrich.wasm" }
+# WASM and Rust hooks can mix in the same array:
+controller: { before: [validate_org, "wasm:./plugins/normalize.wasm"] }
 ```
 
 ### Plugin interface

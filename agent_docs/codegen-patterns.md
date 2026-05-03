@@ -151,6 +151,48 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 - Generate code that imports from outside `shaperail-core` or `shaperail-runtime`
 - Generate files that don't compile with `cargo clippy -- -D warnings`
 
+## Field nullability and Option wrapping
+
+The codegen emits `Option<T>` only for columns that the database actually
+permits to be NULL. Columns backed by `NOT NULL` SQL — including
+`primary: true`, `required: true`, `default:`, and `generated: true` —
+emit the bare type `T`. `nullable: true` always wins over the other flags:
+a column declared `nullable: true, default: "x"` is genuinely nullable
+in SQL, so the struct field is `Option<T>`.
+
+### The rule
+
+```
+field is Option<T> in the codegen struct
+    iff
+nullable = true
+    OR
+(NOT primary AND NOT required AND default is None AND generated = false)
+```
+
+`model_field_is_optional` and `field_is_required` in
+`shaperail-codegen/src/rust.rs` are exact inverses of this predicate.
+
+### Behavior matrix
+
+| YAML | DB column | Codegen type |
+|---|---|---|
+| `{ type: integer, required: true }` | `BIGINT NOT NULL` | `i64` |
+| `{ type: integer, required: true, default: 0 }` | `BIGINT NOT NULL DEFAULT 0` | `i64` |
+| `{ type: integer, default: 0 }` | `BIGINT NOT NULL DEFAULT 0` | `i64` |
+| `{ type: timestamp, generated: true }` | `TIMESTAMP NOT NULL DEFAULT NOW()` | `DateTime<Utc>` |
+| `{ type: string, nullable: true }` | `VARCHAR NULL` | `Option<String>` |
+| `{ type: string, nullable: true, default: "x" }` | `VARCHAR NULL DEFAULT 'x'` | `Option<String>` |
+| `{ type: uuid, primary: true, generated: true }` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | `Uuid` |
+
+### Input-body invariant
+
+Input payloads for `create` and `update` are not affected by this rule.
+A field with `default:` is still optional in the request body — the caller
+may omit it and the database fills the default. Only the SELECT-side
+`pub struct` flips type, since that struct is constructed from a row that
+the database has already populated.
+
 ## OpenAPI Generation
 
 The OpenAPI generator walks each `ResourceDefinition` and emits an OpenAPI 3.1
