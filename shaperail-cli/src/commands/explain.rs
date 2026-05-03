@@ -59,11 +59,13 @@ pub fn run(path: &Path) -> i32 {
                 annotations.push(format!("search: {}", search.join(", ")));
             }
             if let Some(ref controller) = ep.controller {
-                if let Some(ref before) = controller.before {
-                    annotations.push(format!("before: {before}"));
+                let before_names = controller.before_names();
+                if !before_names.is_empty() {
+                    annotations.push(format!("before: {}", before_names.join(", ")));
                 }
-                if let Some(ref after) = controller.after {
-                    annotations.push(format!("after: {after}"));
+                let after_names = controller.after_names();
+                if !after_names.is_empty() {
+                    annotations.push(format!("after: {}", after_names.join(", ")));
                 }
             }
             if let Some(ref events) = ep.events {

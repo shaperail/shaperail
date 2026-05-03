@@ -120,17 +120,17 @@ pub(crate) fn write_controller_stubs(
             .iter()
             .filter_map(|(_, ep)| ep.controller.as_ref())
             .flat_map(|c| {
-                let before = c
-                    .before
-                    .as_deref()
+                let befores = c
+                    .before_names()
+                    .iter()
                     .filter(|s| !s.starts_with(WASM_HOOK_PREFIX))
-                    .map(|name| (name, false));
-                let after = c
-                    .after
-                    .as_deref()
+                    .map(|name| (name.as_str(), false));
+                let afters = c
+                    .after_names()
+                    .iter()
                     .filter(|s| !s.starts_with(WASM_HOOK_PREFIX))
-                    .map(|name| (name, true));
-                [before, after].into_iter().flatten()
+                    .map(|name| (name.as_str(), true));
+                befores.chain(afters).collect::<Vec<_>>()
             })
             .collect();
 
