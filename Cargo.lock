@@ -4182,9 +4182,9 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f44e94c96d8870a387d88ce3de3fdd608cbfc0705f03cb343cdde91509d3e49a"
+checksum = "72d32a1ac9123f0d84fda64bfc02a271d9868483162dd2d9099b5c362ece064c"
 dependencies = [
  "arcstr",
  "async-lock",
@@ -4819,7 +4819,7 @@ dependencies = [
 
 [[package]]
 name = "shaperail-cli"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4841,7 +4841,7 @@ dependencies = [
 
 [[package]]
 name = "shaperail-codegen"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "indexmap",
  "insta",
@@ -4855,7 +4855,7 @@ dependencies = [
 
 [[package]]
 name = "shaperail-core"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "actix-web",
  "chrono",
@@ -4870,7 +4870,7 @@ dependencies = [
 
 [[package]]
 name = "shaperail-runtime"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "actix-multipart",
  "actix-rt",
