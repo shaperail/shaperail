@@ -208,12 +208,18 @@ pub fn generate_resource_json_schema() -> Value {
                 "additionalProperties": false,
                 "properties": {
                     "before": {
-                        "type": "string",
-                        "description": "Function name called before the DB operation. Prefix with 'wasm:' for WASM plugins (e.g., 'wasm:./plugins/validator.wasm')."
+                        "description": "Function name (or list of function names) called before the DB operation. Hooks run in declaration order; first error short-circuits. Prefix any name with 'wasm:' for WASM plugins (e.g., 'wasm:./plugins/validator.wasm').",
+                        "oneOf": [
+                            { "type": "string" },
+                            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+                        ]
                     },
                     "after": {
-                        "type": "string",
-                        "description": "Function name called after the DB operation. Prefix with 'wasm:' for WASM plugins."
+                        "description": "Function name (or list of function names) called after the DB operation. Hooks run in declaration order; first error short-circuits. Prefix any name with 'wasm:' for WASM plugins.",
+                        "oneOf": [
+                            { "type": "string" },
+                            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+                        ]
                     }
                 }
             },

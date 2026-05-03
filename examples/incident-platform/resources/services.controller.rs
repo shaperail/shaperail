@@ -36,7 +36,7 @@ pub async fn prepare_service(ctx: &mut Context) -> ControllerResult {
         .and_then(|value| value.as_str())
         .ok_or_else(|| validation_error("created_by", "created_by is required", "required"))?;
 
-    if created_by != user.id.as_str() {
+    if created_by != user.sub.as_str() {
         return Err(validation_error(
             "created_by",
             "created_by must match the authenticated user",

@@ -206,12 +206,12 @@ pub fn register_resource(
                                 // run the hook, and stash the result in req.extensions_mut() so
                                 // the custom handler can read it via
                                 // req.extensions().get::<Context>().
-                                let before_name = ep
+                                let before_names: Vec<String> = ep
                                     .controller
                                     .as_ref()
-                                    .and_then(|c| c.before.as_deref())
-                                    .map(|s| s.to_string());
-                                if let Some(before_name) = before_name {
+                                    .map(|c| c.before_names().to_vec())
+                                    .unwrap_or_default();
+                                if !before_names.is_empty() {
                                     let user = crate::auth::extractor::try_extract_auth(&req);
                                     let headers: HashMap<String, String> = req
                                         .headers()
@@ -225,6 +225,11 @@ pub fn register_resource(
                                         .collect();
                                     let tenant_id =
                                         crud::resolve_tenant_id(&r, user.as_ref());
+                                    let path_params: HashMap<String, String> = req
+                                        .match_info()
+                                        .iter()
+                                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                                        .collect();
                                     let mut ctx = super::controller::Context {
                                         input: serde_json::Map::new(),
                                         data: None,
@@ -235,25 +240,27 @@ pub fn register_resource(
                                         tenant_id,
                                         session: serde_json::Map::new(),
                                         response_extras: serde_json::Map::new(),
+                                        path_params,
                                     };
                                     #[cfg(feature = "wasm-plugins")]
                                     let wasm_rt = state.wasm_runtime.as_ref();
                                     #[cfg(not(feature = "wasm-plugins"))]
                                     let wasm_rt: Option<&()> = None;
-                                    if let Err(e) = super::controller::dispatch_controller(
-                                        &before_name,
-                                        &r.resource,
-                                        &mut ctx,
-                                        state.controllers.as_ref(),
-                                        wasm_rt,
-                                    )
-                                    .await
-                                    {
-                                        use actix_web::ResponseError;
-                                        return e.error_response();
+                                    for name in &before_names {
+                                        if let Err(e) = super::controller::dispatch_controller(
+                                            name,
+                                            &r.resource,
+                                            &mut ctx,
+                                            state.controllers.as_ref(),
+                                            wasm_rt,
+                                        )
+                                        .await
+                                        {
+                                            use actix_web::ResponseError;
+                                            return e.error_response();
+                                        }
                                     }
-                                    req.extensions_mut()
-                                        .insert(ctx);
+                                    req.extensions_mut().insert(ctx);
                                 }
 
                                 let resource_name = r.resource.clone();
@@ -436,6 +443,7 @@ mod tests {
             tenant_id: Some("org-1".to_string()),
             session: serde_json::Map::new(),
             response_extras: serde_json::Map::new(),
+            path_params: HashMap::new(),
         };
         ctx.session
             .insert("ran".to_string(), serde_json::json!(true));

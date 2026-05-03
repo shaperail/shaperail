@@ -245,30 +245,58 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
         for (action, ep) in endpoints {
             if let Some(controller) = &ep.controller {
                 if let Some(before) = &controller.before {
-                    if before.is_empty() {
+                    let names = before.names();
+                    if names.is_empty() {
                         diags.push(Diagnostic {
-                            code: "SR030",
+                            code: "SR063",
                             error: format!(
-                                "resource '{res}': endpoint '{action}' has an empty controller.before name"
+                                "resource '{res}': endpoint '{action}' has an empty controller.before list"
                             ),
-                            fix: "provide a function name for controller.before".into(),
-                            example: "controller: { before: validate_input }".into(),
+                            fix: "remove `before:` or list at least one hook name".into(),
+                            example: "controller: { before: [validate_currency, validate_org] }".into(),
                         });
                     }
-                    diagnose_controller_name(res, action, "before", before, &mut diags);
+                    for name in names {
+                        if name.is_empty() {
+                            diags.push(Diagnostic {
+                                code: "SR030",
+                                error: format!(
+                                    "resource '{res}': endpoint '{action}' has an empty controller.before name"
+                                ),
+                                fix: "provide a function name for controller.before".into(),
+                                example: "controller: { before: validate_input }".into(),
+                            });
+                            continue;
+                        }
+                        diagnose_controller_name(res, action, "before", name, &mut diags);
+                    }
                 }
                 if let Some(after) = &controller.after {
-                    if after.is_empty() {
+                    let names = after.names();
+                    if names.is_empty() {
                         diags.push(Diagnostic {
-                            code: "SR031",
+                            code: "SR063",
                             error: format!(
-                                "resource '{res}': endpoint '{action}' has an empty controller.after name"
+                                "resource '{res}': endpoint '{action}' has an empty controller.after list"
                             ),
-                            fix: "provide a function name for controller.after".into(),
-                            example: "controller: { after: enrich_response }".into(),
+                            fix: "remove `after:` or list at least one hook name".into(),
+                            example: "controller: { after: [enrich_response, audit_log] }".into(),
                         });
                     }
-                    diagnose_controller_name(res, action, "after", after, &mut diags);
+                    for name in names {
+                        if name.is_empty() {
+                            diags.push(Diagnostic {
+                                code: "SR031",
+                                error: format!(
+                                    "resource '{res}': endpoint '{action}' has an empty controller.after name"
+                                ),
+                                fix: "provide a function name for controller.after".into(),
+                                example: "controller: { after: enrich_response }".into(),
+                            });
+                            continue;
+                        }
+                        diagnose_controller_name(res, action, "after", name, &mut diags);
+                    }
                 }
             }
 
@@ -1565,6 +1593,48 @@ endpoints:
         assert!(
             diags.iter().any(|d| d.code == "SR074"),
             "Expected SR074, got: {diags:?}"
+        );
+    }
+
+    // -- SR063: empty controller hook list --
+
+    #[test]
+    fn sr063_empty_controller_before_list() {
+        let yaml = r#"
+resource: orders
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: public
+    controller: { before: [] }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR063"),
+            "Expected SR063, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sr063_empty_controller_after_list() {
+        let yaml = r#"
+resource: orders
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+endpoints:
+  create:
+    auth: public
+    controller: { after: [] }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let diags = diagnose_resource(&rd);
+        assert!(
+            diags.iter().any(|d| d.code == "SR063"),
+            "Expected SR063, got: {diags:?}"
         );
     }
 }

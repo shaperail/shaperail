@@ -18,16 +18,17 @@ pub struct IncidentsRecord {
     pub service_id: uuid::Uuid,
     pub title: String,
     pub slug: String,
-    pub severity: Option<String>,
-    pub status: Option<String>,
+    pub severity: String,
+    pub status: String,
     pub summary: String,
     pub commander_id: Option<uuid::Uuid>,
     pub room_key: String,
     pub acknowledged_at: Option<chrono::DateTime<chrono::Utc>>,
     pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_by: uuid::Uuid,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub struct IncidentsStore {
@@ -46,28 +47,41 @@ impl IncidentsStore {
         sort: &SortParam,
         page: &PageRequest,
     ) -> Result<(Vec<ResourceRow>, Value), shaperail_core::ShaperailError> {
-                let filter_service_id = parse_filter(filters, "service_id", "invalid_filter", |text| uuid::Uuid::parse_str(text).map_err(|_| shaperail_core::ShaperailError::Internal("invalid uuid filter".to_string())))?;
-                let filter_severity = parse_filter(filters, "severity", "invalid_filter", |text| Ok(text.to_string()))?;
-                let filter_status = parse_filter(filters, "status", "invalid_filter", |text| Ok(text.to_string()))?;
-                let search_term = search.map(|value| value.term.clone());
-                let sort_field_0 = sort_field_at(sort, 0);
-                let sort_direction_0 = sort_direction_at(sort, 0);
-                let sort_field_1 = sort_field_at(sort, 1);
-                let sort_direction_1 = sort_direction_at(sort, 1);
+        let filter_service_id = parse_filter(filters, "service_id", "invalid_filter", |text| {
+            uuid::Uuid::parse_str(text).map_err(|_| {
+                shaperail_core::ShaperailError::Internal("invalid uuid filter".to_string())
+            })
+        })?;
+        let filter_severity = parse_filter(filters, "severity", "invalid_filter", |text| {
+            Ok(text.to_string())
+        })?;
+        let filter_status = parse_filter(filters, "status", "invalid_filter", |text| {
+            Ok(text.to_string())
+        })?;
+        let search_term = search.map(|value| value.term.clone());
+        let sort_field_0 = sort_field_at(sort, 0);
+        let sort_direction_0 = sort_direction_at(sort, 0);
+        let sort_field_1 = sort_field_at(sort, 1);
+        let sort_direction_1 = sort_direction_at(sort, 1);
 
         match page {
             PageRequest::Cursor { after, limit } => {
                 let cursor = match after {
-                    Some(cursor_value) => Some(uuid::Uuid::parse_str(
-                        &shaperail_runtime::db::decode_cursor(cursor_value)?
-                    ).map_err(|_| shaperail_core::ShaperailError::Validation(vec![shaperail_core::FieldError {
-                        field: "cursor".to_string(),
-                        message: "Invalid cursor value".to_string(),
-                        code: "invalid_cursor".to_string(),
-                    }]))?),
+                    Some(cursor_value) => Some(
+                        uuid::Uuid::parse_str(&shaperail_runtime::db::decode_cursor(cursor_value)?)
+                            .map_err(|_| {
+                                shaperail_core::ShaperailError::Validation(vec![
+                                    shaperail_core::FieldError {
+                                        field: "cursor".to_string(),
+                                        message: "Invalid cursor value".to_string(),
+                                        code: "invalid_cursor".to_string(),
+                                    },
+                                ])
+                            })?,
+                    ),
                     None => None,
                 };
-                                let rows = sqlx::query_as!(
+                let rows = sqlx::query_as!(
                                     IncidentsRecord,
                                     r#"
                                     SELECT
@@ -76,16 +90,17 @@ impl IncidentsStore {
                                 "service_id" as "service_id!: uuid::Uuid",
                                 "title" as "title!: String",
                                 "slug" as "slug!: String",
-                                "severity" as "severity?: String",
-                                "status" as "status?: String",
+                                "severity" as "severity!: String",
+                                "status" as "status!: String",
                                 "summary" as "summary!: String",
                                 "commander_id" as "commander_id?: uuid::Uuid",
                                 "room_key" as "room_key!: String",
                                 "acknowledged_at" as "acknowledged_at?: chrono::DateTime<chrono::Utc>",
                                 "resolved_at" as "resolved_at?: chrono::DateTime<chrono::Utc>",
                                 "created_by" as "created_by!: uuid::Uuid",
-                                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
                                     FROM "incidents"
                                     WHERE TRUE
                                         AND "deleted_at" IS NULL
@@ -122,34 +137,34 @@ impl IncidentsStore {
                                 .fetch_all(&self.pool)
                                 .await?;
 
-                                let has_more = rows.len() as i64 > *limit;
-                                let mut result_rows = rows;
-                                if has_more {
-                                    result_rows.truncate(*limit as usize);
-                                }
+                let has_more = rows.len() as i64 > *limit;
+                let mut result_rows = rows;
+                if has_more {
+                    result_rows.truncate(*limit as usize);
+                }
 
-                                let data = result_rows
-                                    .iter()
-                                    .map(row_from_model)
-                                    .collect::<Result<Vec<_>, _>>()?;
-                                let cursor = if has_more {
-                                    result_rows
-                                        .last()
-                                        .map(|row| shaperail_runtime::db::encode_cursor(&row.id.to_string()))
-                                } else {
-                                    None
-                                };
+                let data = result_rows
+                    .iter()
+                    .map(row_from_model)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let cursor = if has_more {
+                    result_rows
+                        .last()
+                        .map(|row| shaperail_runtime::db::encode_cursor(&row.id.to_string()))
+                } else {
+                    None
+                };
 
-                                Ok((
-                                    data,
-                                    serde_json::json!({
-                                        "cursor": cursor,
-                                        "has_more": has_more
-                                    })
-                                ))
+                Ok((
+                    data,
+                    serde_json::json!({
+                        "cursor": cursor,
+                        "has_more": has_more
+                    }),
+                ))
             }
             PageRequest::Offset { offset, limit } => {
-                                let total = sqlx::query_scalar!(
+                let total = sqlx::query_scalar!(
                                     r#"
                                     SELECT COUNT(*) as "count!"
                                     FROM "incidents"
@@ -170,7 +185,7 @@ impl IncidentsStore {
                                 .fetch_one(&self.pool)
                                 .await?;
 
-                                let rows = sqlx::query_as!(
+                let rows = sqlx::query_as!(
                                     IncidentsRecord,
                                     r#"
                                     SELECT
@@ -179,16 +194,17 @@ impl IncidentsStore {
                                 "service_id" as "service_id!: uuid::Uuid",
                                 "title" as "title!: String",
                                 "slug" as "slug!: String",
-                                "severity" as "severity?: String",
-                                "status" as "status?: String",
+                                "severity" as "severity!: String",
+                                "status" as "status!: String",
                                 "summary" as "summary!: String",
                                 "commander_id" as "commander_id?: uuid::Uuid",
                                 "room_key" as "room_key!: String",
                                 "acknowledged_at" as "acknowledged_at?: chrono::DateTime<chrono::Utc>",
                                 "resolved_at" as "resolved_at?: chrono::DateTime<chrono::Utc>",
                                 "created_by" as "created_by!: uuid::Uuid",
-                                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
                                     FROM "incidents"
                                     WHERE TRUE
                                         AND "deleted_at" IS NULL
@@ -225,19 +241,19 @@ impl IncidentsStore {
                                 .fetch_all(&self.pool)
                                 .await?;
 
-                                let data = rows
-                                    .iter()
-                                    .map(row_from_model)
-                                    .collect::<Result<Vec<_>, _>>()?;
+                let data = rows
+                    .iter()
+                    .map(row_from_model)
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                                Ok((
-                                    data,
-                                    serde_json::json!({
-                                        "offset": offset,
-                                        "limit": limit,
-                                        "total": total
-                                    })
-                                ))
+                Ok((
+                    data,
+                    serde_json::json!({
+                        "offset": offset,
+                        "limit": limit,
+                        "total": total
+                    }),
+                ))
             }
         }
     }
@@ -249,7 +265,10 @@ impl ResourceStore for IncidentsStore {
         "incidents"
     }
 
-    async fn find_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn find_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let row = sqlx::query_as!(
             IncidentsRecord,
             r#"
@@ -259,16 +278,17 @@ impl ResourceStore for IncidentsStore {
                 "service_id" as "service_id!: uuid::Uuid",
                 "title" as "title!: String",
                 "slug" as "slug!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "summary" as "summary!: String",
                 "commander_id" as "commander_id?: uuid::Uuid",
                 "room_key" as "room_key!: String",
                 "acknowledged_at" as "acknowledged_at?: chrono::DateTime<chrono::Utc>",
                 "resolved_at" as "resolved_at?: chrono::DateTime<chrono::Utc>",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             FROM "incidents"
             WHERE "id" = $1 AND "deleted_at" IS NULL
             "#,
@@ -291,47 +311,91 @@ impl ResourceStore for IncidentsStore {
     ) -> Result<(Vec<ResourceRow>, Value), shaperail_core::ShaperailError> {
         match endpoint.path() {
             "/incidents" => self.find_all_list(filters, search, sort, page).await,
-            _ => Err(shaperail_core::ShaperailError::Internal(format!("No generated list query for {}", endpoint.path()))),
+            _ => Err(shaperail_core::ShaperailError::Internal(format!(
+                "No generated list query for {}",
+                endpoint.path()
+            ))),
         }
     }
 
-    async fn insert(&self, data: &Map<String, Value>) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn insert(
+        &self,
+        data: &Map<String, Value>,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let id = uuid::Uuid::new_v4();
-        let org_id = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "org_id")?, "org_id")?;
-        let service_id = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "service_id")?, "service_id")?;
-        let title = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "title")?, "title")?;
-        let slug = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "slug")?, "slug")?;
-        let severity = match shaperail_runtime::db::parse_optional_json::<String>(data, "severity")? { Some(value) => Some(value), None => Some("sev3".to_string()) };
-        let status = match shaperail_runtime::db::parse_optional_json::<String>(data, "status")? { Some(value) => Some(value), None => Some("open".to_string()) };
-        let summary = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "summary")?, "summary")?;
-        let commander_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "commander_id")?;
-        let room_key = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<String>(data, "room_key")?, "room_key")?;
-        let acknowledged_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(data, "acknowledged_at")?;
-        let resolved_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(data, "resolved_at")?;
-        let created_by = shaperail_runtime::db::require_field(shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?, "created_by")?;
-        let created_at = Some(chrono::Utc::now());
-        let updated_at = Some(chrono::Utc::now());
+        let org_id = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "org_id")?,
+            "org_id",
+        )?;
+        let service_id = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "service_id")?,
+            "service_id",
+        )?;
+        let title = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "title")?,
+            "title",
+        )?;
+        let slug = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "slug")?,
+            "slug",
+        )?;
+        let severity = match shaperail_runtime::db::parse_optional_json::<String>(data, "severity")?
+        {
+            Some(value) => value,
+            None => "sev3".to_string(),
+        };
+        let status = match shaperail_runtime::db::parse_optional_json::<String>(data, "status")? {
+            Some(value) => value,
+            None => "open".to_string(),
+        };
+        let summary = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "summary")?,
+            "summary",
+        )?;
+        let commander_id =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "commander_id")?;
+        let room_key = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<String>(data, "room_key")?,
+            "room_key",
+        )?;
+        let acknowledged_at = shaperail_runtime::db::parse_optional_json::<
+            chrono::DateTime<chrono::Utc>,
+        >(data, "acknowledged_at")?;
+        let resolved_at = shaperail_runtime::db::parse_optional_json::<
+            chrono::DateTime<chrono::Utc>,
+        >(data, "resolved_at")?;
+        let created_by = shaperail_runtime::db::require_field(
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?,
+            "created_by",
+        )?;
+        let created_at = chrono::Utc::now();
+        let updated_at = chrono::Utc::now();
+        let deleted_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(
+            data,
+            "deleted_at",
+        )?;
         let row = sqlx::query_as!(
             IncidentsRecord,
             r#"
-            INSERT INTO "incidents" ("id", "org_id", "service_id", "title", "slug", "severity", "status", "summary", "commander_id", "room_key", "acknowledged_at", "resolved_at", "created_by", "created_at", "updated_at")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            INSERT INTO "incidents" ("id", "org_id", "service_id", "title", "slug", "severity", "status", "summary", "commander_id", "room_key", "acknowledged_at", "resolved_at", "created_by", "created_at", "updated_at", "deleted_at")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             RETURNING
                 "id" as "id!: uuid::Uuid",
                 "org_id" as "org_id!: uuid::Uuid",
                 "service_id" as "service_id!: uuid::Uuid",
                 "title" as "title!: String",
                 "slug" as "slug!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "summary" as "summary!: String",
                 "commander_id" as "commander_id?: uuid::Uuid",
                 "room_key" as "room_key!: String",
                 "acknowledged_at" as "acknowledged_at?: chrono::DateTime<chrono::Utc>",
                 "resolved_at" as "resolved_at?: chrono::DateTime<chrono::Utc>",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             org_id,
@@ -347,7 +411,8 @@ impl ResourceStore for IncidentsStore {
             resolved_at,
             created_by,
             created_at,
-            updated_at
+            updated_at,
+            deleted_at
         )
         .fetch_one(&self.pool)
         .await?;
@@ -363,7 +428,8 @@ impl ResourceStore for IncidentsStore {
         let org_id_present = data.contains_key("org_id");
         let org_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "org_id")?;
         let service_id_present = data.contains_key("service_id");
-        let service_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "service_id")?;
+        let service_id =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "service_id")?;
         let title_present = data.contains_key("title");
         let title = shaperail_runtime::db::parse_optional_json::<String>(data, "title")?;
         let slug_present = data.contains_key("slug");
@@ -375,28 +441,54 @@ impl ResourceStore for IncidentsStore {
         let summary_present = data.contains_key("summary");
         let summary = shaperail_runtime::db::parse_optional_json::<String>(data, "summary")?;
         let commander_id_present = data.contains_key("commander_id");
-        let commander_id = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "commander_id")?;
+        let commander_id =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "commander_id")?;
         let room_key_present = data.contains_key("room_key");
         let room_key = shaperail_runtime::db::parse_optional_json::<String>(data, "room_key")?;
         let acknowledged_at_present = data.contains_key("acknowledged_at");
-        let acknowledged_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(data, "acknowledged_at")?;
+        let acknowledged_at = shaperail_runtime::db::parse_optional_json::<
+            chrono::DateTime<chrono::Utc>,
+        >(data, "acknowledged_at")?;
         let resolved_at_present = data.contains_key("resolved_at");
-        let resolved_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(data, "resolved_at")?;
+        let resolved_at = shaperail_runtime::db::parse_optional_json::<
+            chrono::DateTime<chrono::Utc>,
+        >(data, "resolved_at")?;
         let created_by_present = data.contains_key("created_by");
-        let created_by = shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?;
+        let created_by =
+            shaperail_runtime::db::parse_optional_json::<uuid::Uuid>(data, "created_by")?;
+        let deleted_at_present = data.contains_key("deleted_at");
+        let deleted_at = shaperail_runtime::db::parse_optional_json::<chrono::DateTime<chrono::Utc>>(
+            data,
+            "deleted_at",
+        )?;
         let updated_at = chrono::Utc::now();
-        if !(org_id_present || service_id_present || title_present || slug_present || severity_present || status_present || summary_present || commander_id_present || room_key_present || acknowledged_at_present || resolved_at_present || created_by_present) {
-            return Err(shaperail_core::ShaperailError::Validation(vec![shaperail_core::FieldError {
-                field: "body".to_string(),
-                message: "No valid fields to update".to_string(),
-                code: "empty_update".to_string(),
-            }]));
+        if !(org_id_present
+            || service_id_present
+            || title_present
+            || slug_present
+            || severity_present
+            || status_present
+            || summary_present
+            || commander_id_present
+            || room_key_present
+            || acknowledged_at_present
+            || resolved_at_present
+            || created_by_present
+            || deleted_at_present)
+        {
+            return Err(shaperail_core::ShaperailError::Validation(vec![
+                shaperail_core::FieldError {
+                    field: "body".to_string(),
+                    message: "No valid fields to update".to_string(),
+                    code: "empty_update".to_string(),
+                },
+            ]));
         }
         let row = sqlx::query_as!(
             IncidentsRecord,
             r#"
             UPDATE "incidents"
-            SET "org_id" = CASE WHEN $2 THEN $3 ELSE "org_id" END, "service_id" = CASE WHEN $4 THEN $5 ELSE "service_id" END, "title" = CASE WHEN $6 THEN $7 ELSE "title" END, "slug" = CASE WHEN $8 THEN $9 ELSE "slug" END, "severity" = CASE WHEN $10 THEN $11 ELSE "severity" END, "status" = CASE WHEN $12 THEN $13 ELSE "status" END, "summary" = CASE WHEN $14 THEN $15 ELSE "summary" END, "commander_id" = CASE WHEN $16 THEN $17 ELSE "commander_id" END, "room_key" = CASE WHEN $18 THEN $19 ELSE "room_key" END, "acknowledged_at" = CASE WHEN $20 THEN $21 ELSE "acknowledged_at" END, "resolved_at" = CASE WHEN $22 THEN $23 ELSE "resolved_at" END, "created_by" = CASE WHEN $24 THEN $25 ELSE "created_by" END, "updated_at" = $26
+            SET "org_id" = CASE WHEN $2 THEN $3 ELSE "org_id" END, "service_id" = CASE WHEN $4 THEN $5 ELSE "service_id" END, "title" = CASE WHEN $6 THEN $7 ELSE "title" END, "slug" = CASE WHEN $8 THEN $9 ELSE "slug" END, "severity" = CASE WHEN $10 THEN $11 ELSE "severity" END, "status" = CASE WHEN $12 THEN $13 ELSE "status" END, "summary" = CASE WHEN $14 THEN $15 ELSE "summary" END, "commander_id" = CASE WHEN $16 THEN $17 ELSE "commander_id" END, "room_key" = CASE WHEN $18 THEN $19 ELSE "room_key" END, "acknowledged_at" = CASE WHEN $20 THEN $21 ELSE "acknowledged_at" END, "resolved_at" = CASE WHEN $22 THEN $23 ELSE "resolved_at" END, "created_by" = CASE WHEN $24 THEN $25 ELSE "created_by" END, "deleted_at" = CASE WHEN $26 THEN $27 ELSE "deleted_at" END, "updated_at" = $28
             WHERE "id" = $1 AND "deleted_at" IS NULL
             RETURNING
                 "id" as "id!: uuid::Uuid",
@@ -404,16 +496,17 @@ impl ResourceStore for IncidentsStore {
                 "service_id" as "service_id!: uuid::Uuid",
                 "title" as "title!: String",
                 "slug" as "slug!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "summary" as "summary!: String",
                 "commander_id" as "commander_id?: uuid::Uuid",
                 "room_key" as "room_key!: String",
                 "acknowledged_at" as "acknowledged_at?: chrono::DateTime<chrono::Utc>",
                 "resolved_at" as "resolved_at?: chrono::DateTime<chrono::Utc>",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             org_id_present,
@@ -440,6 +533,8 @@ impl ResourceStore for IncidentsStore {
             resolved_at,
             created_by_present,
             created_by,
+            deleted_at_present,
+            deleted_at,
             updated_at
         )
         .fetch_optional(&self.pool)
@@ -449,7 +544,10 @@ impl ResourceStore for IncidentsStore {
         row_from_model(&row)
     }
 
-    async fn soft_delete_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn soft_delete_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let deleted_at = chrono::Utc::now();
         let row = sqlx::query_as!(
             IncidentsRecord,
@@ -463,16 +561,17 @@ impl ResourceStore for IncidentsStore {
                 "service_id" as "service_id!: uuid::Uuid",
                 "title" as "title!: String",
                 "slug" as "slug!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "summary" as "summary!: String",
                 "commander_id" as "commander_id?: uuid::Uuid",
                 "room_key" as "room_key!: String",
                 "acknowledged_at" as "acknowledged_at?: chrono::DateTime<chrono::Utc>",
                 "resolved_at" as "resolved_at?: chrono::DateTime<chrono::Utc>",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id,
             deleted_at
@@ -484,7 +583,10 @@ impl ResourceStore for IncidentsStore {
         row_from_model(&row)
     }
 
-    async fn hard_delete_by_id(&self, id: &uuid::Uuid) -> Result<ResourceRow, shaperail_core::ShaperailError> {
+    async fn hard_delete_by_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<ResourceRow, shaperail_core::ShaperailError> {
         let row = sqlx::query_as!(
             IncidentsRecord,
             r#"
@@ -496,16 +598,17 @@ impl ResourceStore for IncidentsStore {
                 "service_id" as "service_id!: uuid::Uuid",
                 "title" as "title!: String",
                 "slug" as "slug!: String",
-                "severity" as "severity?: String",
-                "status" as "status?: String",
+                "severity" as "severity!: String",
+                "status" as "status!: String",
                 "summary" as "summary!: String",
                 "commander_id" as "commander_id?: uuid::Uuid",
                 "room_key" as "room_key!: String",
                 "acknowledged_at" as "acknowledged_at?: chrono::DateTime<chrono::Utc>",
                 "resolved_at" as "resolved_at?: chrono::DateTime<chrono::Utc>",
                 "created_by" as "created_by!: uuid::Uuid",
-                "created_at" as "created_at?: chrono::DateTime<chrono::Utc>",
-                "updated_at" as "updated_at?: chrono::DateTime<chrono::Utc>"
+                "created_at" as "created_at!: chrono::DateTime<chrono::Utc>",
+                "updated_at" as "updated_at!: chrono::DateTime<chrono::Utc>",
+                "deleted_at" as "deleted_at?: chrono::DateTime<chrono::Utc>"
             "#,
             id
         )

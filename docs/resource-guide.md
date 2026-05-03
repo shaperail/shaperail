@@ -136,7 +136,7 @@ Schema fields use compact inline objects. Every attribute:
 | --- | --- |
 | `type` | **Required.** Data type (see table below) |
 | `primary` | Marks the primary key. Exactly one field must be primary. |
-| `generated` | The runtime/database fills the value automatically (UUIDs, timestamps) |
+| `generated` | The runtime/database fills the value automatically (UUIDs, timestamps). The generated SELECT struct field is non-`Option`. |
 | `required` | Field must be present on writes (adds NOT NULL in SQL) |
 | `unique` | Adds a uniqueness constraint and matching SQL index |
 | `nullable` | Field may be null |
@@ -144,11 +144,30 @@ Schema fields use compact inline objects. Every attribute:
 | `min` / `max` | String length or numeric bounds. Validated at runtime. |
 | `format` | Validation hint: `email`, `url`, or `uuid` |
 | `values` | Allowed values for `type: enum` fields (required when type is enum) |
-| `default` | Default value applied when the field is omitted |
+| `default` | Default value applied when the field is omitted. The generated SELECT struct field is non-`Option` (the database always fills the value). |
 | `sensitive` | Omitted from all responses; redacted in logs and error messages |
 | `transient` | Input-only field. Validated and exposed to the `before:` controller via `ctx.input`, but never persisted (no migration column, no SQL reference) and never returned in responses. Stripped from `ctx.input` after the before-controller runs. Must appear in some endpoint's `input:` list. |
 | `search` | Enables PostgreSQL full-text search via `to_tsvector` on this field |
 | `items` | Element type for `type: array` fields (required when type is array). Accepts a bare type name (`items: string`) or a constraint map (`{ type: string, min: 3, max: 3 }`) — see [Array element constraints](#array-element-constraints) below. |
+
+### When is a field `Option<T>` in the generated struct?
+
+The generated SELECT struct for a resource emits `Option<T>` only for columns
+the database actually permits to be NULL:
+
+> A field is `Option<T>` if and only if `nullable: true`, **or** none of
+> `primary`, `required`, `default`, `generated` are set.
+
+Any of `primary: true`, `required: true`, `default: <value>`, or
+`generated: true` produces a `NOT NULL` column, so the SELECT-side struct
+field is the bare type `T`. Setting `nullable: true` always wins — a column
+declared `nullable: true, default: "x"` genuinely admits NULL, so the field
+stays `Option<String>`.
+
+This rule applies to the SELECT-side response struct only. Request bodies
+for `create` / `update` are unaffected: a field with `default:` is still
+optional in the request body — the caller may omit it and the database
+fills the default.
 
 ### Supported field types
 
@@ -255,7 +274,7 @@ endpoints:
 | `pagination` | `cursor` (default) or `offset` |
 | `sort` | Fields available for sorting: `?sort=-created_at,name` |
 | `cache` | Cache config: `{ ttl: 60 }` or `{ ttl: 60, invalidate_on: [users.updated] }` |
-| `controller` | Synchronous business logic: `{ before: fn, after: fn }`. Use a function name for Rust or `"wasm:./path.wasm"` for WASM plugins. See [Controllers]({{ '/controllers/' | relative_url }}). |
+| `controller` | Synchronous business logic: `{ before: fn, after: fn }`. Either side accepts a single hook name or an array of hook names (`{ before: [validate_a, validate_b] }`); arrays run in declaration order and short-circuit on the first error. Use a function name for Rust or `"wasm:./path.wasm"` for WASM plugins; the two may be mixed in one array. See [Controllers]({{ '/controllers/' | relative_url }}). |
 | `events` | Events to emit on success (e.g., `[user.created]`) |
 | `jobs` | Background jobs to enqueue on success (e.g., `[send_welcome_email]`) |
 | `upload` | Multipart file upload config: `{ field: avatar, storage: s3, max_size: 5mb }` |

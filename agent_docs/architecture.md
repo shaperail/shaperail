@@ -61,6 +61,24 @@ Key modules:
 Code generation rule: one resource file → one generated Rust module.
 Generated code goes to `shaperail-runtime/src/generated/`.
 
+### `generated/mod.rs` controller aggregator
+
+`generated/mod.rs` emits each per-resource controller as `pub mod
+<name>_controller;`, then a `#[doc(hidden)] pub mod resources { ... }`
+block re-exports every controller under one path. Library projects expose
+this aggregator with one line in `src/lib.rs`:
+
+```rust
+mod generated;
+pub use generated::resources;
+```
+
+After that line, integration tests in `tests/` reach controller helpers via
+`crate::resources::<name>_controller::*`. The `#[doc(hidden)]` attribute
+keeps the aggregator off the docs.rs surface — it exists for test wiring,
+not as a public API. Binary-only projects (no integration-test crate) do
+not need to add the `pub use` line.
+
 ## shaperail-runtime — The Server
 **Owns:** Actix-web app factory, all HTTP handlers, middleware, DB pool, Redis client
 **Does NOT own:** codegen, YAML parsing

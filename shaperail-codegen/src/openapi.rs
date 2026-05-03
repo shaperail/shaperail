@@ -845,7 +845,7 @@ mod tests {
                     "role".to_string(),
                 ]),
                 controller: Some(shaperail_core::ControllerSpec {
-                    before: Some("validate_org".to_string()),
+                    before: Some(shaperail_core::HookList::Single("validate_org".to_string())),
                     after: None,
                 }),
                 events: Some(vec!["user.created".to_string()]),

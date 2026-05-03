@@ -39,6 +39,12 @@ fn generated_files_are_rustfmt_clean() {
         shaperail_codegen::rust::rustfmt_in_place(&path);
     }
 
+    // Also write mod.rs (the registry module — covers the pub mod resources
+    // aggregator added in v0.14). Per-module loop above doesn't include it.
+    let mod_rs_path = out_dir.join("mod.rs");
+    std::fs::write(&mod_rs_path, &project.mod_rs).expect("write mod.rs");
+    shaperail_codegen::rust::rustfmt_in_place(&mod_rs_path);
+
     // Now assert every .rs file in out_dir passes `rustfmt --check`.
     for entry in std::fs::read_dir(&out_dir).unwrap() {
         let path = entry.unwrap().path();

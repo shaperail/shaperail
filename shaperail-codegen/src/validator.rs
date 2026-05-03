@@ -250,20 +250,38 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
                 }
 
                 if let Some(before) = &controller.before {
-                    if before.is_empty() {
+                    let names = before.names();
+                    if names.is_empty() {
                         errors.push(err(&format!(
-                            "resource '{res}': endpoint '{action}' has an empty controller.before name"
+                            "[SR063] resource '{res}': endpoint '{action}' has an empty controller.before list"
                         )));
                     }
-                    validate_controller_name(res, action, "before", before, &mut errors);
+                    for name in names {
+                        if name.is_empty() {
+                            errors.push(err(&format!(
+                                "resource '{res}': endpoint '{action}' has an empty controller.before name"
+                            )));
+                            continue;
+                        }
+                        validate_controller_name(res, action, "before", name, &mut errors);
+                    }
                 }
                 if let Some(after) = &controller.after {
-                    if after.is_empty() {
+                    let names = after.names();
+                    if names.is_empty() {
                         errors.push(err(&format!(
-                            "resource '{res}': endpoint '{action}' has an empty controller.after name"
+                            "[SR063] resource '{res}': endpoint '{action}' has an empty controller.after list"
                         )));
                     }
-                    validate_controller_name(res, action, "after", after, &mut errors);
+                    for name in names {
+                        if name.is_empty() {
+                            errors.push(err(&format!(
+                                "resource '{res}': endpoint '{action}' has an empty controller.after name"
+                            )));
+                            continue;
+                        }
+                        validate_controller_name(res, action, "after", name, &mut errors);
+                    }
                 }
             }
 
@@ -492,8 +510,8 @@ fn validate_controller_only_on_crud(
     let has_after = endpoint
         .controller
         .as_ref()
-        .and_then(|c| c.after.as_deref())
-        .is_some();
+        .map(|c| !c.after_names().is_empty())
+        .unwrap_or(false);
     if has_after {
         return Some(err(&format!(
             "resource '{resource}': endpoint '{action}' declares `controller: {{ after: ... }}`, \

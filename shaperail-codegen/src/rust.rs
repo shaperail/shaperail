@@ -221,15 +221,11 @@ fn collect_controller_hooks(resources: &[ResourceDefinition]) -> Vec<(&str, Vec<
                     eps.iter()
                         .filter_map(|(_, ep)| ep.controller.as_ref())
                         .flat_map(|c| {
-                            let before = c
-                                .before
-                                .as_deref()
-                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX));
-                            let after = c
-                                .after
-                                .as_deref()
-                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX));
-                            [before, after].into_iter().flatten()
+                            c.before_names()
+                                .iter()
+                                .chain(c.after_names().iter())
+                                .map(String::as_str)
+                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX))
                         })
                         .collect()
                 })
@@ -400,7 +396,7 @@ fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
     let ctrl_path_decls: Vec<String> = ctrl_hooks
         .iter()
         .map(|(name, _)| {
-            format!("#[path = \"../resources/{name}.controller.rs\"]\nmod {name}_controller;")
+            format!("#[path = \"../resources/{name}.controller.rs\"]\npub mod {name}_controller;")
         })
         .collect();
 
@@ -452,10 +448,25 @@ fn generate_registry_module(resources: &[ResourceDefinition]) -> String {
     }
     let preamble = preamble_parts.join("\n\n");
 
+    let resources_aggregator = if ctrl_hooks.is_empty() {
+        String::new()
+    } else {
+        let lines: Vec<String> = ctrl_hooks
+            .iter()
+            .map(|(name, _)| format!("    pub use super::{name}_controller;"))
+            .collect();
+        format!(
+            "\n\n/// Re-exports of every controller module under one path so integration\n\
+             /// tests can reach `pub` helpers via `crate::resources::<name>_controller::*`.\n\
+             #[doc(hidden)]\n#[allow(unused_imports)]\npub mod resources {{\n{}\n}}",
+            lines.join("\n")
+        )
+    };
+
     format!(
         r#"#![allow(dead_code)]
 
-{preamble}
+{preamble}{resources_aggregator}
 
 pub fn build_store_registry(pool: sqlx::PgPool) -> shaperail_runtime::db::StoreRegistry {{
     let mut stores: std::collections::HashMap<
@@ -474,6 +485,7 @@ pub fn build_controller_map() -> shaperail_runtime::handlers::controller::Contro
 
 {handler_map_fn}
 "#,
+        resources_aggregator = resources_aggregator,
         job_registry_fn = generate_job_registry(resources),
         handler_map_fn = generate_handler_map_fn(resources),
     )
@@ -1322,11 +1334,14 @@ fn model_field_type(field: &FieldSchema) -> String {
 }
 
 fn model_field_is_optional(field: &FieldSchema) -> bool {
-    !(field.primary || (field.required && !field.nullable))
+    if field.nullable {
+        return true;
+    }
+    !(field.primary || field.required || field.generated || field.default.is_some())
 }
 
 fn field_is_required(field: &FieldSchema) -> bool {
-    field.primary || (field.required && !field.nullable)
+    !model_field_is_optional(field)
 }
 
 fn generated_value_expression(field: &FieldSchema) -> String {
@@ -1702,5 +1717,145 @@ mod tests {
         let output = generate_handler_map_fn(&resources);
         assert!(output.contains("items_handlers::archive_item"));
         assert!(output.contains(r#"handler_key("items", "archive")"#));
+    }
+
+    fn field(
+        ty: FieldType,
+        primary: bool,
+        required: bool,
+        nullable: bool,
+        generated: bool,
+        default: Option<serde_json::Value>,
+    ) -> FieldSchema {
+        FieldSchema {
+            field_type: ty,
+            primary,
+            generated,
+            required,
+            unique: false,
+            nullable,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient: false,
+        }
+    }
+
+    #[test]
+    fn model_optional_for_required_only_field_is_false() {
+        let f = field(FieldType::Integer, false, true, false, false, None);
+        assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_required_with_default_is_false() {
+        let f = field(
+            FieldType::Integer,
+            false,
+            true,
+            false,
+            false,
+            Some(serde_json::json!(0)),
+        );
+        assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_unrequired_with_default_is_false() {
+        // The bug-report case: NOT NULL DEFAULT must produce non-Option output.
+        let f = field(
+            FieldType::Integer,
+            false,
+            false,
+            false,
+            false,
+            Some(serde_json::json!(0)),
+        );
+        assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_generated_without_required_is_false() {
+        // created_at: { type: timestamp, generated: true }
+        let f = field(FieldType::Timestamp, false, false, false, true, None);
+        assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_nullable_is_true() {
+        let f = field(FieldType::String, false, false, true, false, None);
+        assert!(model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_nullable_with_default_is_true() {
+        // nullable wins, even with a default.
+        let f = field(
+            FieldType::String,
+            false,
+            false,
+            true,
+            false,
+            Some(serde_json::json!("x")),
+        );
+        assert!(model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_plain_optional_field_is_true() {
+        let f = field(FieldType::String, false, false, false, false, None);
+        assert!(model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn model_optional_for_primary_key_is_false() {
+        let f = field(FieldType::Uuid, true, false, false, true, None);
+        assert!(!model_field_is_optional(&f));
+    }
+
+    #[test]
+    fn generated_mod_rs_emits_pub_resources_aggregator() {
+        let mut resource = sample_resource();
+        // Add a controller hook so a `*_controller` module is emitted.
+        let endpoint = resource
+            .endpoints
+            .as_mut()
+            .unwrap()
+            .get_mut("list")
+            .unwrap();
+        endpoint.controller = Some(shaperail_core::ControllerSpec {
+            before: Some(shaperail_core::HookList::Single("validate".to_string())),
+            after: None,
+        });
+
+        let project = generate_project(std::slice::from_ref(&resource)).unwrap();
+        // The mod.rs is in `project.mod_rs` (matching the existing
+        // `assert!(project.mod_rs.contains("pub mod users;"));` assertion).
+        assert!(
+            project.mod_rs.contains("pub mod users_controller;"),
+            "controller module must be `pub mod`, not `mod`. Got:\n{}",
+            project.mod_rs
+        );
+        assert!(
+            project.mod_rs.contains("#[doc(hidden)]"),
+            "expected #[doc(hidden)] guard on resources aggregator. Got:\n{}",
+            project.mod_rs
+        );
+        assert!(
+            project.mod_rs.contains("pub mod resources"),
+            "expected `pub mod resources` aggregator. Got:\n{}",
+            project.mod_rs
+        );
+        assert!(
+            project.mod_rs.contains("pub use super::users_controller;"),
+            "expected re-export of users_controller in resources aggregator. Got:\n{}",
+            project.mod_rs
+        );
     }
 }

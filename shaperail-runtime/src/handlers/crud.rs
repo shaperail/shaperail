@@ -728,6 +728,7 @@ async fn run_before_controller(
     input: serde_json::Map<String, serde_json::Value>,
     user: Option<&AuthenticatedUser>,
     req: &HttpRequest,
+    path_params: std::collections::HashMap<String, String>,
 ) -> Result<super::controller::Context, ShaperailError> {
     let headers: std::collections::HashMap<String, String> = req
         .headers()
@@ -735,28 +736,6 @@ async fn run_before_controller(
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
     let tenant_id = resolve_tenant_id(resource, user);
-    let name = match endpoint
-        .controller
-        .as_ref()
-        .and_then(|c| c.before.as_deref())
-    {
-        Some(n) => n,
-        None => {
-            // No before-controller — still build a Context so the after-hook (if any)
-            // sees consistent session/response_extras state. data is None at this point.
-            return Ok(super::controller::Context {
-                input,
-                data: None,
-                user: user.cloned(),
-                pool: state.pool.clone(),
-                headers,
-                response_headers: vec![],
-                tenant_id,
-                session: serde_json::Map::new(),
-                response_extras: serde_json::Map::new(),
-            });
-        }
-    };
     let mut ctx = super::controller::Context {
         input,
         data: None,
@@ -767,19 +746,34 @@ async fn run_before_controller(
         tenant_id,
         session: serde_json::Map::new(),
         response_extras: serde_json::Map::new(),
+        path_params,
     };
+
+    let names: &[String] = endpoint
+        .controller
+        .as_ref()
+        .map(|c| c.before_names())
+        .unwrap_or(&[]);
+
+    if names.is_empty() {
+        return Ok(ctx);
+    }
+
     #[cfg(feature = "wasm-plugins")]
     let wasm_rt = state.wasm_runtime.as_ref();
     #[cfg(not(feature = "wasm-plugins"))]
     let wasm_rt = None;
-    super::controller::dispatch_controller(
-        name,
-        &resource.resource,
-        &mut ctx,
-        state.controllers.as_ref(),
-        wasm_rt,
-    )
-    .await?;
+
+    for name in names {
+        super::controller::dispatch_controller(
+            name,
+            &resource.resource,
+            &mut ctx,
+            state.controllers.as_ref(),
+            wasm_rt,
+        )
+        .await?;
+    }
     Ok(ctx)
 }
 
@@ -797,25 +791,32 @@ async fn run_after_controller(
     persisted: serde_json::Value,
 ) -> Result<super::controller::Context, ShaperailError> {
     ctx.data = Some(persisted);
-    let Some(name) = endpoint
+
+    let names: &[String] = endpoint
         .controller
         .as_ref()
-        .and_then(|c| c.after.as_deref())
-    else {
+        .map(|c| c.after_names())
+        .unwrap_or(&[]);
+
+    if names.is_empty() {
         return Ok(ctx);
-    };
+    }
+
     #[cfg(feature = "wasm-plugins")]
     let wasm_rt = state.wasm_runtime.as_ref();
     #[cfg(not(feature = "wasm-plugins"))]
     let wasm_rt = None;
-    super::controller::dispatch_controller(
-        name,
-        &resource.resource,
-        &mut ctx,
-        state.controllers.as_ref(),
-        wasm_rt,
-    )
-    .await?;
+
+    for name in names {
+        super::controller::dispatch_controller(
+            name,
+            &resource.resource,
+            &mut ctx,
+            state.controllers.as_ref(),
+            wasm_rt,
+        )
+        .await?;
+    }
     Ok(ctx)
 }
 
@@ -852,6 +853,7 @@ pub async fn handle_create(
         input_data,
         user.as_ref(),
         &req,
+        std::collections::HashMap::new(),
     )
     .await?;
 
@@ -945,7 +947,10 @@ pub async fn handle_update(
         &format!("{}:update", resource.resource),
     )
     .await?;
+    let id_str = path.as_str().to_string();
     let id = parse_uuid(&path)?;
+    let mut path_params = std::collections::HashMap::new();
+    path_params.insert("id".to_string(), id_str);
     let input_data = extract_input(&body, &resource, &endpoint)?;
     let store_opt = store_for_or_error(&state, &resource)?;
 
@@ -980,6 +985,7 @@ pub async fn handle_update(
         input_data,
         user.as_ref(),
         &req,
+        path_params,
     )
     .await?;
 
@@ -1091,7 +1097,10 @@ pub async fn handle_delete(
         &format!("{}:delete", resource.resource),
     )
     .await?;
+    let id_str = path.as_str().to_string();
     let id = parse_uuid(&path)?;
+    let mut path_params = std::collections::HashMap::new();
+    path_params.insert("id".to_string(), id_str);
     let store_opt = store_for_or_error(&state, &resource)?;
 
     // M18 tenant check + owner check: fetch record first
@@ -1114,7 +1123,16 @@ pub async fn handle_delete(
 
     // Before-controller: can halt deletion
     let input = serde_json::Map::new();
-    let _ = run_before_controller(&state, &resource, &endpoint, input, user.as_ref(), &req).await?;
+    let _ = run_before_controller(
+        &state,
+        &resource,
+        &endpoint,
+        input,
+        user.as_ref(),
+        &req,
+        path_params,
+    )
+    .await?;
 
     let (result, deleted_data) = if endpoint.soft_delete {
         let row = if let Some(ref store) = store_opt {
@@ -1843,6 +1861,7 @@ mod tests {
             tenant_id: None,
             session: serde_json::Map::new(),
             response_extras: serde_json::Map::new(),
+            path_params: std::collections::HashMap::new(),
         }
     }
 
