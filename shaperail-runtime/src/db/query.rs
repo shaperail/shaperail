@@ -1488,4 +1488,32 @@ mod tests {
         let bind = json_to_bind(&serde_json::Value::Null, &str_field);
         assert!(matches!(bind, BindValue::Null));
     }
+
+    fn default_field() -> FieldSchema {
+        FieldSchema {
+            field_type: FieldType::String,
+            primary: false,
+            generated: false,
+            required: false,
+            unique: false,
+            nullable: false,
+            reference: None,
+            min: None,
+            max: None,
+            format: None,
+            values: None,
+            default: None,
+            sensitive: false,
+            search: false,
+            items: None,
+            transient: false,
+        }
+    }
+
+    #[test]
+    fn integer_field_emits_bigint() {
+        use shaperail_core::FieldType;
+        let f = default_field();
+        assert_eq!(field_type_to_sql(&FieldType::Integer, &f), "BIGINT");
+    }
 }
