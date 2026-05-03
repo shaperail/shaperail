@@ -8,11 +8,9 @@ pub enum FieldType {
     Uuid,
     /// Variable-length text. Use `max` constraint for VARCHAR(n).
     String,
-    /// 32-bit signed integer.
+    /// 64-bit signed integer. Maps to Postgres `BIGINT` and Rust `i64`.
     Integer,
-    /// 64-bit signed integer.
-    Bigint,
-    /// 64-bit floating point (SQL NUMERIC).
+    /// 64-bit floating point (SQL DOUBLE PRECISION / NUMERIC).
     Number,
     /// Boolean true/false.
     Boolean,
@@ -36,8 +34,7 @@ impl FieldType {
         let base = match self {
             Self::Uuid => "uuid::Uuid",
             Self::String | Self::Enum | Self::File => "String",
-            Self::Integer => "i32",
-            Self::Bigint => "i64",
+            Self::Integer => "i64",
             Self::Number => "f64",
             Self::Boolean => "bool",
             Self::Timestamp => "chrono::DateTime<chrono::Utc>",
@@ -59,7 +56,6 @@ impl std::fmt::Display for FieldType {
             Self::Uuid => "uuid",
             Self::String => "string",
             Self::Integer => "integer",
-            Self::Bigint => "bigint",
             Self::Number => "number",
             Self::Boolean => "boolean",
             Self::Timestamp => "timestamp",
@@ -82,7 +78,6 @@ mod tests {
         assert_eq!(FieldType::Uuid.to_string(), "uuid");
         assert_eq!(FieldType::String.to_string(), "string");
         assert_eq!(FieldType::Integer.to_string(), "integer");
-        assert_eq!(FieldType::Bigint.to_string(), "bigint");
         assert_eq!(FieldType::Number.to_string(), "number");
         assert_eq!(FieldType::Boolean.to_string(), "boolean");
         assert_eq!(FieldType::Timestamp.to_string(), "timestamp");
@@ -99,7 +94,6 @@ mod tests {
             FieldType::Uuid,
             FieldType::String,
             FieldType::Integer,
-            FieldType::Bigint,
             FieldType::Number,
             FieldType::Boolean,
             FieldType::Timestamp,
@@ -138,8 +132,7 @@ mod tests {
         let cases: &[(&FieldType, &str)] = &[
             (&FieldType::Uuid, "uuid::Uuid"),
             (&FieldType::String, "String"),
-            (&FieldType::Integer, "i32"),
-            (&FieldType::Bigint, "i64"),
+            (&FieldType::Integer, "i64"),
             (&FieldType::Number, "f64"),
             (&FieldType::Boolean, "bool"),
             (&FieldType::Timestamp, "chrono::DateTime<chrono::Utc>"),
@@ -162,7 +155,7 @@ mod tests {
     fn to_rust_type_wrapped_when_nullable() {
         assert_eq!(
             FieldType::Integer.to_rust_type(true, true, false),
-            "Option<i32>"
+            "Option<i64>"
         );
         assert_eq!(
             FieldType::Uuid.to_rust_type(true, true, false),
@@ -190,5 +183,10 @@ mod tests {
             FieldType::Date.to_rust_type(true, false, false),
             "chrono::NaiveDate"
         );
+    }
+
+    #[test]
+    fn integer_is_i64() {
+        assert_eq!(FieldType::Integer.to_rust_type(true, false, false), "i64");
     }
 }
