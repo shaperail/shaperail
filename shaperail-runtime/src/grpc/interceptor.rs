@@ -46,7 +46,7 @@ pub fn extract_grpc_auth(
     }
 
     Ok(Some(AuthenticatedUser {
-        id: claims.sub,
+        sub: claims.sub,
         role: claims.role,
         tenant_id: None,
     }))
@@ -99,7 +99,7 @@ mod tests {
 
         let result = extract_grpc_auth(&req, Some(&jwt));
         let user = result.unwrap().unwrap();
-        assert_eq!(user.id, "user-1");
+        assert_eq!(user.sub, "user-1");
         assert_eq!(user.role, "admin");
     }
 

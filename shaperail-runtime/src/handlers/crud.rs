@@ -274,7 +274,7 @@ async fn check_rate_limit(
         .peer_addr()
         .unwrap_or("unknown")
         .to_string();
-    let user_id = user.map(|u| u.id.as_str());
+    let user_id = user.map(|u| u.sub.as_str());
     let tenant_id = user.and_then(|u| u.tenant_id.as_deref());
     let base_key = crate::auth::RateLimiter::key_for_tenant(&ip, user_id, tenant_id);
     let key = format!("{resource_action}:{base_key}");
@@ -1658,7 +1658,7 @@ mod tests {
 
     fn user_with_tenant(id: &str, role: &str, tenant_id: &str) -> AuthenticatedUser {
         AuthenticatedUser {
-            id: id.to_string(),
+            sub: id.to_string(),
             role: role.to_string(),
             tenant_id: Some(tenant_id.to_string()),
         }
@@ -1700,7 +1700,7 @@ mod tests {
     fn verify_tenant_no_tenant_id_returns_forbidden() {
         let resource = tenant_resource();
         let user = AuthenticatedUser {
-            id: "u1".to_string(),
+            sub: "u1".to_string(),
             role: "member".to_string(),
             tenant_id: None,
         };
@@ -1727,7 +1727,7 @@ mod tests {
     fn inject_tenant_filter_no_tenant_id_returns_forbidden() {
         let resource = tenant_resource();
         let user = AuthenticatedUser {
-            id: "u1".to_string(),
+            sub: "u1".to_string(),
             role: "member".to_string(),
             tenant_id: None,
         };

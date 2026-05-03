@@ -545,7 +545,7 @@ mod auth_tests {
 
     fn admin_user() -> AuthenticatedUser {
         AuthenticatedUser {
-            id: "user-1".to_string(),
+            sub: "user-1".to_string(),
             role: "admin".to_string(),
             tenant_id: None,
         }
@@ -553,7 +553,7 @@ mod auth_tests {
 
     fn member_user() -> AuthenticatedUser {
         AuthenticatedUser {
-            id: "user-2".to_string(),
+            sub: "user-2".to_string(),
             role: "member".to_string(),
             tenant_id: None,
         }
@@ -561,7 +561,7 @@ mod auth_tests {
 
     fn viewer_user() -> AuthenticatedUser {
         AuthenticatedUser {
-            id: "user-3".to_string(),
+            sub: "user-3".to_string(),
             role: "viewer".to_string(),
             tenant_id: None,
         }
@@ -634,7 +634,7 @@ mod auth_tests {
     #[test]
     fn rbac_owner_allows_own() {
         let user = AuthenticatedUser {
-            id: "user-1".to_string(),
+            sub: "user-1".to_string(),
             role: "member".to_string(),
             tenant_id: None,
         };
@@ -645,7 +645,7 @@ mod auth_tests {
     #[test]
     fn rbac_owner_blocks_other() {
         let user = AuthenticatedUser {
-            id: "user-1".to_string(),
+            sub: "user-1".to_string(),
             role: "member".to_string(),
             tenant_id: None,
         };
@@ -706,7 +706,7 @@ mod auth_tests {
             "admin".to_string(),
         );
         let user = store.lookup("sk-test-key").unwrap();
-        assert_eq!(user.id, "user-1");
+        assert_eq!(user.sub, "user-1");
         assert_eq!(user.role, "admin");
     }
 

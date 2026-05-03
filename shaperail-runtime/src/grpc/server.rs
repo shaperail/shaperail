@@ -195,7 +195,7 @@ fn extract_user_from_headers(
         return None;
     }
     Some(AuthenticatedUser {
-        id: claims.sub,
+        sub: claims.sub,
         role: claims.role,
         tenant_id: None,
     })
@@ -410,7 +410,7 @@ mod tests {
         let user = extract_user_from_headers(&headers, Some(&jwt));
         assert!(user.is_some());
         let user = user.unwrap();
-        assert_eq!(user.id, "user-1");
+        assert_eq!(user.sub, "user-1");
         assert_eq!(user.role, "admin");
     }
 

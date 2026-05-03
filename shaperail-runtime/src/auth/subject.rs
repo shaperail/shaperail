@@ -33,7 +33,8 @@ use super::extractor::AuthenticatedUser;
 /// ```
 #[derive(Debug, Clone)]
 pub struct Subject {
-    pub id: String,
+    /// The JWT `sub` claim — opaque per RFC 7519. See `AuthenticatedUser::sub`.
+    pub sub: String,
     pub role: String,
     pub tenant_id: Option<String>,
 }
@@ -106,7 +107,7 @@ impl Subject {
 impl From<&AuthenticatedUser> for Subject {
     fn from(user: &AuthenticatedUser) -> Self {
         Self {
-            id: user.id.clone(),
+            sub: user.sub.clone(),
             role: user.role.clone(),
             tenant_id: user.tenant_id.clone(),
         }
@@ -125,7 +126,7 @@ mod tests {
 
     fn super_admin() -> Subject {
         Subject {
-            id: "u1".into(),
+            sub: "u1".into(),
             role: "super_admin".into(),
             tenant_id: None,
         }
@@ -133,7 +134,7 @@ mod tests {
 
     fn member(tenant: &str) -> Subject {
         Subject {
-            id: "u2".into(),
+            sub: "u2".into(),
             role: "member".into(),
             tenant_id: Some(tenant.into()),
         }
@@ -141,7 +142,7 @@ mod tests {
 
     fn member_no_tenant() -> Subject {
         Subject {
-            id: "u3".into(),
+            sub: "u3".into(),
             role: "member".into(),
             tenant_id: None,
         }
@@ -218,7 +219,7 @@ mod tests {
     #[test]
     fn is_super_admin_false_for_admin_role() {
         let s = Subject {
-            id: "u1".into(),
+            sub: "u1".into(),
             role: "admin".into(),
             tenant_id: Some("org-1".into()),
         };
@@ -229,7 +230,7 @@ mod tests {
     fn empty_string_tenant_id_treated_as_missing() {
         // tenant_id = Some("") is semantically "not set"
         let s = Subject {
-            id: "u1".into(),
+            sub: "u1".into(),
             role: "member".into(),
             tenant_id: Some(String::new()),
         };
@@ -256,12 +257,12 @@ mod tests {
         use super::super::extractor::AuthenticatedUser;
 
         let user = AuthenticatedUser {
-            id: "u-99".into(),
+            sub: "u-99".into(),
             role: "viewer".into(),
             tenant_id: Some("org-42".into()),
         };
         let subject = Subject::from(user);
-        assert_eq!(subject.id, "u-99");
+        assert_eq!(subject.sub, "u-99");
         assert_eq!(subject.role, "viewer");
         assert_eq!(subject.tenant_id.as_deref(), Some("org-42"));
     }
@@ -270,7 +271,7 @@ mod tests {
     fn subject_clone() {
         let s = member("org-1");
         let c = s.clone();
-        assert_eq!(c.id, s.id);
+        assert_eq!(c.sub, s.sub);
         assert_eq!(c.role, s.role);
         assert_eq!(c.tenant_id, s.tenant_id);
     }
@@ -279,7 +280,7 @@ mod tests {
     fn assert_tenant_match_empty_string_record_tenant() {
         // Even if record_tenant is empty, it must match if subject tenant is also empty
         let s = Subject {
-            id: "u1".into(),
+            sub: "u1".into(),
             role: "super_admin".into(),
             tenant_id: None,
         };
