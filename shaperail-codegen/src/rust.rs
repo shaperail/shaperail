@@ -221,15 +221,12 @@ fn collect_controller_hooks(resources: &[ResourceDefinition]) -> Vec<(&str, Vec<
                     eps.iter()
                         .filter_map(|(_, ep)| ep.controller.as_ref())
                         .flat_map(|c| {
-                            let before = c
-                                .before
-                                .as_deref()
-                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX));
-                            let after = c
-                                .after
-                                .as_deref()
-                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX));
-                            [before, after].into_iter().flatten()
+                            c.before_names()
+                                .iter()
+                                .chain(c.after_names().iter())
+                                .map(String::as_str)
+                                .filter(|s| !s.starts_with(shaperail_core::WASM_HOOK_PREFIX))
+                                .collect::<Vec<_>>()
                         })
                         .collect()
                 })
