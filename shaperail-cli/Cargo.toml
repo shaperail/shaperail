@@ -29,6 +29,13 @@ redis = { workspace = true }
 deadpool-redis = { workspace = true }
 sqlx = { workspace = true }
 
+[features]
+default = []
+# Build the CLI against shaperail-codegen's saphyr-based parser so that
+# `shaperail check --json` carries source spans on diagnostics. Off by
+# default; opt in with --features saphyr-spans.
+saphyr-spans = ["shaperail-codegen/saphyr-spans"]
+
 [dev-dependencies]
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
