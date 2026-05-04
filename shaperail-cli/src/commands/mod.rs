@@ -3,6 +3,7 @@ pub mod check;
 pub mod diff;
 pub mod doctor;
 pub mod explain;
+pub mod explain_format;
 pub mod export;
 pub mod generate;
 pub mod init;
