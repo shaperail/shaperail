@@ -2,7 +2,9 @@ pub mod config_parser;
 pub mod diagnostics {
     mod inner;
     pub mod registry;
+    pub mod types;
     pub use inner::*;
+    pub use types::{Diagnostic, Span};
 }
 pub mod feature_check;
 pub mod json_schema;

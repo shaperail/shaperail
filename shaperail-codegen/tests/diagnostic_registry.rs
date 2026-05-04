@@ -1,4 +1,6 @@
 use shaperail_codegen::diagnostics::registry::{Severity, REGISTRY};
+use shaperail_codegen::diagnostics::{Diagnostic, Span};
+use std::path::PathBuf;
 
 #[test]
 fn registry_has_every_code_emitted_today() {
@@ -50,4 +52,60 @@ fn lookup_returns_none_for_unknown_code() {
     use shaperail_codegen::diagnostics::registry::lookup;
     assert!(lookup("SR999").is_none());
     assert!(lookup("").is_none());
+}
+
+#[test]
+fn diagnostic_carries_optional_span() {
+    let d = Diagnostic::error(
+        "SR001",
+        "empty resource name",
+        "set `resource:` to a snake_case plural",
+        "resource: users",
+    );
+    assert_eq!(d.code, "SR001");
+    assert!(d.span.is_none(), "default constructor leaves span None");
+
+    let d = d.with_span(Span {
+        file: PathBuf::from("users.yaml"),
+        line: 3,
+        col: 1,
+        end_line: 3,
+        end_col: 1,
+    });
+    assert!(d.span.is_some());
+
+    // doc_url comes from the registry, populated by `error()` constructor.
+    assert_eq!(
+        d.doc_url.as_deref(),
+        Some("https://shaperail.io/errors/SR001.html"),
+    );
+}
+
+#[test]
+fn diagnostic_serializes_new_fields_to_json() {
+    let d =
+        Diagnostic::error("SR001", "empty resource name", "fix...", "example...").with_span(Span {
+            file: PathBuf::from("u.yaml"),
+            line: 2,
+            col: 4,
+            end_line: 2,
+            end_col: 9,
+        });
+
+    let s = serde_json::to_string(&d).unwrap();
+    assert!(s.contains("\"line\":2"), "json missing line: {}", s);
+    assert!(s.contains("\"col\":4"));
+    assert!(s.contains("\"severity\":\"error\""));
+    assert!(s.contains("\"doc_url\""));
+}
+
+#[test]
+fn diagnostic_without_span_omits_span_in_json() {
+    let d = Diagnostic::error("SR001", "x", "y", "z");
+    let v: serde_json::Value = serde_json::to_value(&d).unwrap();
+    assert!(
+        v.get("span").is_none_or(|s| s.is_null()),
+        "span should be null/absent when not set: {}",
+        v,
+    );
 }
