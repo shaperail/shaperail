@@ -396,9 +396,96 @@ impl EndpointSpec {
     }
 }
 
+/// Converts an Express-style path (with `:param` segments) to a brace-style
+/// path (with `{param}` segments) used by Actix-router and OpenAPI 3.1.
+///
+/// A `:param` segment is recognised when the colon is followed by a Rust-like
+/// identifier (`[A-Za-z_][A-Za-z0-9_]*`). Any colon not followed by an
+/// identifier character is left untouched.
+///
+/// Examples:
+/// - `/users/:id` → `/users/{id}`
+/// - `/vendors/:vendor_id/webhook/:token` → `/vendors/{vendor_id}/webhook/{token}`
+/// - `/literal:colon` → `/literal:colon` (colon not followed by identifier)
+pub fn to_brace_path(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let mut out = String::with_capacity(path.len() + 4);
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b':' && i + 1 < bytes.len() && is_ident_start(bytes[i + 1]) {
+            let start = i + 1;
+            let mut end = start + 1;
+            while end < bytes.len() && is_ident_continue(bytes[end]) {
+                end += 1;
+            }
+            out.push('{');
+            // SAFETY: we only consumed ASCII identifier bytes.
+            out.push_str(&path[start..end]);
+            out.push('}');
+            i = end;
+        } else {
+            // Push one UTF-8 char from the original string, advancing `i` by
+            // its byte length. (`bytes[i]` is the leading byte; multibyte
+            // chars are not identifier bytes anyway, so this branch handles
+            // them transparently.)
+            let ch = path[i..].chars().next().expect("non-empty remainder");
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
+#[inline]
+fn is_ident_start(b: u8) -> bool {
+    b.is_ascii_alphabetic() || b == b'_'
+}
+
+#[inline]
+fn is_ident_continue(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn to_brace_path_id_only() {
+        assert_eq!(to_brace_path("/users/:id"), "/users/{id}");
+    }
+
+    #[test]
+    fn to_brace_path_multiple_named_params() {
+        assert_eq!(
+            to_brace_path("/vendors/:vendor_id/webhook/:webhook_path_token"),
+            "/vendors/{vendor_id}/webhook/{webhook_path_token}"
+        );
+    }
+
+    #[test]
+    fn to_brace_path_no_params() {
+        assert_eq!(to_brace_path("/users"), "/users");
+        assert_eq!(to_brace_path(""), "");
+    }
+
+    #[test]
+    fn to_brace_path_leaves_non_identifier_colons_alone() {
+        // A bare `:` not followed by an identifier byte is part of the literal path.
+        assert_eq!(to_brace_path("/a:/b"), "/a:/b");
+        assert_eq!(to_brace_path("/a/:/b"), "/a/:/b");
+    }
+
+    #[test]
+    fn to_brace_path_underscore_and_digits_in_param() {
+        assert_eq!(to_brace_path("/x/:_param/y"), "/x/{_param}/y");
+        assert_eq!(to_brace_path("/x/:p1/y"), "/x/{p1}/y");
+    }
+
+    #[test]
+    fn to_brace_path_consecutive_params() {
+        assert_eq!(to_brace_path("/:a/:b"), "/{a}/{b}");
+    }
 
     #[test]
     fn http_method_display() {
