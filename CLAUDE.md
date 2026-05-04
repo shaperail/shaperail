@@ -143,6 +143,17 @@ docker compose up -d             # start dev postgres + redis
 docker compose down              # stop dev services
 ```
 
+## Disk hygiene
+
+`target/` for this workspace grows to **80–100 GB** of incremental compilation artifacts after a few weeks of normal work. Mahin's machine has hit 100% disk at least once because of it. Manage it deliberately:
+
+- **Do NOT `cargo clean` after every task.** Cold rebuilds take 3–5 minutes; deleting artifacts after each interactive task makes every subsequent session miserable. Incremental compilation is the whole point of `target/`.
+- **Run `cargo clean` at the end of a feature/PR cycle** — i.e. after the PR is merged (or the branch is abandoned), before switching to unrelated work. This is the natural breakpoint where the cache for that branch stops paying its keep.
+- **For periodic pruning between PRs**, use `cargo sweep -t 14` (install once with `cargo install cargo-sweep`). It removes artifacts not touched in the last 14 days while keeping the active hot cache, so the next build is still incremental.
+- **Always check disk before long builds.** `df -h /Users/Mahin | tail -1` — if `Avail` is under ~10 GB, clean before you build, not after a build fails halfway with `No space left on device`.
+
+The shared registry under `~/.cargo/registry` and `~/.cargo/git` also grows over time; `cargo cache --autoclean` (from `cargo-cache`) trims it without breaking concurrent builds.
+
 ## AI-Native CLI Commands
 ```bash
 shaperail check [path] --json    # structured diagnostics with error codes + fix suggestions
