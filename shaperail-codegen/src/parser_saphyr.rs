@@ -117,9 +117,10 @@ fn walk_node(node: &MarkedYaml<'_>, path: &str, map: &mut SpanMap) -> serde_yaml
         end.col() as u32 + 1
     };
 
-    if !path.is_empty() {
-        map.insert(path, line, col, end_line, end_col);
-    }
+    // Insert the value span at this path. For the root document the path is ""
+    // (empty string); that entry is useful for whole-document diagnostics such
+    // as "schema is missing" where no deeper path is available.
+    map.insert(path, line, col, end_line, end_col);
 
     match &node.data {
         YamlData::Value(scalar) => scalar_to_serde(scalar),
@@ -150,17 +151,9 @@ fn walk_node(node: &MarkedYaml<'_>, path: &str, map: &mut SpanMap) -> serde_yaml
                     _ => continue,
                 };
 
-                // Record key node span.
-                let k_start = k.span.start;
-                let k_end = k.span.end;
-                let k_line = k_start.line() as u32;
-                let k_col = k_start.col() as u32 + 1;
-                let k_end_line = k_end.line() as u32;
-                let k_end_col = if k_end.line() == 0 && k_end.col() == 0 {
-                    k_col
-                } else {
-                    k_end.col() as u32 + 1
-                };
+                // Key-span insertion is intentionally omitted. The SpanMap
+                // convention is value-first: every entry is the span of the
+                // value at the named path, not the span of the key token.
 
                 let key_path = if path.is_empty() {
                     key_str.clone()
@@ -168,18 +161,10 @@ fn walk_node(node: &MarkedYaml<'_>, path: &str, map: &mut SpanMap) -> serde_yaml
                     format!("{path}.{key_str}")
                 };
 
-                // Insert key span under <path> (e.g. "resource", "schema.email").
-                map.insert(&key_path, k_line, k_col, k_end_line, k_end_col);
-
-                // Walk value node under <path>.<key> (e.g. "resource.value",
-                // "schema.email.type"). We append ".value" only for scalars to
-                // avoid path collisions; for collections the path itself is the
-                // container.
-                let value_path = match &v.data {
-                    YamlData::Mapping(_) | YamlData::Sequence(_) => key_path.clone(),
-                    _ => format!("{key_path}.__value"),
-                };
-                let serde_val = walk_node(v, &value_path, map);
+                // Walk value node under <path>.<key> (e.g. "resource",
+                // "schema.email"). walk_node inserts the value's own span at
+                // key_path before recursing, so no extra insert is needed here.
+                let serde_val = walk_node(v, &key_path, map);
 
                 out.insert(serde_yaml::Value::String(key_str), serde_val);
             }

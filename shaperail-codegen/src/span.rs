@@ -1,5 +1,16 @@
 //! Path-indexed spans. Field paths use dot notation (`schema.email.type`)
 //! mirroring how diagnostics name fields in their `error` strings.
+//!
+//! ## Convention
+//!
+//! Every entry is the span of the **value** at the named field path. A
+//! `lookup("schema.email")` returns the position of the `email` field's
+//! value (the inline mapping or scalar), not the position of the `email:`
+//! key token. Diagnostics consumed by users are about value content, not
+//! key tokens, so the lookup contract is value-first.
+//!
+//! Mapping-key spans are not stored. If a future caller needs them, add a
+//! parallel `key_spans` field — do not overload the value paths.
 
 use crate::diagnostics::Span;
 use std::collections::HashMap;
