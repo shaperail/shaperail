@@ -4196,6 +4196,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "recipe-file-upload"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "shaperail-core",
+ "shaperail-runtime",
+ "tokio",
+]
+
+[[package]]
 name = "recipe-paginated-list-with-filters"
 version = "0.0.0"
 dependencies = [

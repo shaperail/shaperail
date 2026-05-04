@@ -4,6 +4,7 @@ members = [
     "shaperail-codegen",
     "shaperail-runtime",
     "shaperail-cli",
+    "examples/recipes/file_upload",
     "examples/recipes/paginated_list_with_filters",
 ]
 resolver = "2"
