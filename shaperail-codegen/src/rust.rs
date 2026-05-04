@@ -1182,19 +1182,33 @@ fn generate_insert_declaration(
     );
 
     let expression = match (field_is_required(field), field.default.as_ref()) {
-        (true, Some(default)) => format!(
-            "match {parsed} {{ Some(value) => value, None => {} }}",
-            default_expression(field_name, field, default)?
-        ),
+        (true, Some(default)) => {
+            let default_expr = default_expression(field_name, field, default)?;
+            // For bare literal defaults (currently only Boolean), emit the
+            // idiomatic `.unwrap_or(...)` form so codegen output is clean
+            // under `clippy::manual_unwrap_or`. Other field types either go
+            // through `parse_embedded_json::<…>(…)?` (whose `?` exempts the
+            // match from the lint) or `.to_string()` (whose function call
+            // exempts it), so the explicit `match` stays correct for those.
+            if default_is_bare_literal(field) {
+                format!("{parsed}.unwrap_or({default_expr})")
+            } else {
+                format!("match {parsed} {{ Some(value) => value, None => {default_expr} }}")
+            }
+        }
         (true, None) => format!("shaperail_runtime::db::require_field({parsed}, {field_name:?})?"),
         (false, Some(default)) if model_field_is_optional(field) => format!(
             "match {parsed} {{ Some(value) => Some(value), None => Some({}) }}",
             default_expression(field_name, field, default)?
         ),
-        (false, Some(default)) => format!(
-            "match {parsed} {{ Some(value) => value, None => {} }}",
-            default_expression(field_name, field, default)?
-        ),
+        (false, Some(default)) => {
+            let default_expr = default_expression(field_name, field, default)?;
+            if default_is_bare_literal(field) {
+                format!("{parsed}.unwrap_or({default_expr})")
+            } else {
+                format!("match {parsed} {{ Some(value) => value, None => {default_expr} }}")
+            }
+        }
         (false, None) => parsed,
     };
 
@@ -1363,6 +1377,17 @@ fn generated_value_expression(field: &FieldSchema) -> String {
         }
         _ => "Default::default()".to_string(),
     }
+}
+
+/// Whether `default_expression` for this field type produces a bare Rust
+/// literal — i.e. an expression with no `?` and no function/method call.
+///
+/// Used by `generate_insert_declaration` to decide whether to emit the
+/// idiomatic `.unwrap_or(default)` form (clippy-clean) or the explicit
+/// `match` form (necessary when the default contains `?` to propagate the
+/// outer function's error).
+fn default_is_bare_literal(field: &FieldSchema) -> bool {
+    matches!(field.field_type, FieldType::Boolean)
 }
 
 fn default_expression(
@@ -1612,6 +1637,85 @@ mod tests {
 
         assert!(project.mod_rs.contains("pub mod users;"));
         assert!(project.mod_rs.contains("build_store_registry"));
+    }
+
+    #[test]
+    fn boolean_default_emits_unwrap_or_form() {
+        // Regression test for clippy::manual_unwrap_or in generated code:
+        // a Boolean field with a literal default should expand to
+        // `parse_optional_json(...)?.unwrap_or(true)` rather than the
+        // explicit `match ... { Some(v) => v, None => true }` form, which
+        // clippy 1.94 flags by default.
+        let mut resource = sample_resource();
+        resource.schema.insert(
+            "is_active".to_string(),
+            FieldSchema {
+                field_type: FieldType::Boolean,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: Some(serde_json::json!(true)),
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+
+        let code = generate_resource_module(&resource).unwrap();
+
+        assert!(
+            code.contains(".unwrap_or(true)"),
+            "boolean default should emit `.unwrap_or(true)` form; got:\n{code}"
+        );
+        assert!(
+            !code.contains("Some(value) => value, None => true"),
+            "boolean default should NOT keep the manual match form; got:\n{code}"
+        );
+    }
+
+    #[test]
+    fn string_default_keeps_match_form() {
+        // String defaults expand to `"x".to_string()`, which carries a method
+        // call. Clippy's `manual_unwrap_or` does not flag the match form when
+        // the None arm is a method call (it would suggest `or_fun_call`
+        // instead, which is a separate concern). Keep the match form so we
+        // don't introduce eager allocation in the hot path.
+        let mut resource = sample_resource();
+        resource.schema.insert(
+            "tier".to_string(),
+            FieldSchema {
+                field_type: FieldType::String,
+                primary: false,
+                generated: false,
+                required: true,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: Some(serde_json::json!("standard")),
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+
+        let code = generate_resource_module(&resource).unwrap();
+        assert!(
+            code.contains("Some(value) => value, None => \"standard\".to_string()"),
+            "string default should keep the explicit match form; got:\n{code}"
+        );
     }
 
     #[test]
