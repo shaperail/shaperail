@@ -5,6 +5,7 @@ members = [
     "shaperail-runtime",
     "shaperail-cli",
     "examples/recipes/file_upload",
+    "examples/recipes/multi_tenant_rls",
     "examples/recipes/paginated_list_with_filters",
 ]
 resolver = "2"

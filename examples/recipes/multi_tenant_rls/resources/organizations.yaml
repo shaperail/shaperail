@@ -1,0 +1,28 @@
+resource: organizations
+version: 1
+
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  name:       { type: string, min: 1, max: 200, required: true }
+  plan:       { type: enum, values: [free, pro, enterprise], default: free }
+  created_at: { type: timestamp, generated: true }
+  updated_at: { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    auth: [admin]
+    pagination: cursor
+
+  get:
+    auth: [admin]
+
+  create:
+    auth: [admin]
+    input: [name, plan]
+
+  update:
+    auth: [admin]
+    input: [name, plan]
+
+  delete:
+    auth: [admin]

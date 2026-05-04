@@ -4206,6 +4206,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "recipe-multi-tenant-rls"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "shaperail-core",
+ "shaperail-runtime",
+ "tokio",
+]
+
+[[package]]
 name = "recipe-paginated-list-with-filters"
 version = "0.0.0"
 dependencies = [
