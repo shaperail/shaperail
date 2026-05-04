@@ -67,3 +67,22 @@ fn saphyr_matches_serde_yaml_on_users_archetype() {
         "obsolete __value suffix still present; lookup contract should be value-first",
     );
 }
+
+#[test]
+fn diagnostics_carry_spans_when_saphyr_is_used() {
+    // Use a fixture that triggers a known diagnostic with a known field path.
+    let yaml = r#"resource: ""
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true }
+"#;
+    let (rd, span_map) = shaperail_codegen::parser_saphyr::parse_with_spans(yaml).unwrap();
+    let diags = shaperail_codegen::diagnostics::diagnose_resource_with_spans(&rd, &span_map);
+
+    let sr001 = diags
+        .iter()
+        .find(|d| d.code == "SR001")
+        .expect("expected SR001");
+    let span = sr001.span.as_ref().expect("SR001 should carry a span");
+    assert_eq!(span.line, 1, "expected line 1 for resource: at top of file");
+}

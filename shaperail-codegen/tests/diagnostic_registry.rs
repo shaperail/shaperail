@@ -6,13 +6,15 @@ use std::path::PathBuf;
 fn registry_has_every_code_emitted_today() {
     let codes: Vec<&'static str> = REGISTRY.iter().map(|e| e.code).collect();
 
-    // Sanity: 42 codes today (all codes emitted by shaperail-codegen/src/diagnostics.rs).
-    // SR000 (YAML parse error, emitted in shaperail-cli) and SR100 (legacy INT/BIGINT drift
-    // warning, also in shaperail-cli) are NOT in this registry — they live in cli's check.rs.
+    // Sanity: 43 codes today.
+    // SR000 (YAML parse error, emitted in shaperail-cli) is now in the registry so that
+    // Diagnostic::error("SR000", ...) does not trigger the debug-assert. SR100 (legacy
+    // INT/BIGINT drift warning) is still NOT in the registry — it is emitted as a raw
+    // JSON value, not via Diagnostic::error.
     // If you add or remove a code, update this number and the registry in the same commit.
     assert_eq!(
         codes.len(),
-        42,
+        43,
         "registry size drifted; update both registry and this assertion"
     );
 

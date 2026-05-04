@@ -1,4 +1,5 @@
 use crate::diagnostics::types::Diagnostic;
+use crate::span::SpanMap;
 use shaperail_core::{FieldType, HttpMethod, ResourceDefinition, WASM_HOOK_PREFIX};
 
 impl std::fmt::Display for Diagnostic {
@@ -548,6 +549,39 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
     }
 
     diags
+}
+
+/// Identical to `diagnose_resource`, but attaches Span data from the
+/// SpanMap by looking up each diagnostic's field path. For v0.14.x only
+/// root-level codes (SR001-SR005) get spans; per-field codes still emit
+/// without spans.
+pub fn diagnose_resource_with_spans(rd: &ResourceDefinition, spans: &SpanMap) -> Vec<Diagnostic> {
+    let mut diags = diagnose_resource(rd);
+    for d in &mut diags {
+        if let Some(path) = field_path_for(d.code, rd) {
+            if let Some(span) = spans.lookup(&path) {
+                d.span = Some(span);
+            }
+        }
+    }
+    diags
+}
+
+/// Map a diagnostic code to the dotted field path it concerns. Codes that
+/// inherently concern a top-level container (SR003 schema-empty, SR004
+/// no-primary-key, SR005 multiple-primary-keys) point at the schema
+/// container. SR001 (empty resource name) and SR002 (invalid version)
+/// point at their respective top-level fields. Per-field codes (SR010+)
+/// require knowing the offending field name, which today is encoded in
+/// the diagnostic's `error` string but not yet structurally carried —
+/// they return None for now and will be enriched in a follow-up.
+fn field_path_for(code: &str, _rd: &ResourceDefinition) -> Option<String> {
+    match code {
+        "SR001" => Some("resource".into()),
+        "SR002" => Some("version".into()),
+        "SR003" | "SR004" | "SR005" => Some("schema".into()),
+        _ => None,
+    }
 }
 
 fn diagnose_controller_name(

@@ -18,10 +18,14 @@ pub struct RegistryEntry {
     pub severity: Severity,
 }
 
-/// The canonical table of all SR* diagnostic codes emitted by `shaperail-codegen`.
+/// The canonical table of all SR* diagnostic codes emitted by `shaperail-codegen`
+/// and `shaperail-cli`.
 ///
-/// Codes SR000 (YAML parse error) and SR100 (legacy INT/BIGINT drift) are emitted by
-/// `shaperail-cli` rather than this crate and are therefore NOT listed here.
+/// SR000 (YAML parse error) is emitted by `shaperail-cli` check.rs and is listed here
+/// so that `Diagnostic::error("SR000", ...)` does not trigger the debug-assert for
+/// unregistered codes. SR100 (legacy INT/BIGINT drift warning) is also emitted by
+/// `shaperail-cli` and is NOT listed here — it is constructed directly as a JSON value,
+/// not via `Diagnostic::error`.
 ///
 /// Keep this table sorted by code. Codes are also clustered by SR-decade
 /// (SR0x = schema/field, SR2x = endpoint/inputs, SR3x = filters/cache, SR4x = controllers,
@@ -31,6 +35,11 @@ pub struct RegistryEntry {
 /// When adding a new emission site in `inner.rs`, add a corresponding entry here in the
 /// same commit (enforced by the `diagnostic_registry` integration test).
 pub const REGISTRY: &[RegistryEntry] = &[
+    RegistryEntry {
+        code: "SR000",
+        summary: "YAML parse error",
+        severity: Severity::Error,
+    },
     RegistryEntry {
         code: "SR001",
         summary: "resource name must not be empty",
