@@ -30,23 +30,23 @@ pub fn run(path: &Path, json_output: bool) -> i32 {
     let mut parsed: Vec<ResourceDefinition> = Vec::new();
 
     for file in &files {
-        let diags = match shaperail_codegen::parser::diagnose_file(file) {
-            Ok(d) => d,
+        let (rd_opt, diags) = match shaperail_codegen::parser::diagnose_file(file) {
+            Ok((rd, diags)) => (Some(rd), diags),
             Err(e) => {
                 // Parse error → emit a single SR000 diagnostic, same shape as today.
-                vec![shaperail_codegen::diagnostics::Diagnostic::error(
+                let diags = vec![shaperail_codegen::diagnostics::Diagnostic::error(
                     "SR000",
                     format!("YAML parse error in {}: {}", file.display(), e),
-                    "fix the YAML syntax error in the file",
-                    "<see error message above>",
-                )]
+                    "fix the YAML syntax error — check for unbalanced braces, wrong indentation, or missing required keys",
+                    "resource: example\nversion: 1\nschema:\n  id: { type: uuid, primary: true, generated: true }",
+                )];
+                (None, diags)
             }
         };
 
-        // For the cross-resource drift check we still need parsed ResourceDefinitions.
-        // Re-parse (cheaply, serde_yaml) when the diagnose path succeeded.
-        if diags.iter().all(|d| d.code != "SR000") {
-            if let Ok(rd) = shaperail_codegen::parser::parse_resource_file(file) {
+        // Collect successfully-parsed ResourceDefinitions for the cross-resource drift check.
+        if !diags.iter().any(|d| d.code == "SR000") {
+            if let Some(rd) = rd_opt {
                 parsed.push(rd);
             }
         }

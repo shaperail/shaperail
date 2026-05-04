@@ -76,26 +76,41 @@ pub fn parse_resource_file(path: &std::path::Path) -> Result<ResourceDefinition,
 /// Parse and diagnose a resource file. When the `saphyr-spans` feature is
 /// enabled and the file parses cleanly under saphyr, diagnostics carry
 /// source spans for root-level codes. Otherwise spans are absent.
+///
+/// Returns the parsed ResourceDefinition along with the diagnostics so
+/// callers don't have to re-parse the file for additional analysis.
 pub fn diagnose_file(
     path: &std::path::Path,
-) -> Result<Vec<crate::diagnostics::Diagnostic>, ParseError> {
+) -> Result<
+    (
+        shaperail_core::ResourceDefinition,
+        Vec<crate::diagnostics::Diagnostic>,
+    ),
+    ParseError,
+> {
     let yaml = std::fs::read_to_string(path).map_err(ParseError::from)?;
 
     #[cfg(feature = "saphyr-spans")]
     {
-        if let Ok((rd, spans)) =
-            crate::parser_saphyr::parse_with_spans_in_file(&yaml, path.to_path_buf())
-        {
-            return Ok(crate::diagnostics::diagnose_resource_with_spans(
-                &rd, &spans,
-            ));
+        match crate::parser_saphyr::parse_with_spans_in_file(&yaml, path.to_path_buf()) {
+            Ok((rd, spans)) => {
+                let diags = crate::diagnostics::diagnose_resource_with_spans(&rd, &spans);
+                return Ok((rd, diags));
+            }
+            Err(_saphyr_err) => {
+                // Fall through to serde_yaml. If both parsers fail, the
+                // serde_yaml error is what's surfaced — usually more
+                // readable. The saphyr-side message is dropped, which is
+                // a deliberate trade-off; revisit if span-parser failures
+                // need user-visible diagnostics in their own right.
+            }
         }
-        // Fall through to serde_yaml on saphyr error — preserves current behavior.
     }
 
     let rd: shaperail_core::ResourceDefinition =
         serde_yaml::from_str(&yaml).map_err(ParseError::from)?;
-    Ok(crate::diagnostics::diagnose_resource(&rd))
+    let diags = crate::diagnostics::diagnose_resource(&rd);
+    Ok((rd, diags))
 }
 
 #[cfg(test)]
