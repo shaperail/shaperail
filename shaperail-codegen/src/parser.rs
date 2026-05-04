@@ -27,6 +27,21 @@ pub enum ParseError {
     },
 }
 
+/// Parse a resource definition from a YAML string using the default
+/// (serde_yaml) parser. Used by tests and tooling that already have the
+/// YAML in memory. Endpoint defaults are NOT applied; use [`parse_resource`]
+/// if you need them.
+pub fn parse_resource_str(yaml: &str) -> Result<ResourceDefinition, ParseError> {
+    if yaml.contains("type: bigint") {
+        return Err(ParseError::RemovedType {
+            code: "E_BIGINT_REMOVED",
+            message:
+                "type 'bigint' was removed in v0.13.0 — use 'integer' (now 64-bit by default).",
+        });
+    }
+    Ok(serde_yaml::from_str(yaml)?)
+}
+
 /// Parse a YAML string into a `ResourceDefinition`.
 ///
 /// After parsing, convention-based endpoint defaults are applied: for known

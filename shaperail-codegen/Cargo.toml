@@ -17,7 +17,12 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
+saphyr = { version = "0.0.6", optional = true }
 
 [dev-dependencies]
 insta = { workspace = true }
 tempfile = "3"
+
+[features]
+default = []
+saphyr-spans = ["dep:saphyr"]
