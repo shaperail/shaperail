@@ -23,9 +23,13 @@ pub struct RegistryEntry {
 /// Codes SR000 (YAML parse error) and SR100 (legacy INT/BIGINT drift) are emitted by
 /// `shaperail-cli` rather than this crate and are therefore NOT listed here.
 ///
-/// Keep this table sorted by code. When adding a new emission site in `inner.rs`, add
-/// a corresponding entry here in the same commit (enforced by the `diagnostic_registry`
-/// integration test).
+/// Keep this table sorted by code. Codes are also clustered by SR-decade
+/// (SR0x = schema/field, SR2x = endpoint/inputs, SR3x = filters/cache, SR4x = controllers,
+/// SR5x = upload, SR6x = relations, SR7x = indexes/auth/tenant/soft-delete/events/jobs,
+/// SR8x = misc); preserve clustering when adding new codes.
+///
+/// When adding a new emission site in `inner.rs`, add a corresponding entry here in the
+/// same commit (enforced by the `diagnostic_registry` integration test).
 pub const REGISTRY: &[RegistryEntry] = &[
     RegistryEntry {
         code: "SR001",

@@ -615,6 +615,7 @@ mod tests {
 
     #[test]
     fn valid_resource_produces_no_diagnostics() {
+        // Path is relative to this file; adjust if this file moves.
         let yaml = include_str!("../../../resources/users.yaml");
         let rd = parse_resource(yaml).unwrap();
         let diags = diagnose_resource(&rd);

@@ -20,12 +20,7 @@ fn registry_has_every_code_emitted_today() {
     sorted.dedup();
     assert_eq!(sorted.len(), codes.len(), "duplicate code in registry");
 
-    // Spot-check known codes.
-    for expected in ["SR001", "SR042", "SR080", "SR041"] {
-        // Note: SR042 is not a real code — this will be caught by the spot-check.
-        // Replacing with actual known codes from the codebase.
-        let _ = expected;
-    }
+    // Spot-check known codes from the actual emission sites.
     for expected in ["SR001", "SR035", "SR080", "SR075"] {
         assert!(codes.contains(&expected), "missing {expected} in registry");
     }
