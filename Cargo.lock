@@ -4196,6 +4196,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "recipe-paginated-list-with-filters"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "shaperail-core",
+ "shaperail-runtime",
+ "tokio",
+]
+
+[[package]]
 name = "redis"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

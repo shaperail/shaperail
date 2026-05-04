@@ -1,0 +1,44 @@
+resource: orders
+version: 1
+
+schema:
+  id:           { type: uuid, primary: true, generated: true }
+  customer_id:  { type: uuid, ref: customers.id, required: true }
+  status:       { type: enum, values: [pending, confirmed, shipped, delivered, cancelled], default: pending }
+  total_cents:  { type: integer, min: 0, required: true }
+  currency:     { type: string, min: 3, max: 3, default: USD }
+  placed_at:    { type: timestamp, required: true }
+  created_at:   { type: timestamp, generated: true }
+  updated_at:   { type: timestamp, generated: true }
+  deleted_at:   { type: timestamp, nullable: true }
+
+endpoints:
+  list:
+    auth: [member, admin]
+    filters: [status, customer_id]
+    search: [status]
+    pagination: cursor
+    sort: [placed_at, total_cents]
+    cache: { ttl: 60, invalidate_on: [create, update, delete] }
+
+  get:
+    auth: [member, admin]
+
+  create:
+    auth: [admin, member]
+    input: [customer_id, status, total_cents, currency, placed_at]
+
+  update:
+    auth: [admin]
+    input: [status, total_cents]
+
+  delete:
+    auth: [admin]
+    soft_delete: true
+
+relations:
+  customer: { resource: customers, type: belongs_to, key: customer_id }
+
+indexes:
+  - { fields: [customer_id, placed_at], order: desc }
+  - { fields: [status, placed_at], order: desc }
