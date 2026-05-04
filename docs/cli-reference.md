@@ -216,6 +216,48 @@ shaperail explain resources/incidents.yaml --format json | jq '.validations'
 
 For a full OpenAPI 3.1 specification, use `shaperail export openapi` instead.
 
+## check
+
+```bash
+shaperail check
+shaperail check resources/posts.yaml --json
+```
+
+Validates a resource file (or every YAML under `resources/`) and reports
+diagnostics with structured codes (`SR001`, `SR050`, ...) and fix suggestions.
+
+### --json output schema
+
+Each diagnostic in the JSON array is an object with these fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `code` | string | Stable `SR*` code. |
+| `error` | string | Human-readable error description. |
+| `fix` | string | One-sentence suggested fix. |
+| `example` | string | YAML excerpt showing a correct shape. |
+| `severity` | enum | `error` \| `warning` \| `info`. |
+| `doc_url` | string \| null | Permanent reference URL — `https://shaperail.io/errors/<code>.html`. |
+| `span` | object \| null | Source position (file/line/col/end\_line/end\_col), present when the parser provides one. |
+
+The `span` object (when present) uses **1-indexed** line and column numbers.
+`col` is a UTF-8 byte column. `end_line` and `end_col` are exclusive — a
+single-character span at line 3, column 5 is `(line: 3, col: 5, end_line: 3,
+end_col: 6)`.
+
+The full reference for each `SR*` code lives at [/errors/](errors/).
+
+### Span-aware diagnostics (saphyr-spans feature)
+
+Spans are emitted only when `shaperail-codegen` is built with the optional
+`saphyr-spans` cargo feature. Without it, `span` is always absent. With it,
+spans are attached to root-level codes (SR001-SR005) today; per-field codes
+are added in a follow-up release.
+
+The CLI binary published to crates.io builds with the feature off; build from
+source with `cargo install --path shaperail-cli --features shaperail-codegen/saphyr-spans`
+to opt in during the v0.14.x → v0.15.0 transition.
+
 ## Practical notes
 
 - `shaperail migrate` currently relies on `sqlx-cli`.
