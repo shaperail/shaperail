@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn valid_resource_produces_no_diagnostics() {
-        let yaml = include_str!("../../resources/users.yaml");
+        let yaml = include_str!("../../../resources/users.yaml");
         let rd = parse_resource(yaml).unwrap();
         let diags = diagnose_resource(&rd);
         assert!(diags.is_empty(), "Expected no diagnostics, got: {diags:?}");
