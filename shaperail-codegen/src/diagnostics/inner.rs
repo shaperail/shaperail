@@ -1,17 +1,6 @@
+use crate::diagnostics::types::Diagnostic;
+use crate::span::SpanMap;
 use shaperail_core::{FieldType, HttpMethod, ResourceDefinition, WASM_HOOK_PREFIX};
-
-/// A structured diagnostic with error code, human message, fix suggestion, and example.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct Diagnostic {
-    /// Stable error code (e.g., "SR001").
-    pub code: &'static str,
-    /// Human-readable error message.
-    pub error: String,
-    /// Suggested fix action.
-    pub fix: String,
-    /// Inline YAML example showing the correct pattern.
-    pub example: String,
-}
 
 impl std::fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -26,184 +15,174 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
     let res = &rd.resource;
 
     if res.is_empty() {
-        diags.push(Diagnostic {
-            code: "SR001",
-            error: "resource name must not be empty".into(),
-            fix: "add a snake_case plural name to the 'resource' key".into(),
-            example: "resource: users".into(),
-        });
+        diags.push(Diagnostic::error(
+            "SR001",
+            "resource name must not be empty",
+            "add a snake_case plural name to the 'resource' key",
+            "resource: users",
+        ));
     }
 
     if rd.version == 0 {
-        diags.push(Diagnostic {
-            code: "SR002",
-            error: format!("resource '{res}': version must be >= 1"),
-            fix: "set version to 1 or higher".into(),
-            example: "version: 1".into(),
-        });
+        diags.push(Diagnostic::error(
+            "SR002",
+            format!("resource '{res}': version must be >= 1"),
+            "set version to 1 or higher",
+            "version: 1",
+        ));
     }
 
     if rd.schema.is_empty() {
-        diags.push(Diagnostic {
-            code: "SR003",
-            error: format!("resource '{res}': schema must have at least one field"),
-            fix: "add at least an id field to the schema section".into(),
-            example: "schema:\n  id: { type: uuid, primary: true, generated: true }".into(),
-        });
+        diags.push(Diagnostic::error(
+            "SR003",
+            format!("resource '{res}': schema must have at least one field"),
+            "add at least an id field to the schema section",
+            "schema:\n  id: { type: uuid, primary: true, generated: true }",
+        ));
     }
 
     let primary_count = rd.schema.values().filter(|f| f.primary).count();
     if primary_count == 0 && !rd.schema.is_empty() {
-        diags.push(Diagnostic {
-            code: "SR004",
-            error: format!("resource '{res}': schema must have a primary key field"),
-            fix: "add 'primary: true' to one field (typically 'id')".into(),
-            example: "id: { type: uuid, primary: true, generated: true }".into(),
-        });
+        diags.push(Diagnostic::error(
+            "SR004",
+            format!("resource '{res}': schema must have a primary key field"),
+            "add 'primary: true' to one field (typically 'id')",
+            "id: { type: uuid, primary: true, generated: true }",
+        ));
     } else if primary_count > 1 {
-        diags.push(Diagnostic {
-            code: "SR005",
-            error: format!(
+        diags.push(Diagnostic::error(
+            "SR005",
+            format!(
                 "resource '{res}': schema must have exactly one primary key, found {primary_count}"
             ),
-            fix: "remove 'primary: true' from all fields except one".into(),
-            example: "id: { type: uuid, primary: true, generated: true }".into(),
-        });
+            "remove 'primary: true' from all fields except one",
+            "id: { type: uuid, primary: true, generated: true }",
+        ));
     }
 
     for (name, field) in &rd.schema {
         if field.field_type == FieldType::Enum && field.values.is_none() {
-            diags.push(Diagnostic {
-                code: "SR010",
-                error: format!("resource '{res}': field '{name}' is type enum but has no values"),
-                fix: format!("add 'values: [value1, value2]' to the '{name}' field"),
-                example: format!("{name}: {{ type: enum, values: [option_a, option_b] }}"),
-            });
+            diags.push(Diagnostic::error(
+                "SR010",
+                format!("resource '{res}': field '{name}' is type enum but has no values"),
+                format!("add 'values: [value1, value2]' to the '{name}' field"),
+                format!("{name}: {{ type: enum, values: [option_a, option_b] }}"),
+            ));
         }
 
         if field.field_type != FieldType::Enum && field.values.is_some() {
-            diags.push(Diagnostic {
-                code: "SR011",
-                error: format!("resource '{res}': field '{name}' has values but is not type enum"),
-                fix: format!("change the type to 'enum' or remove 'values' from '{name}'"),
-                example: format!("{name}: {{ type: enum, values: [...] }}"),
-            });
+            diags.push(Diagnostic::error(
+                "SR011",
+                format!("resource '{res}': field '{name}' has values but is not type enum"),
+                format!("change the type to 'enum' or remove 'values' from '{name}'"),
+                format!("{name}: {{ type: enum, values: [...] }}"),
+            ));
         }
 
         if field.reference.is_some() && field.field_type != FieldType::Uuid {
-            diags.push(Diagnostic {
-                code: "SR012",
-                error: format!("resource '{res}': field '{name}' has ref but is not type uuid"),
-                fix: format!("change the type of '{name}' to uuid"),
-                example: format!(
+            diags.push(Diagnostic::error(
+                "SR012",
+                format!("resource '{res}': field '{name}' has ref but is not type uuid"),
+                format!("change the type of '{name}' to uuid"),
+                format!(
                     "{name}: {{ type: uuid, ref: {}, required: true }}",
                     field.reference.as_deref().unwrap_or("resource.id")
                 ),
-            });
+            ));
         }
 
         if let Some(ref reference) = field.reference {
             if !reference.contains('.') {
-                diags.push(Diagnostic {
-                    code: "SR013",
-                    error: format!(
+                diags.push(Diagnostic::error(
+                    "SR013",
+                    format!(
                         "resource '{res}': field '{name}' ref must be in 'resource.field' format, got '{reference}'"
                     ),
-                    fix: "use 'resource_name.field_name' format for the ref value".into(),
-                    example: format!("{name}: {{ type: uuid, ref: organizations.id }}"),
-                });
+                    "use 'resource_name.field_name' format for the ref value",
+                    format!("{name}: {{ type: uuid, ref: organizations.id }}"),
+                ));
             }
         }
 
         if field.field_type == FieldType::Array && field.items.is_none() {
-            diags.push(Diagnostic {
-                code: "SR014",
-                error: format!("resource '{res}': field '{name}' is type array but has no items"),
-                fix: format!("add 'items: <element_type>' to the '{name}' field"),
-                example: format!("{name}: {{ type: array, items: string }}"),
-            });
+            diags.push(Diagnostic::error(
+                "SR014",
+                format!("resource '{res}': field '{name}' is type array but has no items"),
+                format!("add 'items: <element_type>' to the '{name}' field"),
+                format!("{name}: {{ type: array, items: string }}"),
+            ));
         }
 
         if let Some(items_spec) = &field.items {
             if items_spec.field_type == FieldType::Array {
-                diags.push(Diagnostic {
-                    code: "SR076",
-                    error: format!("resource '{res}': field '{name}' has nested array items"),
-                    fix: "change items to type: json (nested arrays are not supported)".to_string(),
-                    example: format!("{name}: {{ type: json }}"),
-                });
+                diags.push(Diagnostic::error(
+                    "SR076",
+                    format!("resource '{res}': field '{name}' has nested array items"),
+                    "change items to type: json (nested arrays are not supported)",
+                    format!("{name}: {{ type: json }}"),
+                ));
             }
             if items_spec.field_type == FieldType::Enum && items_spec.values.is_none() {
-                diags.push(Diagnostic {
-                    code: "SR077",
-                    error: format!("resource '{res}': field '{name}' enum items missing values"),
-                    fix: "add `values: [...]` to items".to_string(),
-                    example: format!(
-                        "{name}: {{ type: array, items: {{ type: enum, values: [a, b] }} }}"
-                    ),
-                });
+                diags.push(Diagnostic::error(
+                    "SR077",
+                    format!("resource '{res}': field '{name}' enum items missing values"),
+                    "add `values: [...]` to items",
+                    format!("{name}: {{ type: array, items: {{ type: enum, values: [a, b] }} }}"),
+                ));
             }
             if items_spec.format.is_some() && items_spec.field_type != FieldType::String {
-                diags.push(Diagnostic {
-                    code: "SR078",
-                    error: format!(
-                        "resource '{res}': field '{name}' items.format only valid on string"
-                    ),
-                    fix: "remove items.format or change items.type to string".to_string(),
-                    example: format!(
-                        "{name}: {{ type: array, items: {{ type: string, format: email }} }}"
-                    ),
-                });
+                diags.push(Diagnostic::error(
+                    "SR078",
+                    format!("resource '{res}': field '{name}' items.format only valid on string"),
+                    "remove items.format or change items.type to string",
+                    format!("{name}: {{ type: array, items: {{ type: string, format: email }} }}"),
+                ));
             }
             if items_spec.reference.is_some() && items_spec.field_type != FieldType::Uuid {
-                diags.push(Diagnostic {
-                    code: "SR079",
-                    error: format!(
-                        "resource '{res}': field '{name}' items.ref requires items.type uuid"
-                    ),
-                    fix: "change items.type to uuid, or remove items.ref".to_string(),
-                    example: format!(
+                diags.push(Diagnostic::error(
+                    "SR079",
+                    format!("resource '{res}': field '{name}' items.ref requires items.type uuid"),
+                    "change items.type to uuid, or remove items.ref",
+                    format!(
                         "{name}: {{ type: array, items: {{ type: uuid, ref: organizations.id }} }}"
                     ),
-                });
+                ));
             }
             if let Some(reference) = &items_spec.reference {
                 if !reference.contains('.') {
-                    diags.push(Diagnostic {
-                        code: "SR080",
-                        error: format!(
+                    diags.push(Diagnostic::error(
+                        "SR080",
+                        format!(
                             "resource '{res}': field '{name}' items.ref must be 'resource.field'"
                         ),
-                        fix: "write items.ref as 'resource_name.column_name'".to_string(),
-                        example: "items: { type: uuid, ref: organizations.id }".to_string(),
-                    });
+                        "write items.ref as 'resource_name.column_name'",
+                        "items: { type: uuid, ref: organizations.id }",
+                    ));
                 }
             }
         }
 
         if field.format.is_some() && field.field_type != FieldType::String {
-            diags.push(Diagnostic {
-                code: "SR015",
-                error: format!(
-                    "resource '{res}': field '{name}' has format but is not type string"
-                ),
-                fix: format!("change the type of '{name}' to string, or remove 'format'"),
-                example: format!(
+            diags.push(Diagnostic::error(
+                "SR015",
+                format!("resource '{res}': field '{name}' has format but is not type string"),
+                format!("change the type of '{name}' to string, or remove 'format'"),
+                format!(
                     "{name}: {{ type: string, format: {} }}",
                     field.format.as_deref().unwrap_or("email")
                 ),
-            });
+            ));
         }
 
         if field.primary && !field.generated && !field.required {
-            diags.push(Diagnostic {
-                code: "SR016",
-                error: format!(
+            diags.push(Diagnostic::error(
+                "SR016",
+                format!(
                     "resource '{res}': primary key field '{name}' must be generated or required"
                 ),
-                fix: format!("add 'generated: true' or 'required: true' to '{name}'"),
-                example: format!("{name}: {{ type: uuid, primary: true, generated: true }}"),
-            });
+                format!("add 'generated: true' or 'required: true' to '{name}'"),
+                format!("{name}: {{ type: uuid, primary: true, generated: true }}"),
+            ));
         }
     }
 
@@ -212,30 +191,28 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
         match rd.schema.get(tenant_key) {
             Some(field) => {
                 if field.field_type != FieldType::Uuid {
-                    diags.push(Diagnostic {
-                        code: "SR020",
-                        error: format!(
+                    diags.push(Diagnostic::error(
+                        "SR020",
+                        format!(
                             "resource '{res}': tenant_key '{tenant_key}' must reference a uuid field, found {}",
                             field.field_type
                         ),
-                        fix: format!("change the type of '{tenant_key}' to uuid"),
-                        example: format!(
+                        format!("change the type of '{tenant_key}' to uuid"),
+                        format!(
                             "{tenant_key}: {{ type: uuid, ref: organizations.id, required: true }}"
                         ),
-                    });
+                    ));
                 }
             }
             None => {
-                diags.push(Diagnostic {
-                    code: "SR021",
-                    error: format!(
-                        "resource '{res}': tenant_key '{tenant_key}' not found in schema"
-                    ),
-                    fix: format!("add a '{tenant_key}' uuid field to the schema"),
-                    example: format!(
+                diags.push(Diagnostic::error(
+                    "SR021",
+                    format!("resource '{res}': tenant_key '{tenant_key}' not found in schema"),
+                    format!("add a '{tenant_key}' uuid field to the schema"),
+                    format!(
                         "{tenant_key}: {{ type: uuid, ref: organizations.id, required: true }}"
                     ),
-                });
+                ));
             }
         }
     }
@@ -247,25 +224,25 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                 if let Some(before) = &controller.before {
                     let names = before.names();
                     if names.is_empty() {
-                        diags.push(Diagnostic {
-                            code: "SR063",
-                            error: format!(
+                        diags.push(Diagnostic::error(
+                            "SR063",
+                            format!(
                                 "resource '{res}': endpoint '{action}' has an empty controller.before list"
                             ),
-                            fix: "remove `before:` or list at least one hook name".into(),
-                            example: "controller: { before: [validate_currency, validate_org] }".into(),
-                        });
+                            "remove `before:` or list at least one hook name",
+                            "controller: { before: [validate_currency, validate_org] }",
+                        ));
                     }
                     for name in names {
                         if name.is_empty() {
-                            diags.push(Diagnostic {
-                                code: "SR030",
-                                error: format!(
+                            diags.push(Diagnostic::error(
+                                "SR030",
+                                format!(
                                     "resource '{res}': endpoint '{action}' has an empty controller.before name"
                                 ),
-                                fix: "provide a function name for controller.before".into(),
-                                example: "controller: { before: validate_input }".into(),
-                            });
+                                "provide a function name for controller.before",
+                                "controller: { before: validate_input }",
+                            ));
                             continue;
                         }
                         diagnose_controller_name(res, action, "before", name, &mut diags);
@@ -274,25 +251,25 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                 if let Some(after) = &controller.after {
                     let names = after.names();
                     if names.is_empty() {
-                        diags.push(Diagnostic {
-                            code: "SR063",
-                            error: format!(
+                        diags.push(Diagnostic::error(
+                            "SR063",
+                            format!(
                                 "resource '{res}': endpoint '{action}' has an empty controller.after list"
                             ),
-                            fix: "remove `after:` or list at least one hook name".into(),
-                            example: "controller: { after: [enrich_response, audit_log] }".into(),
-                        });
+                            "remove `after:` or list at least one hook name",
+                            "controller: { after: [enrich_response, audit_log] }",
+                        ));
                     }
                     for name in names {
                         if name.is_empty() {
-                            diags.push(Diagnostic {
-                                code: "SR031",
-                                error: format!(
+                            diags.push(Diagnostic::error(
+                                "SR031",
+                                format!(
                                     "resource '{res}': endpoint '{action}' has an empty controller.after name"
                                 ),
-                                fix: "provide a function name for controller.after".into(),
-                                example: "controller: { after: enrich_response }".into(),
-                            });
+                                "provide a function name for controller.after",
+                                "controller: { after: enrich_response }",
+                            ));
                             continue;
                         }
                         diagnose_controller_name(res, action, "after", name, &mut diags);
@@ -303,14 +280,14 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
             if let Some(events) = &ep.events {
                 for event in events {
                     if event.is_empty() {
-                        diags.push(Diagnostic {
-                            code: "SR032",
-                            error: format!(
+                        diags.push(Diagnostic::error(
+                            "SR032",
+                            format!(
                                 "resource '{res}': endpoint '{action}' has an empty event name"
                             ),
-                            fix: "use 'resource.action' format for event names".into(),
-                            example: format!("events: [{res}.created]"),
-                        });
+                            "use 'resource.action' format for event names",
+                            format!("events: [{res}.created]"),
+                        ));
                     }
                 }
             }
@@ -318,14 +295,12 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
             if let Some(jobs) = &ep.jobs {
                 for job in jobs {
                     if job.is_empty() {
-                        diags.push(Diagnostic {
-                            code: "SR033",
-                            error: format!(
-                                "resource '{res}': endpoint '{action}' has an empty job name"
-                            ),
-                            fix: "provide a snake_case job name".into(),
-                            example: "jobs: [send_notification]".into(),
-                        });
+                        diags.push(Diagnostic::error(
+                            "SR033",
+                            format!("resource '{res}': endpoint '{action}' has an empty job name"),
+                            "provide a snake_case job name",
+                            "jobs: [send_notification]",
+                        ));
                     }
                 }
             }
@@ -340,30 +315,30 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                 if let Some(fields) = fields {
                     for field_name in fields {
                         if !rd.schema.contains_key(field_name) {
-                            diags.push(Diagnostic {
-                                code: "SR040",
-                                error: format!(
+                            diags.push(Diagnostic::error(
+                                "SR040",
+                                format!(
                                     "resource '{res}': endpoint '{action}' {field_kind} field '{field_name}' not found in schema"
                                 ),
-                                fix: format!(
+                                format!(
                                     "add '{field_name}' to the schema, or remove it from {field_kind}"
                                 ),
-                                example: format!("{field_name}: {{ type: string, required: true }}"),
-                            });
+                                format!("{field_name}: {{ type: string, required: true }}"),
+                            ));
                         }
                     }
                 }
             }
 
             if ep.soft_delete && !rd.schema.contains_key("deleted_at") {
-                diags.push(Diagnostic {
-                    code: "SR041",
-                    error: format!(
+                diags.push(Diagnostic::error(
+                    "SR041",
+                    format!(
                         "resource '{res}': endpoint '{action}' has soft_delete but schema has no 'deleted_at' field"
                     ),
-                    fix: "add 'deleted_at: { type: timestamp, nullable: true }' to the schema".into(),
-                    example: "deleted_at: { type: timestamp, nullable: true }".into(),
-                });
+                    "add 'deleted_at: { type: timestamp, nullable: true }' to the schema",
+                    "deleted_at: { type: timestamp, nullable: true }",
+                ));
             }
 
             if let Some(upload) = &ep.upload {
@@ -371,48 +346,48 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                     *ep.method(),
                     HttpMethod::Post | HttpMethod::Patch | HttpMethod::Put
                 ) {
-                    diags.push(Diagnostic {
-                        code: "SR050",
-                        error: format!(
+                    diags.push(Diagnostic::error(
+                        "SR050",
+                        format!(
                             "resource '{res}': endpoint '{action}' uses upload but method must be POST, PATCH, or PUT"
                         ),
-                        fix: "change the method to POST, PATCH, or PUT".into(),
-                        example: "method: POST".into(),
-                    });
+                        "change the method to POST, PATCH, or PUT",
+                        "method: POST",
+                    ));
                 }
 
                 match rd.schema.get(&upload.field) {
                     Some(field) if field.field_type == FieldType::File => {}
-                    Some(_) => diags.push(Diagnostic {
-                        code: "SR051",
-                        error: format!(
+                    Some(_) => diags.push(Diagnostic::error(
+                        "SR051",
+                        format!(
                             "resource '{res}': endpoint '{action}' upload field '{}' must be type file",
                             upload.field
                         ),
-                        fix: format!("change '{}' to type file in the schema", upload.field),
-                        example: format!("{}: {{ type: file, required: true }}", upload.field),
-                    }),
-                    None => diags.push(Diagnostic {
-                        code: "SR052",
-                        error: format!(
+                        format!("change '{}' to type file in the schema", upload.field),
+                        format!("{}: {{ type: file, required: true }}", upload.field),
+                    )),
+                    None => diags.push(Diagnostic::error(
+                        "SR052",
+                        format!(
                             "resource '{res}': endpoint '{action}' upload field '{}' not found in schema",
                             upload.field
                         ),
-                        fix: format!("add '{}' as a file field in the schema", upload.field),
-                        example: format!("{}: {{ type: file, required: true }}", upload.field),
-                    }),
+                        format!("add '{}' as a file field in the schema", upload.field),
+                        format!("{}: {{ type: file, required: true }}", upload.field),
+                    )),
                 }
 
                 if !matches!(upload.storage.as_str(), "local" | "s3" | "gcs" | "azure") {
-                    diags.push(Diagnostic {
-                        code: "SR053",
-                        error: format!(
+                    diags.push(Diagnostic::error(
+                        "SR053",
+                        format!(
                             "resource '{res}': endpoint '{action}' upload storage '{}' is invalid",
                             upload.storage
                         ),
-                        fix: "use one of: local, s3, gcs, azure".into(),
-                        example: "upload: { field: file, storage: s3, max_size: 5mb }".into(),
-                    });
+                        "use one of: local, s3, gcs, azure",
+                        "upload: { field: file, storage: s3, max_size: 5mb }",
+                    ));
                 }
 
                 if !ep
@@ -420,15 +395,15 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                     .as_ref()
                     .is_some_and(|fields| fields.iter().any(|field| field == &upload.field))
                 {
-                    diags.push(Diagnostic {
-                        code: "SR054",
-                        error: format!(
+                    diags.push(Diagnostic::error(
+                        "SR054",
+                        format!(
                             "resource '{res}': endpoint '{action}' upload field '{}' must appear in input",
                             upload.field
                         ),
-                        fix: format!("add '{}' to the input array", upload.field),
-                        example: format!("input: [{}]", upload.field),
-                    });
+                        format!("add '{}' to the input array", upload.field),
+                        format!("input: [{}]", upload.field),
+                    ));
                 }
             }
 
@@ -436,26 +411,26 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
             if let Some(subs) = &ep.subscribers {
                 for (i, sub) in subs.iter().enumerate() {
                     if sub.event.is_empty() {
-                        diags.push(Diagnostic {
-                            code: "SR073",
-                            error: format!(
+                        diags.push(Diagnostic::error(
+                            "SR073",
+                            format!(
                                 "resource '{res}': endpoint '{action}' subscriber[{i}] has an empty event pattern"
                             ),
-                            fix: "provide a non-empty event pattern (e.g., \"user.created\" or \"*.deleted\")".into(),
-                            example: format!(
+                            "provide a non-empty event pattern (e.g., \"user.created\" or \"*.deleted\")",
+                            format!(
                                 "subscribers:\n  - event: {res}.created\n    handler: my_handler"
                             ),
-                        });
+                        ));
                     }
                     if sub.handler.is_empty() {
-                        diags.push(Diagnostic {
-                            code: "SR074",
-                            error: format!(
+                        diags.push(Diagnostic::error(
+                            "SR074",
+                            format!(
                                 "resource '{res}': endpoint '{action}' subscriber[{i}] has an empty handler name"
                             ),
-                            fix: "provide a non-empty handler name (e.g., \"send_welcome_email\")".into(),
-                            example: "subscribers:\n  - event: user.created\n    handler: send_welcome_email".into(),
-                        });
+                            "provide a non-empty handler name (e.g., \"send_welcome_email\")",
+                            "subscribers:\n  - event: user.created\n    handler: send_welcome_email",
+                        ));
                     }
                 }
             }
@@ -463,18 +438,18 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
             // SR075: non-convention endpoints must declare a handler
             const CONVENTIONS: &[&str] = &["list", "get", "create", "update", "delete"];
             if !CONVENTIONS.contains(&action.as_str()) && ep.handler.is_none() {
-                diags.push(Diagnostic {
-                    code: "SR075",
-                    error: format!(
+                diags.push(Diagnostic::error(
+                    "SR075",
+                    format!(
                         "resource '{res}': endpoint '{action}' is not a standard action (list/get/create/update/delete) and has no 'handler:' declared",
                     ),
-                    fix: "add a 'handler: <function_name>' field pointing to a function in resources/<resource>.controller.rs".into(),
-                    example: format!(
+                    "add a 'handler: <function_name>' field pointing to a function in resources/<resource>.controller.rs",
+                    format!(
                         "{action}:\n  method: POST\n  path: /{name}/{action}\n  auth: [admin]\n  handler: {action}_{name}",
                         action = action,
                         name = rd.resource
                     ),
-                });
+                ));
             }
         }
     }
@@ -485,17 +460,15 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
             use shaperail_core::RelationType;
 
             if rel.relation_type == RelationType::BelongsTo && rel.key.is_none() {
-                diags.push(Diagnostic {
-                    code: "SR060",
-                    error: format!(
-                        "resource '{res}': relation '{name}' is belongs_to but has no key"
-                    ),
-                    fix: format!("add 'key: {res}_id' to the relation (the local FK field)"),
-                    example: format!(
+                diags.push(Diagnostic::error(
+                    "SR060",
+                    format!("resource '{res}': relation '{name}' is belongs_to but has no key"),
+                    format!("add 'key: {res}_id' to the relation (the local FK field)"),
+                    format!(
                         "{name}: {{ resource: {}, type: belongs_to, key: {}_id }}",
                         rel.resource, rel.resource
                     ),
-                });
+                ));
             }
 
             if matches!(
@@ -503,35 +476,35 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
                 RelationType::HasMany | RelationType::HasOne
             ) && rel.foreign_key.is_none()
             {
-                diags.push(Diagnostic {
-                    code: "SR061",
-                    error: format!(
+                diags.push(Diagnostic::error(
+                    "SR061",
+                    format!(
                         "resource '{res}': relation '{name}' is {} but has no foreign_key",
                         rel.relation_type
                     ),
-                    fix: format!(
+                    format!(
                         "add 'foreign_key: {res}_id' to the relation (the FK on the related table)"
                     ),
-                    example: format!(
+                    format!(
                         "{name}: {{ resource: {}, type: {}, foreign_key: {res}_id }}",
                         rel.resource, rel.relation_type
                     ),
-                });
+                ));
             }
 
             if let Some(key) = &rel.key {
                 if !rd.schema.contains_key(key) {
-                    diags.push(Diagnostic {
-                        code: "SR062",
-                        error: format!(
+                    diags.push(Diagnostic::error(
+                        "SR062",
+                        format!(
                             "resource '{res}': relation '{name}' key '{key}' not found in schema"
                         ),
-                        fix: format!("add '{key}' as a uuid field in the schema"),
-                        example: format!(
+                        format!("add '{key}' as a uuid field in the schema"),
+                        format!(
                             "{key}: {{ type: uuid, ref: {}.id, required: true }}",
                             rel.resource
                         ),
-                    });
+                    ));
                 }
             }
         }
@@ -541,41 +514,74 @@ pub fn diagnose_resource(rd: &ResourceDefinition) -> Vec<Diagnostic> {
     if let Some(indexes) = &rd.indexes {
         for (i, idx) in indexes.iter().enumerate() {
             if idx.fields.is_empty() {
-                diags.push(Diagnostic {
-                    code: "SR070",
-                    error: format!("resource '{res}': index {i} has no fields"),
-                    fix: "add at least one field to the index".into(),
-                    example: "- { fields: [field_name] }".into(),
-                });
+                diags.push(Diagnostic::error(
+                    "SR070",
+                    format!("resource '{res}': index {i} has no fields"),
+                    "add at least one field to the index",
+                    "- { fields: [field_name] }",
+                ));
             }
             for field_name in &idx.fields {
                 if !rd.schema.contains_key(field_name) {
-                    diags.push(Diagnostic {
-                        code: "SR071",
-                        error: format!(
+                    diags.push(Diagnostic::error(
+                        "SR071",
+                        format!(
                             "resource '{res}': index {i} references field '{field_name}' not in schema"
                         ),
-                        fix: format!("add '{field_name}' to the schema, or remove it from the index"),
-                        example: format!("{field_name}: {{ type: string, required: true }}"),
-                    });
+                        format!("add '{field_name}' to the schema, or remove it from the index"),
+                        format!("{field_name}: {{ type: string, required: true }}"),
+                    ));
                 }
             }
             if let Some(order) = &idx.order {
                 if order != "asc" && order != "desc" {
-                    diags.push(Diagnostic {
-                        code: "SR072",
-                        error: format!(
+                    diags.push(Diagnostic::error(
+                        "SR072",
+                        format!(
                             "resource '{res}': index {i} has invalid order '{order}', must be 'asc' or 'desc'"
                         ),
-                        fix: "use 'asc' or 'desc' for the index order".into(),
-                        example: "- { fields: [created_at], order: desc }".into(),
-                    });
+                        "use 'asc' or 'desc' for the index order",
+                        "- { fields: [created_at], order: desc }",
+                    ));
                 }
             }
         }
     }
 
     diags
+}
+
+/// Identical to `diagnose_resource`, but attaches Span data from the
+/// SpanMap by looking up each diagnostic's field path. For v0.14.x only
+/// root-level codes (SR001-SR005) get spans; per-field codes still emit
+/// without spans.
+pub fn diagnose_resource_with_spans(rd: &ResourceDefinition, spans: &SpanMap) -> Vec<Diagnostic> {
+    let mut diags = diagnose_resource(rd);
+    for d in &mut diags {
+        if let Some(path) = field_path_for(d.code, rd) {
+            if let Some(span) = spans.lookup(&path) {
+                d.span = Some(span);
+            }
+        }
+    }
+    diags
+}
+
+/// Map a diagnostic code to the dotted field path it concerns. Codes that
+/// inherently concern a top-level container (SR003 schema-empty, SR004
+/// no-primary-key, SR005 multiple-primary-keys) point at the schema
+/// container. SR001 (empty resource name) and SR002 (invalid version)
+/// point at their respective top-level fields. Per-field codes (SR010+)
+/// require knowing the offending field name, which today is encoded in
+/// the diagnostic's `error` string but not yet structurally carried —
+/// they return None for now and will be enriched in a follow-up.
+fn field_path_for(code: &str, _rd: &ResourceDefinition) -> Option<String> {
+    match code {
+        "SR001" => Some("resource".into()),
+        "SR002" => Some("version".into()),
+        "SR003" | "SR004" | "SR005" => Some("schema".into()),
+        _ => None,
+    }
 }
 
 fn diagnose_controller_name(
@@ -587,23 +593,23 @@ fn diagnose_controller_name(
 ) {
     if let Some(wasm_path) = name.strip_prefix(WASM_HOOK_PREFIX) {
         if wasm_path.is_empty() {
-            diags.push(Diagnostic {
-                code: "SR035",
-                error: format!(
+            diags.push(Diagnostic::error(
+                "SR035",
+                format!(
                     "resource '{res}': endpoint '{action}' controller.{phase} has 'wasm:' prefix but no path"
                 ),
-                fix: "provide a .wasm file path after the 'wasm:' prefix".into(),
-                example: format!("controller: {{ {phase}: \"wasm:./plugins/validator.wasm\" }}"),
-            });
+                "provide a .wasm file path after the 'wasm:' prefix",
+                format!("controller: {{ {phase}: \"wasm:./plugins/validator.wasm\" }}"),
+            ));
         } else if !wasm_path.ends_with(".wasm") {
-            diags.push(Diagnostic {
-                code: "SR036",
-                error: format!(
+            diags.push(Diagnostic::error(
+                "SR036",
+                format!(
                     "resource '{res}': endpoint '{action}' controller.{phase} WASM path must end with '.wasm', got '{wasm_path}'"
                 ),
-                fix: "ensure the WASM plugin path ends with '.wasm'".into(),
-                example: format!("controller: {{ {phase}: \"wasm:./plugins/validator.wasm\" }}"),
-            });
+                "ensure the WASM plugin path ends with '.wasm'",
+                format!("controller: {{ {phase}: \"wasm:./plugins/validator.wasm\" }}"),
+            ));
         }
     }
 }
@@ -615,7 +621,8 @@ mod tests {
 
     #[test]
     fn valid_resource_produces_no_diagnostics() {
-        let yaml = include_str!("../../resources/users.yaml");
+        // Path is relative to this file; adjust if this file moves.
+        let yaml = include_str!("../../../resources/users.yaml");
         let rd = parse_resource(yaml).unwrap();
         let diags = diagnose_resource(&rd);
         assert!(diags.is_empty(), "Expected no diagnostics, got: {diags:?}");
@@ -653,12 +660,12 @@ schema:
 
     #[test]
     fn diagnostics_serialize_to_json() {
-        let d = Diagnostic {
-            code: "SR010",
-            error: "field 'role' is type enum but has no values".into(),
-            fix: "add values".into(),
-            example: "role: { type: enum, values: [a, b] }".into(),
-        };
+        let d = Diagnostic::error(
+            "SR010",
+            "field 'role' is type enum but has no values",
+            "add values",
+            "role: { type: enum, values: [a, b] }",
+        );
         let json = serde_json::to_string(&d).unwrap();
         assert!(json.contains("SR010"));
         assert!(json.contains("fix"));
@@ -759,12 +766,12 @@ endpoints:
 
     #[test]
     fn diagnostic_display_format() {
-        let d = Diagnostic {
-            code: "SR010",
-            error: "field 'role' is type enum but has no values".into(),
-            fix: "add values".into(),
-            example: "role: { type: enum, values: [a, b] }".into(),
-        };
+        let d = Diagnostic::error(
+            "SR010",
+            "field 'role' is type enum but has no values",
+            "add values",
+            "role: { type: enum, values: [a, b] }",
+        );
         let s = d.to_string();
         assert!(s.contains("SR010"), "Expected code in display");
         assert!(s.contains("enum"), "Expected error text in display");

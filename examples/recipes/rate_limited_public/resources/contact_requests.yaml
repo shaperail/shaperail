@@ -1,0 +1,27 @@
+resource: contact_requests
+version: 1
+
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  email:      { type: string, format: email, required: true }
+  name:       { type: string, min: 1, max: 200, required: true }
+  message:    { type: string, min: 1, max: 2000, required: true }
+  source_ip:  { type: string, max: 45, generated: true }
+  created_at: { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    auth: [admin]
+    filters: [email]
+    pagination: cursor
+
+  get:
+    auth: [admin]
+
+  create:
+    auth: public
+    input: [email, name, message]
+    rate_limit: { max_requests: 5, window_secs: 60 }
+
+  delete:
+    auth: [admin]

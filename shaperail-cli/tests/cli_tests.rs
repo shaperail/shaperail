@@ -14,6 +14,15 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
+/// Run the shaperail CLI with the given arguments from the workspace root and
+/// return the raw Output so tests can inspect stdout, stderr, and status.
+fn run_cli(args: &[&str]) -> std::process::Output {
+    let root = workspace_root();
+    let mut cmd = cargo_bin_cmd!("shaperail");
+    cmd.args(args).current_dir(&root);
+    cmd.output().expect("failed to run shaperail")
+}
+
 // --- Help output tests ---
 
 #[test]
@@ -508,5 +517,87 @@ fn scaffold_writes_llm_context_files() {
     assert!(
         ctx.contains("resource:"),
         "llm-context.md should contain resource syntax"
+    );
+}
+
+// --- Task 8: Validations section ---
+
+#[test]
+fn explain_prints_validation_rules_section() {
+    let output = run_cli(&[
+        "explain",
+        "examples/incident-platform/resources/incidents.yaml",
+    ]);
+    assert!(output.status.success(), "explain should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Validations:"),
+        "expected 'Validations:' header in output:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("title: required, min=1, max=200"),
+        "expected compact validation line for `title`:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("severity: enum [sev1, sev2, sev3, sev4]"),
+        "expected compact validation line for `severity`:\n{}",
+        stdout
+    );
+}
+
+// --- Task 9: OpenAPI fragments section ---
+
+#[test]
+fn explain_prints_openapi_fragments() {
+    let output = run_cli(&[
+        "explain",
+        "examples/incident-platform/resources/incidents.yaml",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("OpenAPI fragments:"),
+        "expected 'OpenAPI fragments:' header in:\n{}",
+        stdout
+    );
+    assert!(stdout.contains("list:"), "expected 'list:' fragment");
+    assert!(
+        stdout.contains("200:"),
+        "expected '200:' status code under list"
+    );
+    assert!(
+        stdout.contains("401:"),
+        "expected '401:' status code (auth gate)"
+    );
+}
+
+// --- Task 10: --format json ---
+
+#[test]
+fn explain_format_json_emits_valid_json() {
+    let output = run_cli(&[
+        "explain",
+        "examples/incident-platform/resources/incidents.yaml",
+        "--format",
+        "json",
+    ]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+
+    assert_eq!(v["resource"], "incidents");
+    assert!(v["routes"].is_array(), "routes should be an array");
+    assert!(
+        v["table"]["columns"].is_array(),
+        "table.columns should be an array"
+    );
+    assert!(
+        v["validations"].is_object(),
+        "validations should be an object keyed by field"
+    );
+    assert!(
+        v["openapi"].is_object(),
+        "openapi should be an object keyed by action"
     );
 }

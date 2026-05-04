@@ -27,6 +27,21 @@ pub enum ParseError {
     },
 }
 
+/// Parse a resource definition from a YAML string using the default
+/// (serde_yaml) parser. Used by tests and tooling that already have the
+/// YAML in memory. Endpoint defaults are NOT applied; use [`parse_resource`]
+/// if you need them.
+pub fn parse_resource_str(yaml: &str) -> Result<ResourceDefinition, ParseError> {
+    if yaml.contains("type: bigint") {
+        return Err(ParseError::RemovedType {
+            code: "E_BIGINT_REMOVED",
+            message:
+                "type 'bigint' was removed in v0.13.0 — use 'integer' (now 64-bit by default).",
+        });
+    }
+    Ok(serde_yaml::from_str(yaml)?)
+}
+
 /// Parse a YAML string into a `ResourceDefinition`.
 ///
 /// After parsing, convention-based endpoint defaults are applied: for known
@@ -56,6 +71,46 @@ pub fn parse_resource_file(path: &std::path::Path) -> Result<ResourceDefinition,
         file: path.display().to_string(),
         source: Box::new(e),
     })
+}
+
+/// Parse and diagnose a resource file. When the `saphyr-spans` feature is
+/// enabled and the file parses cleanly under saphyr, diagnostics carry
+/// source spans for root-level codes. Otherwise spans are absent.
+///
+/// Returns the parsed ResourceDefinition along with the diagnostics so
+/// callers don't have to re-parse the file for additional analysis.
+pub fn diagnose_file(
+    path: &std::path::Path,
+) -> Result<
+    (
+        shaperail_core::ResourceDefinition,
+        Vec<crate::diagnostics::Diagnostic>,
+    ),
+    ParseError,
+> {
+    let yaml = std::fs::read_to_string(path).map_err(ParseError::from)?;
+
+    #[cfg(feature = "saphyr-spans")]
+    {
+        match crate::parser_saphyr::parse_with_spans_in_file(&yaml, path.to_path_buf()) {
+            Ok((rd, spans)) => {
+                let diags = crate::diagnostics::diagnose_resource_with_spans(&rd, &spans);
+                return Ok((rd, diags));
+            }
+            Err(_saphyr_err) => {
+                // Fall through to serde_yaml. If both parsers fail, the
+                // serde_yaml error is what's surfaced — usually more
+                // readable. The saphyr-side message is dropped, which is
+                // a deliberate trade-off; revisit if span-parser failures
+                // need user-visible diagnostics in their own right.
+            }
+        }
+    }
+
+    let rd: shaperail_core::ResourceDefinition =
+        serde_yaml::from_str(&yaml).map_err(ParseError::from)?;
+    let diags = crate::diagnostics::diagnose_resource(&rd);
+    Ok((rd, diags))
 }
 
 #[cfg(test)]

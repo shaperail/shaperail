@@ -30,48 +30,53 @@ pub fn run(path: &Path, json_output: bool) -> i32 {
     let mut parsed: Vec<ResourceDefinition> = Vec::new();
 
     for file in &files {
-        match shaperail_codegen::parser::parse_resource_file(file) {
-            Ok(rd) => {
-                let diags = shaperail_codegen::diagnostics::diagnose_resource(&rd);
-                if diags.is_empty() {
-                    if !json_output {
-                        println!("\u{2713} {} valid", file.display());
-                    }
-                } else {
-                    has_errors = true;
-                    if json_output {
-                        for d in &diags {
-                            all_diagnostics.push(serde_json::json!({
-                                "file": file.display().to_string(),
-                                "code": d.code,
-                                "error": d.error,
-                                "fix": d.fix,
-                                "example": d.example,
-                            }));
-                        }
-                    } else {
-                        eprintln!("\u{2717} {}", file.display());
-                        for d in &diags {
-                            eprintln!("  [{}] {}", d.code, d.error);
-                            eprintln!("    Fix: {}", d.fix);
-                            eprintln!("    Example: {}", d.example);
-                        }
-                    }
-                }
+        let (rd_opt, diags) = match shaperail_codegen::parser::diagnose_file(file) {
+            Ok((rd, diags)) => (Some(rd), diags),
+            Err(e) => {
+                // Parse error → emit a single SR000 diagnostic, same shape as today.
+                let diags = vec![shaperail_codegen::diagnostics::Diagnostic::error(
+                    "SR000",
+                    format!("YAML parse error in {}: {}", file.display(), e),
+                    "fix the YAML syntax error — check for unbalanced braces, wrong indentation, or missing required keys",
+                    "resource: example\nversion: 1\nschema:\n  id: { type: uuid, primary: true, generated: true }",
+                )];
+                (None, diags)
+            }
+        };
+
+        // Collect successfully-parsed ResourceDefinitions for the cross-resource drift check.
+        if !diags.iter().any(|d| d.code == "SR000") {
+            if let Some(rd) = rd_opt {
                 parsed.push(rd);
             }
-            Err(e) => {
-                has_errors = true;
-                if json_output {
-                    all_diagnostics.push(serde_json::json!({
-                        "file": file.display().to_string(),
-                        "code": "SR000",
-                        "error": format!("YAML parse error: {e}"),
-                        "fix": "fix the YAML syntax error shown above",
-                        "example": "resource: <name>\nversion: 1\nschema:\n  id: { type: uuid, primary: true, generated: true }",
-                    }));
-                } else {
-                    eprintln!("\u{2717} {}: {e}", file.display());
+        }
+
+        if diags.is_empty() {
+            if !json_output {
+                println!("\u{2713} {} valid", file.display());
+            }
+        } else {
+            has_errors = true;
+            if json_output {
+                for d in &diags {
+                    // Serialize the diagnostic via its own serde impl so optional
+                    // fields like `span` survive; then augment with the file path.
+                    let mut obj = serde_json::to_value(d)
+                        .unwrap_or_else(|_| serde_json::json!({"code": d.code, "error": d.error}));
+                    if let serde_json::Value::Object(map) = &mut obj {
+                        map.insert(
+                            "file".to_string(),
+                            serde_json::Value::String(file.display().to_string()),
+                        );
+                    }
+                    all_diagnostics.push(obj);
+                }
+            } else {
+                eprintln!("\u{2717} {}", file.display());
+                for d in &diags {
+                    eprintln!("  [{}] {}", d.code, d.error);
+                    eprintln!("    Fix: {}", d.fix);
+                    eprintln!("    Example: {}", d.example);
                 }
             }
         }
