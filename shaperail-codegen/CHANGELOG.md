@@ -5,6 +5,28 @@ All notable changes to Shaperail will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0](https://github.com/shaperail/shaperail/compare/shaperail-codegen-v0.14.0...shaperail-codegen-v0.15.0) - 2026-05-04
+
+### Added
+
+- *shaperail-codegen*: Pub mod resources aggregator for controllers
+
+### Breaking
+
+- *shaperail-codegen*: Iterate hook chains in validator and codegen
+- *shaperail-codegen*: Non-Option output for non-null columns
+
+### Changed
+
+- *shaperail-codegen*: Drop redundant collect; update json schema for hook lists
+
+### Fixed
+
+- *shaperail-codegen*: Emit unwrap_or for boolean defaults
+- *shaperail-runtime*: Convert all named path params, not just :id
+- *shaperail-codegen*: Silence unused_imports on resources aggregator
+
+
 ## [0.14.0](https://github.com/shaperail/shaperail/compare/shaperail-codegen-v0.13.1...shaperail-codegen-v0.14.0) - 2026-05-03
 
 ### Breaking
