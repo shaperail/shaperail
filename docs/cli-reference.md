@@ -33,6 +33,10 @@ serve, then package.
 
 Every command supports `--help`.
 
+> **LLM tip:** Use `shaperail explain <file> --format json` to get a machine-readable
+> summary of any resource — routes, validations, and OpenAPI fragments — without
+> parsing human text output. The JSON shape is stable across patch releases.
+
 ## Core command loop
 
 | Command | When to use it | What it changes |
