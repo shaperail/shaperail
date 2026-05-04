@@ -7,7 +7,7 @@ has_children: true
 # Error Codes
 
 Every diagnostic emitted by `shaperail check` has a stable code (`SR001`,
-`SR042`, ...) and a permanent reference page on this site.
+`SR050`, ...) and a permanent reference page on this site.
 
 When `shaperail check --json` reports a diagnostic, the `doc_url` field
 points at the corresponding page below.
