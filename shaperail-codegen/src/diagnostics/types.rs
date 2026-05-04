@@ -18,7 +18,14 @@ pub struct Diagnostic {
     pub doc_url: Option<String>,
 }
 
-/// Source position for a diagnostic. 1-indexed line and column.
+/// Source position for a diagnostic.
+///
+/// `line` and `col` are 1-indexed. `col` is a 1-indexed UTF-8 byte column
+/// (not a grapheme or character index). `end_line` / `end_col` describe an
+/// **exclusive** end — i.e. a single-character span at line 3 col 5 is
+/// `(line: 3, col: 5, end_line: 3, end_col: 6)`. When the parser cannot
+/// determine an end position, set `end_line == line` and `end_col == col`
+/// (a zero-width span pointing at the start).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Span {
     pub file: PathBuf,
@@ -53,6 +60,7 @@ impl Diagnostic {
         }
     }
 
+    /// Attach a source position to this diagnostic.
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = Some(span);
         self
