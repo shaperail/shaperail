@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpRequest};
-use shaperail_core::{HttpMethod, ResourceDefinition};
+use shaperail_core::{to_brace_path, HttpMethod, ResourceDefinition};
 
 use super::crud::{self, AppState};
 
@@ -24,12 +24,9 @@ pub fn register_resource(
             let ep_arc = Arc::new(endpoint.clone());
             let res = resource_arc.clone();
 
-            // Convert PRD path (/users/:id) to Actix path (/v1/users/{id})
-            let actix_path = format!(
-                "/v{}{}",
-                resource.version,
-                endpoint.path().replace(":id", "{id}")
-            );
+            // Convert PRD path (/users/:id, /vendors/:vendor_id/webhook/:token)
+            // to Actix path (/v1/users/{id}, /v1/vendors/{vendor_id}/webhook/{token}).
+            let actix_path = format!("/v{}{}", resource.version, to_brace_path(endpoint.path()));
 
             match action.as_str() {
                 "list" => {
@@ -627,5 +624,125 @@ mod tests {
                 .contains("ate lunch"),
             "body content should round-trip; got {parsed:?}"
         );
+    }
+
+    // --- Multi-param custom-endpoint routing (regression test for v0.14.1) ---
+
+    #[actix_web::test]
+    async fn custom_handler_routes_multiple_named_path_params() {
+        // Regression test for the v0.14.0 bug: route registration only
+        // converted the literal token `:id` to actix's `{id}` syntax, leaving
+        // any other Express-style param (`:vendor_id`, `:webhook_path_token`)
+        // as a literal `:`-prefixed segment. Actix-router treats those as
+        // literal text, so the route never matched and every request 404'd
+        // before reaching the handler.
+        //
+        // The fix uses `shaperail_core::to_brace_path` to convert every
+        // `:name` segment, not just `:id`.
+        use actix_web::{
+            test::{call_service, init_service, TestRequest},
+            web, App,
+        };
+        use indexmap::IndexMap;
+        use shaperail_core::{
+            EndpointSpec, FieldSchema, FieldType, HttpMethod, ResourceDefinition,
+        };
+        use std::sync::Arc;
+
+        let mut endpoints = IndexMap::new();
+        endpoints.insert(
+            "webhook".to_string(),
+            EndpointSpec {
+                method: Some(HttpMethod::Post),
+                path: Some("/vendors/:vendor_id/webhook/:webhook_path_token".to_string()),
+                handler: Some("receive_webhook".to_string()),
+                ..Default::default()
+            },
+        );
+        let mut schema = IndexMap::new();
+        schema.insert(
+            "id".to_string(),
+            FieldSchema {
+                field_type: FieldType::Uuid,
+                primary: true,
+                generated: true,
+                required: false,
+                unique: false,
+                nullable: false,
+                reference: None,
+                min: None,
+                max: None,
+                format: None,
+                values: None,
+                default: None,
+                sensitive: false,
+                search: false,
+                items: None,
+                transient: false,
+            },
+        );
+        let resource = ResourceDefinition {
+            resource: "spend_events".to_string(),
+            version: 1,
+            db: None,
+            tenant_key: None,
+            schema,
+            endpoints: Some(endpoints),
+            relations: None,
+            indexes: None,
+        };
+
+        // Handler echoes back the captured path params so we can verify both
+        // matched and were extracted with their declared names.
+        let handler: super::super::custom::CustomHandlerFn = Arc::new(|req, _state, _r, _ep| {
+            let vendor = req.match_info().get("vendor_id").unwrap_or("").to_string();
+            let token = req
+                .match_info()
+                .get("webhook_path_token")
+                .unwrap_or("")
+                .to_string();
+            Box::pin(async move {
+                actix_web::HttpResponse::Ok().json(serde_json::json!({
+                    "vendor_id": vendor,
+                    "webhook_path_token": token,
+                }))
+            })
+        });
+        let mut custom_handlers: super::super::custom::CustomHandlerMap =
+            std::collections::HashMap::new();
+        custom_handlers.insert(
+            super::super::custom::handler_key("spend_events", "webhook"),
+            handler,
+        );
+
+        let mut state = super::super::crud::AppState::new(test_pool(), vec![resource.clone()]);
+        state.custom_handlers = Some(custom_handlers);
+        let state = Arc::new(state);
+
+        let app = init_service(
+            App::new()
+                .app_data(web::Data::new(state.clone()))
+                .configure(|cfg| {
+                    super::super::routes::register_resource(cfg, &resource, state.clone());
+                }),
+        )
+        .await;
+
+        let req = TestRequest::post()
+            .uri("/v1/vendors/vendor-abc/webhook/secret-token-123")
+            .insert_header(("content-type", "application/json"))
+            .set_payload("{}")
+            .to_request();
+        let resp = call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "route with non-`:id` named params should match; got {:?}",
+            resp.status()
+        );
+
+        let body = actix_web::test::read_body(resp).await;
+        let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(parsed["vendor_id"], "vendor-abc");
+        assert_eq!(parsed["webhook_path_token"], "secret-token-123");
     }
 }

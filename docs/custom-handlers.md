@@ -71,6 +71,30 @@ pub async fn create_journal_entry(
 
 For bodies larger than 256 KB (actix's default `PayloadConfig` limit) the request fails with 413 before the handler runs. Configure a larger limit at the app level if you need bigger payloads — that's app-level configuration outside the framework's scaffold.
 
+## Path parameters
+
+Custom-endpoint paths use Express-style `:name` segments. Every named segment is converted to actix's `{name}` syntax at registration time, so any number of params with any names will match and be captured under their declared names:
+
+```yaml
+endpoints:
+  webhook:
+    method: POST
+    path: /vendors/:vendor_id/webhook/:webhook_path_token
+    auth: [public]
+    handler: receive_webhook
+```
+
+Inside the handler, read params from `req.match_info()` using their declared names:
+
+```rust
+let vendor = req.match_info().get("vendor_id").unwrap_or("");
+let token = req.match_info().get("webhook_path_token").unwrap_or("");
+```
+
+If the endpoint also declares `controller: { before: ... }`, the same params are mirrored into `ctx.path_params: HashMap<String, String>` for use during the controller phase.
+
+> Routes that worked before v0.14.1 still work. Earlier versions only converted the literal token `:id`; any other named param (`:vendor_id`, `:slug`, `:account_number`) was left as a literal segment and the route silently 404'd. The conversion is now general for any Rust-style identifier.
+
 ## Authenticating and tenant-scoping queries
 
 Use `Subject` from `shaperail_runtime::auth`. CRUD endpoints get tenant scoping for free; custom handlers must apply it explicitly because the framework cannot infer your data flow.

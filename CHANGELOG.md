@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Migration numbering.** `shaperail migrate` now uses `max(numeric_prefix) + 1` instead of `count + 1`, so new migrations no longer collide with hand-written invariants migrations sitting past the highest auto-generated `_create_*` file.
+- **Custom-endpoint paths with non-`:id` named params.** Route registration in `shaperail-runtime` (and OpenAPI path emission in `shaperail-codegen`) previously only converted the literal token `:id` to actix-router/OpenAPI's `{id}` brace syntax. Any other Express-style param (`:vendor_id`, `:webhook_path_token`, `:slug`, etc.) was passed through verbatim — actix interpreted those as literal text, so the route silently 404'd on every request even though `shaperail check` and codegen were happy. New `shaperail_core::to_brace_path` converts every `:name` segment whose name is a Rust-style identifier; `routes.rs` and `openapi.rs` use it. Closes the multi-param-path-router report.
+- **Codegen output triggered `clippy::manual_unwrap_or` on bool defaults.** Boolean fields with a literal `default:` expanded to an explicit `match { Some(v) => v, None => true }`; clippy 1.94 flags this and apps with `-D warnings` had to add a per-module `#[allow]`. Codegen now emits `…?.unwrap_or(true)` for boolean defaults. Other field types (string, JSON, types whose default goes through `parse_embedded_json::<…>(…)?`) keep the explicit match because clippy does not flag those forms and the match preserves lazy evaluation for fallible defaults.
 
 ## [0.12.0] - 2026-05-03
 

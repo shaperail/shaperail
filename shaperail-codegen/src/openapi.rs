@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use shaperail_core::{
-    AuthRule, EndpointSpec, FieldSchema, FieldType, HttpMethod, PaginationStyle, ProjectConfig,
-    ResourceDefinition,
+    to_brace_path, AuthRule, EndpointSpec, FieldSchema, FieldType, HttpMethod, PaginationStyle,
+    ProjectConfig, ResourceDefinition,
 };
 
 /// Generate an OpenAPI 3.1 specification from a set of resource definitions.
@@ -74,8 +74,7 @@ pub fn generate(config: &ProjectConfig, resources: &[ResourceDefinition]) -> ser
             sorted_endpoints.sort_by_key(|(name, _)| *name);
 
             for (action, ep) in sorted_endpoints {
-                let openapi_path =
-                    format!("/v{}{}", resource.version, ep.path().replace(":id", "{id}"));
+                let openapi_path = format!("/v{}{}", resource.version, to_brace_path(ep.path()));
                 let method = ep.method().to_string().to_lowercase();
 
                 let operation =

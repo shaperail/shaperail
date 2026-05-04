@@ -153,6 +153,40 @@ pub async fn create_journal_entry(
 
 For bodies larger than 256 KB (actix's default `PayloadConfig` limit) the request fails with 413 before the handler runs. Configure a larger limit at the app level outside the framework scaffold if you need bigger payloads.
 
+## Path parameters
+
+Custom-endpoint paths use Express-style `:name` segments. Every `:name`
+segment whose name is a Rust-style identifier
+(`[A-Za-z_][A-Za-z0-9_]*`) is converted to actix-router's `{name}`
+syntax at registration time, so the route matches and the value is
+captured under the declared name:
+
+```yaml
+endpoints:
+  webhook:
+    method: POST
+    path: /vendors/:vendor_id/webhook/:webhook_path_token
+    auth: [public]
+    handler: receive_webhook
+```
+
+Inside the handler, read params from `req.match_info()` by their
+declared name:
+
+```rust
+let vendor = req.match_info().get("vendor_id").unwrap_or("");
+let token = req.match_info().get("webhook_path_token").unwrap_or("");
+```
+
+If a `before:` controller is also declared, the same params are mirrored
+into `ctx.path_params: HashMap<String, String>` for use during the
+controller phase.
+
+> Before v0.14.1 only the literal token `:id` was converted; any other
+> named param (`:vendor_id`, `:slug`, etc.) was left as a literal segment
+> and the route silently 404'd. Routes that worked before still work —
+> the conversion is now general.
+
 ## Sharing logic across custom handlers
 
 For endpoints without a before-controller, share logic the normal Rust way: extract a helper function in `resources/<name>.handlers.rs` and call it from each handler. The framework's job is to give you `Subject` and the runtime's `AppState`; your job is to use them.
