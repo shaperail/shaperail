@@ -61,9 +61,8 @@ pub fn run(path: &Path, json_output: bool) -> i32 {
                 for d in &diags {
                     // Serialize the diagnostic via its own serde impl so optional
                     // fields like `span` survive; then augment with the file path.
-                    let mut obj = serde_json::to_value(d).unwrap_or_else(|_| {
-                        serde_json::json!({"code": d.code, "error": d.error})
-                    });
+                    let mut obj = serde_json::to_value(d)
+                        .unwrap_or_else(|_| serde_json::json!({"code": d.code, "error": d.error}));
                     if let serde_json::Value::Object(map) = &mut obj {
                         map.insert(
                             "file".to_string(),
