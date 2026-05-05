@@ -2,7 +2,9 @@
 
 **Date:** 2026-05-04
 **Status:** Draft
-**Target releases:** `v0.14.x` (additive), `v0.15.0` (breaking), `v0.16.0` (additive)
+**Target releases:** `v0.15.1` (additive patch — this PR), `v0.16.0` (breaking minor — typed `Context<I, O>`, `shaperail llm-guide`, sectioned guide), `v0.16.x` (additive patches after `v0.16.0` — declarative primitives, test scaffolds, remaining recipes)
+
+> **Version-label note (2026-05-05):** the original spec drafted these as v0.14.x / v0.15.0 / v0.16.0. Main released v0.15.0 in the meantime, so the additive train shifted to v0.15.1, the breaking train to v0.16.0, and follow-up additive work to v0.16.x. Per the project's pre-1.0 semver convention (CLAUDE.md): patch = additive, minor = breaking.
 
 ## Background
 
@@ -35,9 +37,9 @@ This spec proposes a coordinated set of changes across three releases.
 
 | Train | Cuts | Sections delivered |
 |---|---|---|
-| `v0.14.x` (patch) | additive | §2.2 Diagnostic spans, §3.2 `explain` extension, §4 recipes that need no new schema |
-| `v0.15.0` (breaking minor) | breaking | §1.2 Typed controller boundary, §2.1 `shaperail llm-guide` CLI, §5 Sectioned guide |
-| `v0.16.0` (minor) | additive | §1.1 Declarative primitives, §3.1 Test scaffold generator, §4 remaining recipes, §2.3 Guide-claim CI |
+| `v0.15.1` (additive patch) | additive | §2.2 Diagnostic spans, §3.2 `explain` extension, §4 recipes that need no new schema |
+| `v0.16.0` (breaking minor) | breaking | §1.2 Typed controller boundary, §2.1 `shaperail llm-guide` CLI, §5 Sectioned guide |
+| `v0.16.x` (additive patches) | additive | §1.1 Declarative primitives, §3.1 Test scaffold generator, §4 remaining recipes, §2.3 Guide-claim CI |
 
 Out of scope for all three trains: WASM TS/Python controllers as a first-class path (existing functionality preserved unchanged).
 
@@ -45,9 +47,9 @@ Out of scope for all three trains: WASM TS/Python controllers as a first-class p
 
 ## Section 1 — Escape-hatch cliff at controllers
 
-### 1.1 Declarative primitives (v0.16.0, additive)
+### 1.1 Declarative primitives (v0.16.x, additive)
 
-Audit of controller patterns observable in `examples/incident-platform/resources/incidents.yaml` and the user/content/tenant archetypes. Each row identifies a Rust controller fn that becomes YAML in v0.16.0:
+Audit of controller patterns observable in `examples/incident-platform/resources/incidents.yaml` and the user/content/tenant archetypes. Each row identifies a Rust controller fn that becomes YAML in v0.16.x:
 
 | Controller pattern today | Replacement | Why declarative wins |
 |---|---|---|
@@ -105,9 +107,9 @@ state:
 | `SR114` | `transform.input` value is not in the closed enum. |
 | `SR115` | `immutable_after` references a non-existent field. |
 
-**Acceptance test for §1.1.** Every controller in `examples/` is audited; either it moves to YAML or its README documents why it stays in Rust. The audit table above is updated with the per-example outcome before v0.16.0 ships.
+**Acceptance test for §1.1.** Every controller in `examples/` is audited; either it moves to YAML or its README documents why it stays in Rust. The audit table above is updated with the per-example outcome before v0.16.x ships.
 
-### 1.2 Typed controller boundary (v0.15.0, breaking)
+### 1.2 Typed controller boundary (v0.16.0, breaking)
 
 For each `<resource>` × `<action>`, codegen emits a typed input struct, a typed output struct, and a per-endpoint `Context` type alias:
 
@@ -177,9 +179,9 @@ impl<I, O> Context<I, O> {
 }
 ```
 
-The previous `ControllerContext` (with `serde_json::Value` fields) is removed in v0.15.0. There is no compatibility shim — `feat!:` semantics, breaking minor.
+The previous `ControllerContext` (with `serde_json::Value` fields) is removed in v0.16.0. There is no compatibility shim — `feat!:` semantics, breaking minor.
 
-**Migration aid.** v0.15.0 ships `cargo shaperail migrate-controllers`, a codemod that:
+**Migration aid.** v0.16.0 ships `cargo shaperail migrate-controllers`, a codemod that:
 - Rewrites `&mut ControllerContext` signatures to the appropriate `&mut <Resource><Action>Context`.
 - Replaces `ctx.input.get("x").and_then(Value::as_str)` with `ctx.input.x.as_str()` (or `&ctx.input.x` for owned values).
 - Flags any access patterns it cannot rewrite with a TODO comment containing the original line.
@@ -200,7 +202,7 @@ The LLM Guide does **not** mention WASM controllers in any section. They are dis
 
 ## Section 2 — LLM Guide drift / no training-data baseline
 
-### 2.1 `shaperail llm-guide` CLI subcommand (v0.15.0)
+### 2.1 `shaperail llm-guide` CLI subcommand (v0.16.0)
 
 ```
 shaperail llm-guide                   # prints the mandatory core (~2k tokens)
@@ -216,7 +218,7 @@ Content embedded via `include_str!` from `shaperail-cli/src/llm_guide/`. Binary'
 
 > Run `shaperail llm-guide` at the start of any Shaperail task. Run `shaperail llm-guide --section <topic>` when you need a specific topic (recipes, controllers, multi-tenancy, file-storage, etc.). Do not fetch shaperail.io — the website may be out of sync with the installed CLI.
 
-### 2.2 Diagnostic struct upgrade (v0.14.x, additive)
+### 2.2 Diagnostic struct upgrade (v0.15.1, additive)
 
 **Current** (`shaperail-codegen/src/diagnostics.rs`):
 
@@ -259,7 +261,7 @@ pub enum Severity { Error, Warning, Info }
 
 **Stable doc URLs.** Every `SR*` code gets a permanent page at `docs/errors/<code>.md` (Jekyll, indexed). The `doc_url` field points at the rendered URL: `https://shaperail.io/errors/SR042.html`. CI fails if a code in the registry has no doc page.
 
-### 2.3 Guide-claim snapshot tests (v0.16.0)
+### 2.3 Guide-claim snapshot tests (v0.16.x)
 
 Each LLM Guide section (and each recipe) is paired with a fixture under `tests/llm_guide_claims/<claim_id>/`:
 
@@ -287,7 +289,7 @@ This converts §2c of the original brief from a one-shot audit into a permanent 
 
 ## Section 3 — Shallow verification loop
 
-### 3.1 Test scaffold generator (v0.16.0)
+### 3.1 Test scaffold generator (v0.16.x)
 
 New CLI: `shaperail generate --tests` (also accessible as `shaperail test scaffold [resource]`).
 
@@ -326,7 +328,7 @@ async fn users_list_auth_failure() {
 }
 ```
 
-### 3.2 `shaperail explain` extension (v0.14.x, additive)
+### 3.2 `shaperail explain` extension (v0.15.1, additive)
 
 Today `explain` prints routes, table schema, relations. Extend with:
 
@@ -368,14 +370,14 @@ examples/recipes/
 
 | Recipe | Depends on | Train |
 |---|---|---|
-| `paginated_list_with_filters` | existing primitives | v0.14.x |
-| `file_upload` | existing `upload:` key | v0.14.x |
-| `multi_tenant_rls` | existing `tenant_key` | v0.14.x |
-| `rate_limited_public` | existing `rate_limit:` key | v0.14.x |
-| `soft_delete_with_audit` | new `audit_log:` (§1.1) | v0.16.0 |
-| `parent_child_with_cascade` | new `cascade: soft_delete` relation option (§4.1) | v0.16.0 |
-| `approval_workflow` | new `state:` primitive (§1.1) | v0.16.0 |
-| `idempotent_webhook_receiver` | new `idempotency_key:` field option (§4.2) | v0.16.0 |
+| `paginated_list_with_filters` | existing primitives | v0.15.1 |
+| `file_upload` | existing `upload:` key | v0.15.1 |
+| `multi_tenant_rls` | existing `tenant_key` | v0.15.1 |
+| `rate_limited_public` | existing `rate_limit:` key | v0.15.1 |
+| `soft_delete_with_audit` | new `audit_log:` (§1.1) | v0.16.x |
+| `parent_child_with_cascade` | new `cascade: soft_delete` relation option (§4.1) | v0.16.x |
+| `approval_workflow` | new `state:` primitive (§1.1) | v0.16.x |
+| `idempotent_webhook_receiver` | new `idempotency_key:` field option (§4.2) | v0.16.x |
 
 **Recipe metadata (every README):**
 - One-line "WHEN to use this" summary (rendered in `--section recipes` index).
@@ -384,7 +386,7 @@ examples/recipes/
 
 The LLM Guide core lists recipes by name with one-liners. `shaperail llm-guide --section recipes` prints the full index. `shaperail llm-guide --section recipes/file_upload` prints one recipe's YAML and README verbatim.
 
-### 4.1 New `cascade:` relation option (v0.16.0)
+### 4.1 New `cascade:` relation option (v0.16.x)
 
 ```yaml
 relations:
@@ -397,7 +399,7 @@ relations:
 
 `cascade: soft_delete` (default for parents that themselves have `soft_delete: true` on delete) propagates the tombstone down. `cascade: hard_delete` is rejected if the child resource doesn't allow hard deletes — diagnostic `SR120`.
 
-### 4.2 New `idempotency_key:` field option (v0.16.0)
+### 4.2 New `idempotency_key:` field option (v0.16.x)
 
 ```yaml
 schema:
@@ -411,7 +413,7 @@ When set on a `create` endpoint, codegen emits a uniqueness constraint and middl
 
 ---
 
-## Section 5 — Sectioned LLM Guide (v0.15.0)
+## Section 5 — Sectioned LLM Guide (v0.16.0)
 
 ### 5.1 Restructure
 
@@ -492,19 +494,19 @@ CI fails on overage. This forces deduplication and keeps the LLM-facing surface 
 
 | Train | Crate | File(s) |
 |---|---|---|
-| v0.14.x | `shaperail-codegen` | `src/diagnostics.rs` (struct), `src/parser.rs` (parser swap), `src/validators/*.rs` (thread spans) |
-| v0.14.x | `shaperail-cli` | `src/commands/check.rs`, `src/commands/explain.rs` |
-| v0.14.x | `examples/recipes/` | new recipe directories (4 of 8) |
-| v0.14.x | `docs/errors/` | new per-code pages |
-| v0.15.0 | `shaperail-runtime` | `src/handlers/controller.rs` (Context<I, O>), removal of legacy `ControllerContext` |
-| v0.15.0 | `shaperail-codegen` | `src/rust.rs` (emit `<Resource><Action>Input/Output/Context`), `src/codemod.rs` (new) |
-| v0.15.0 | `shaperail-cli` | `src/commands/llm_guide.rs` (new), `src/llm_guide/*.md` (embedded), `src/commands/migrate_controllers.rs` (new) |
-| v0.15.0 | `shaperail-cli/templates/init/CLAUDE.md` | new template |
-| v0.16.0 | `shaperail-core` | new field/endpoint options (`computed`, `immutable`, `read`, `write`, `transform`, `audit_log`, `state`, `cascade`, `idempotency_key`) |
-| v0.16.0 | `shaperail-codegen` | new validators (`SR110`–`SR120`), state-machine codegen, audit-log codegen, computed-field codegen |
-| v0.16.0 | `shaperail-cli` | `src/commands/test_scaffold.rs` (new) |
-| v0.16.0 | `examples/recipes/` | remaining 4 recipes |
-| v0.16.0 | `tests/llm_guide_claims/` | snapshot fixtures + CI step |
+| v0.15.1 | `shaperail-codegen` | `src/diagnostics.rs` (struct), `src/parser.rs` (parser swap), `src/validators/*.rs` (thread spans) |
+| v0.15.1 | `shaperail-cli` | `src/commands/check.rs`, `src/commands/explain.rs` |
+| v0.15.1 | `examples/recipes/` | new recipe directories (4 of 8) |
+| v0.15.1 | `docs/errors/` | new per-code pages |
+| v0.16.0 | `shaperail-runtime` | `src/handlers/controller.rs` (Context<I, O>), removal of legacy `ControllerContext` |
+| v0.16.0 | `shaperail-codegen` | `src/rust.rs` (emit `<Resource><Action>Input/Output/Context`), `src/codemod.rs` (new) |
+| v0.16.0 | `shaperail-cli` | `src/commands/llm_guide.rs` (new), `src/llm_guide/*.md` (embedded), `src/commands/migrate_controllers.rs` (new) |
+| v0.16.0 | `shaperail-cli/templates/init/CLAUDE.md` | new template |
+| v0.16.x | `shaperail-core` | new field/endpoint options (`computed`, `immutable`, `read`, `write`, `transform`, `audit_log`, `state`, `cascade`, `idempotency_key`) |
+| v0.16.x | `shaperail-codegen` | new validators (`SR110`–`SR120`), state-machine codegen, audit-log codegen, computed-field codegen |
+| v0.16.x | `shaperail-cli` | `src/commands/test_scaffold.rs` (new) |
+| v0.16.x | `examples/recipes/` | remaining 4 recipes |
+| v0.16.x | `tests/llm_guide_claims/` | snapshot fixtures + CI step |
 
 ---
 
@@ -524,20 +526,20 @@ CI fails on overage. This forces deduplication and keeps the LLM-facing surface 
 
 ## Acceptance criteria
 
-**v0.14.x ships when:**
+**v0.15.1 ships when:**
 - `shaperail check --json` output includes `span`, `severity`, `doc_url` for every diagnostic that has a known span.
 - Every `SR*` code in the registry has a `docs/errors/<code>.md` page; CI fails otherwise.
 - `shaperail explain <file>` prints validation rules and OpenAPI fragments; `--format json` produces stable, documented JSON.
 - 4 recipes shipped (`paginated_list_with_filters`, `file_upload`, `multi_tenant_rls`, `rate_limited_public`), each with a passing integration test.
 
-**v0.15.0 ships when:**
+**v0.16.0 ships when:**
 - All controller signatures in `examples/` use `&mut <Resource><Action>Context`; legacy `&mut ControllerContext` removed from runtime.
 - `cargo shaperail migrate-controllers` runs cleanly on `examples/incident-platform` and `examples/multi-tenant`, producing diff-free output (i.e. they were already migrated as part of the release prep).
 - `shaperail llm-guide` runs offline, prints the embedded core; `--section <name>` and `--list` work for every section.
-- `docs/upgrade-0.15.md` and `agent_docs/upgrade-0.15.md` published; mirror requirement satisfied.
+- `docs/upgrade-0.16.md` and `agent_docs/upgrade-0.16.md` published; mirror requirement satisfied.
 - Token budgets enforced in CI: core ≤ 2,500, any section ≤ 2,000, bundle ≤ 12,000.
 
-**v0.16.0 ships when:**
+**v0.16.x (additive patches after v0.16.0) ships when:**
 - Every controller in `examples/` is either migrated to YAML primitives or has a documented justification in its README for staying in Rust.
 - All 8 recipes are present with passing integration tests.
 - `shaperail generate --tests` produces compiling, passing test stubs for every example resource.
