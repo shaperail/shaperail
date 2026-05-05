@@ -1,8 +1,12 @@
 use std::path::Path;
 
+use super::explain_format;
+use crate::ExplainFormat;
+
 /// Dry-run: show what a resource YAML file will produce.
-/// Outputs a human/LLM-readable summary of routes, table, and relations.
-pub fn run(path: &Path) -> i32 {
+/// Outputs a human/LLM-readable summary of routes, table, relations,
+/// validations, and OpenAPI fragments.
+pub fn run(path: &Path, format: ExplainFormat) -> i32 {
     let rd = match shaperail_codegen::parser::parse_resource_file(path) {
         Ok(rd) => rd,
         Err(e) => {
@@ -20,6 +24,17 @@ pub fn run(path: &Path) -> i32 {
         return 1;
     }
 
+    match format {
+        ExplainFormat::Text => print_text(&rd),
+        ExplainFormat::Json => {
+            let j = explain_format::build(&rd);
+            println!("{}", serde_json::to_string_pretty(&j).expect("serialize"));
+        }
+    }
+    0
+}
+
+fn print_text(rd: &shaperail_core::ResourceDefinition) {
     // Header
     println!("Resource: {} (v{})", rd.resource, rd.version);
     if let Some(ref db) = rd.db {
@@ -198,5 +213,150 @@ pub fn run(path: &Path) -> i32 {
         println!();
     }
 
-    0
+    // Validations
+    print_validations(rd);
+
+    // OpenAPI fragments
+    print_openapi_fragments(rd);
+}
+
+// ---------------------------------------------------------------------------
+// Task 8 helpers: validation summaries
+// ---------------------------------------------------------------------------
+
+fn print_validations(rd: &shaperail_core::ResourceDefinition) {
+    println!("Validations:");
+    for (name, field) in &rd.schema {
+        let parts = compact_validation_summary(field);
+        if !parts.is_empty() {
+            println!("  {}: {}", name, parts.join(", "));
+        }
+    }
+    println!();
+}
+
+/// Returns a compact list of validation descriptors for a field.
+/// Order: required, unique, min=N, max=N, format=X, enum [a,b,c], default=X,
+///        sensitive, transient.
+pub fn compact_validation_summary(field: &shaperail_core::FieldSchema) -> Vec<String> {
+    let mut parts = Vec::new();
+    if field.required {
+        parts.push("required".into());
+    }
+    if field.unique {
+        parts.push("unique".into());
+    }
+    if let Some(ref min) = field.min {
+        parts.push(format!("min={min}"));
+    }
+    if let Some(ref max) = field.max {
+        parts.push(format!("max={max}"));
+    }
+    if let Some(ref fmt) = field.format {
+        parts.push(format!("format={fmt}"));
+    }
+    if let shaperail_core::FieldType::Enum = field.field_type {
+        if let Some(ref values) = field.values {
+            parts.push(format!("enum [{}]", values.join(", ")));
+        }
+    }
+    if let Some(ref default) = field.default {
+        parts.push(format!("default={default}"));
+    }
+    if field.sensitive {
+        parts.push("sensitive".into());
+    }
+    if field.transient {
+        parts.push("transient".into());
+    }
+    parts
+}
+
+// ---------------------------------------------------------------------------
+// Task 9 helpers: OpenAPI fragment printing
+// ---------------------------------------------------------------------------
+
+fn print_openapi_fragments(rd: &shaperail_core::ResourceDefinition) {
+    println!("OpenAPI fragments:");
+    if let Some(ref endpoints) = rd.endpoints {
+        for (action, ep) in endpoints {
+            println!("  {action}:");
+            let req_schema = describe_request_shape(ep);
+            if !req_schema.is_empty() {
+                println!("    request: {req_schema}");
+            }
+            println!("    responses:");
+            for (status, body) in describe_response_codes(action, ep) {
+                println!("      {status}: {body}");
+            }
+            let auth = auth_rule_strings(ep.auth.as_ref());
+            if !auth.is_empty() {
+                println!("    auth: [{}]", auth.join(", "));
+            }
+        }
+    }
+    println!();
+}
+
+/// Return `{ field1, field2, ... }` for endpoints that take a body
+/// (create, update, or any endpoint with an `input` list).
+/// Returns an empty string for list/get/delete.
+pub fn describe_request_shape(ep: &shaperail_core::EndpointSpec) -> String {
+    if !endpoint_takes_body(ep) {
+        return String::new();
+    }
+    match &ep.input {
+        Some(fields) if !fields.is_empty() => format!("{{ {} }}", fields.join(", ")),
+        _ => String::new(),
+    }
+}
+
+/// Return `(status_code, body_summary)` pairs for every response the endpoint
+/// can produce.
+pub fn describe_response_codes(
+    action: &str,
+    ep: &shaperail_core::EndpointSpec,
+) -> Vec<(u16, String)> {
+    let mut out = Vec::new();
+    let success_code: u16 = if action == "create" { 201 } else { 200 };
+    out.push((success_code, success_body_for(action).to_string()));
+
+    let auth = auth_rule_strings(ep.auth.as_ref());
+    if !auth.is_empty() {
+        out.push((401, "Unauthorized".into()));
+        out.push((403, "Forbidden".into()));
+    }
+    if endpoint_takes_body(ep) {
+        out.push((422, "Validation error (SR-coded body)".into()));
+    }
+    if matches!(action, "get" | "update" | "delete") {
+        out.push((404, "Not Found".into()));
+    }
+    out
+}
+
+fn success_body_for(action: &str) -> &'static str {
+    match action {
+        "list" => "{ data: [<resource>], pagination: {...} }",
+        "get" | "create" | "update" => "<resource>",
+        "delete" => "{ ok: true }",
+        _ => "<custom>",
+    }
+}
+
+/// Returns true if this endpoint accepts a request body (create or update, or
+/// any endpoint that declares an `input` list).
+fn endpoint_takes_body(ep: &shaperail_core::EndpointSpec) -> bool {
+    ep.input.as_ref().is_some_and(|i| !i.is_empty())
+}
+
+/// Convert an `AuthRule` to a `Vec<String>` of role names (or special strings
+/// like `"public"` / `"owner"`).
+pub fn auth_rule_strings(auth: Option<&shaperail_core::AuthRule>) -> Vec<String> {
+    match auth {
+        None => vec![],
+        Some(shaperail_core::AuthRule::Public) => vec!["public".into()],
+        Some(shaperail_core::AuthRule::Owner) => vec!["owner".into()],
+        Some(shaperail_core::AuthRule::Roles(roles)) => roles.clone(),
+    }
 }

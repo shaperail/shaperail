@@ -1,0 +1,29 @@
+resource: attachments
+version: 1
+
+schema:
+  id:           { type: uuid, primary: true, generated: true }
+  uploader_id:  { type: uuid, required: true }
+  file:         { type: file }
+  filename:     { type: string, max: 255, required: true }
+  content_type: { type: string, max: 127, required: true }
+  size_bytes:   { type: integer, min: 0, required: true }
+  created_at:   { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    auth: [member, admin]
+    filters: [uploader_id]
+    pagination: cursor
+
+  get:
+    auth: [member, admin, owner]
+
+  create:
+    method: POST
+    auth: [member, admin]
+    input: [uploader_id, file, filename, content_type, size_bytes]
+    upload: { field: file, storage: s3, max_size: 10mb, types: [image/png, image/jpeg, application/pdf] }
+
+  delete:
+    auth: [admin, owner]

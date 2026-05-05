@@ -75,6 +75,9 @@ enum Commands {
     Explain {
         /// Path to a resource YAML file
         path: PathBuf,
+        /// Output format
+        #[arg(long, value_enum, default_value_t = ExplainFormat::Text)]
+        format: ExplainFormat,
     },
     /// Validate with structured fix suggestions (JSON output for LLM consumption)
     Check {
@@ -112,6 +115,15 @@ enum Commands {
         #[command(subcommand)]
         action: ResourceAction,
     },
+}
+
+/// Output format for `shaperail explain`.
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum ExplainFormat {
+    /// Human-readable text (default)
+    Text,
+    /// Machine-readable JSON with stable field names
+    Json,
 }
 
 #[derive(Subcommand)]
@@ -183,7 +195,7 @@ fn main() {
             }
         },
         Commands::Diff => commands::diff::run(),
-        Commands::Explain { path } => commands::explain::run(&path),
+        Commands::Explain { path, format } => commands::explain::run(&path, format),
         Commands::Check { path, json } => commands::check::run(&path, json),
         Commands::Doctor => commands::doctor::run(),
         Commands::Routes => commands::routes::run(),

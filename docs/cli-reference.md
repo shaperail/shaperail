@@ -23,7 +23,7 @@ serve, then package.
 | `shaperail export openapi [--output FILE]` | Emit OpenAPI 3.1 spec to stdout or to a file. Array fields now emit element schemas reflecting `items.type`, `items.min`/`max`, `items.values`, and `items.format`. Previously, array `items` were rendered as an empty schema. |
 | `shaperail export sdk --lang <lang> [--output DIR]` | Generate client SDK (e.g. `--lang ts` for TypeScript). |
 | `shaperail export json-schema [--output FILE]` | Emit JSON Schema for resource YAML files (for IDE/LLM validation). |
-| `shaperail explain <file>` | Dry-run: show what a resource YAML file will produce (routes, table, relations). |
+| `shaperail explain <file> [--format <text\|json>]` | Dry-run: show what a resource YAML file will produce (routes, table, relations, validations, OpenAPI fragments). |
 | `shaperail check [path] [--json]` | Validate with structured fix suggestions and error codes. `--json` for LLM-friendly output. |
 | `shaperail diff` | Show what codegen would change without writing files (dry-run diff). |
 | `shaperail doctor` | Check system deps: Rust, PostgreSQL, Redis, sqlx-cli; print fix instructions. |
@@ -32,6 +32,10 @@ serve, then package.
 | `shaperail resource create <name> [--archetype TYPE]` | Scaffold a new resource YAML file and initial migration. Archetypes: basic (default), user, content, tenant, lookup. |
 
 Every command supports `--help`.
+
+> **LLM tip:** Use `shaperail explain <file> --format json` to get a machine-readable
+> summary of any resource — routes, validations, and OpenAPI fragments — without
+> parsing human text output. The JSON shape is stable across patch releases.
 
 ## Core command loop
 
@@ -162,6 +166,97 @@ Connects to Redis and displays the current queue depth for each priority level
 (critical, high, normal, low), the dead letter queue count, and recent
 failures. If you pass a job ID, it prints the stored metadata for that job
 instead of the summary view.
+
+## explain
+
+```bash
+shaperail explain resources/posts.yaml
+shaperail explain resources/posts.yaml --format json
+```
+
+Parses and validates a resource file, then prints a dry-run summary without
+writing any files. Useful for verifying intent before running `generate` or
+`migrate`.
+
+The text output sections (in order): routes, table schema, relations,
+validations, and compact OpenAPI fragments.
+
+### --format \<text\|json\>
+
+Default: `text`. Pass `--format json` to get a machine-readable JSON object
+whose shape is stable across patch releases — field names are part of the CLI
+contract. This lets an LLM or script consume `explain` output programmatically
+without parsing the human-readable rendering.
+
+**Top-level JSON fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `resource` | string | Resource name |
+| `version` | number | Schema version |
+| `db` | string \| null | Named database connection |
+| `tenant_key` | string \| null | Tenant isolation key |
+| `routes` | array | One entry per endpoint with method, path, action, auth, filters, search, sort, pagination, cache\_ttl\_seconds, rate\_limit, soft\_delete, upload, controller, events, jobs |
+| `table` | object | `{ name, columns[] }` — each column has name, type, nullable, primary\_key, unique, generated, references, default, sensitive |
+| `relations` | array | Each entry: name, type, resource, key, foreign\_key |
+| `validations` | object | Keyed by field name; value is an array of compact constraint strings (e.g. `["required", "min=1", "max=200"]`) |
+| `openapi` | object | Keyed by action name; each entry has `request` (field list or null), `responses` (status → summary map), `auth` (roles array) |
+| `indexes` | array | Each entry: fields, order, unique |
+
+**Example:**
+
+```bash
+shaperail explain resources/incidents.yaml --format json | jq '.validations'
+# {
+#   "title": ["required", "min=1", "max=200"],
+#   "severity": ["enum [sev1, sev2, sev3, sev4]", "default=\"sev3\""],
+#   ...
+# }
+```
+
+For a full OpenAPI 3.1 specification, use `shaperail export openapi` instead.
+
+## check
+
+```bash
+shaperail check
+shaperail check resources/posts.yaml --json
+```
+
+Validates a resource file (or every YAML under `resources/`) and reports
+diagnostics with structured codes (`SR001`, `SR050`, ...) and fix suggestions.
+
+### --json output schema
+
+Each diagnostic in the JSON array is an object with these fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `code` | string | Stable `SR*` code. |
+| `error` | string | Human-readable error description. |
+| `fix` | string | One-sentence suggested fix. |
+| `example` | string | YAML excerpt showing a correct shape. |
+| `severity` | enum | `error` \| `warning` \| `info`. |
+| `doc_url` | string \| null | Permanent reference URL — `https://shaperail.io/errors/<code>.html`. |
+| `span` | object \| null | Source position (file/line/col/end\_line/end\_col), present when the parser provides one. |
+
+The `span` object (when present) uses **1-indexed** line and column numbers.
+`col` is a UTF-8 byte column. `end_line` and `end_col` are exclusive — a
+single-character span at line 3, column 5 is `(line: 3, col: 5, end_line: 3,
+end_col: 6)`.
+
+The full reference for each `SR*` code lives at [/errors/](errors/).
+
+### Span-aware diagnostics (saphyr-spans feature)
+
+Spans are emitted only when `shaperail-codegen` is built with the optional
+`saphyr-spans` cargo feature. Without it, `span` is always absent. With it,
+spans are attached to root-level codes (SR001-SR005) today; per-field codes
+are added in a follow-up release.
+
+The CLI binary published to crates.io builds with the feature off; build from
+source with `cargo install --path shaperail-cli --features shaperail-codegen/saphyr-spans`
+to opt in during the v0.14.x → v0.15.0 transition.
 
 ## Practical notes
 

@@ -1,0 +1,38 @@
+resource: documents
+version: 1
+tenant_key: org_id
+
+schema:
+  id:         { type: uuid, primary: true, generated: true }
+  org_id:     { type: uuid, ref: organizations.id, required: true }
+  title:      { type: string, min: 1, max: 300, required: true }
+  body:       { type: string, required: true }
+  created_by: { type: uuid, required: true }
+  created_at: { type: timestamp, generated: true }
+  updated_at: { type: timestamp, generated: true }
+
+endpoints:
+  list:
+    auth: [member, admin]
+    search: [title, body]
+    pagination: cursor
+
+  get:
+    auth: [member, admin]
+
+  create:
+    auth: [member, admin]
+    input: [title, body, created_by]
+
+  update:
+    auth: [admin, owner]
+    input: [title, body]
+
+  delete:
+    auth: [admin]
+
+relations:
+  organization: { resource: organizations, type: belongs_to, key: org_id }
+
+indexes:
+  - { fields: [org_id, created_at], order: desc }

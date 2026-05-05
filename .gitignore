@@ -22,3 +22,4 @@ postgres_data/
 # Claude Code local state (agents/, commands/, skills/, settings.json stay tracked)
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+.worktrees/

@@ -206,3 +206,22 @@ is a bare type name (legacy shorthand) produces an element schema with only
 `type` set. An `items` value that is a constraint map produces a fully
 annotated element schema. Previously, array `items` were rendered as an empty
 schema `{}`.
+
+## `shaperail explain --format json`
+
+`shaperail explain <file> --format json` emits a stable JSON representation of
+the resource. The shape is defined in
+`shaperail-cli/src/commands/explain_format.rs` and documented publicly in
+`docs/cli-reference.md`. Field names are part of the CLI contract and must not
+be renamed without a major version bump.
+
+Key top-level fields: `resource`, `version`, `db`, `tenant_key`, `routes`,
+`table` (with `columns`), `relations`, `validations` (keyed by field name, value
+is the same compact list that `compact_validation_summary` returns), `openapi`
+(keyed by endpoint action, each entry has `request`, `responses`, `auth`), and
+`indexes`.
+
+The `validations` and `openapi` maps are produced by the same helpers
+(`compact_validation_summary`, `describe_request_shape`, `describe_response_codes`)
+that drive the text output — there is no logic duplication between the two
+rendering paths.

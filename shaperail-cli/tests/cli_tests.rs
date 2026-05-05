@@ -14,6 +14,15 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
+/// Run the shaperail CLI with the given arguments from the workspace root and
+/// return the raw Output so tests can inspect stdout, stderr, and status.
+fn run_cli(args: &[&str]) -> std::process::Output {
+    let root = workspace_root();
+    let mut cmd = cargo_bin_cmd!("shaperail");
+    cmd.args(args).current_dir(&root);
+    cmd.output().expect("failed to run shaperail")
+}
+
 // --- Help output tests ---
 
 #[test]
@@ -509,4 +518,224 @@ fn scaffold_writes_llm_context_files() {
         ctx.contains("resource:"),
         "llm-context.md should contain resource syntax"
     );
+}
+
+// --- Task 8: Validations section ---
+
+#[test]
+fn explain_prints_validation_rules_section() {
+    let output = run_cli(&[
+        "explain",
+        "examples/incident-platform/resources/incidents.yaml",
+    ]);
+    assert!(output.status.success(), "explain should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Validations:"),
+        "expected 'Validations:' header in output:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("title: required, min=1, max=200"),
+        "expected compact validation line for `title`:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("severity: enum [sev1, sev2, sev3, sev4]"),
+        "expected compact validation line for `severity`:\n{}",
+        stdout
+    );
+}
+
+// --- Task 9: OpenAPI fragments section ---
+
+#[test]
+fn explain_prints_openapi_fragments() {
+    let output = run_cli(&[
+        "explain",
+        "examples/incident-platform/resources/incidents.yaml",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("OpenAPI fragments:"),
+        "expected 'OpenAPI fragments:' header in:\n{}",
+        stdout
+    );
+    assert!(stdout.contains("list:"), "expected 'list:' fragment");
+    assert!(
+        stdout.contains("200:"),
+        "expected '200:' status code under list"
+    );
+    assert!(
+        stdout.contains("401:"),
+        "expected '401:' status code (auth gate)"
+    );
+}
+
+// --- Task 10: --format json ---
+
+#[test]
+fn explain_format_json_emits_valid_json() {
+    let output = run_cli(&[
+        "explain",
+        "examples/incident-platform/resources/incidents.yaml",
+        "--format",
+        "json",
+    ]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+
+    assert_eq!(v["resource"], "incidents");
+    assert!(v["routes"].is_array(), "routes should be an array");
+    assert!(
+        v["table"]["columns"].is_array(),
+        "table.columns should be an array"
+    );
+    assert!(
+        v["validations"].is_object(),
+        "validations should be an object keyed by field"
+    );
+    assert!(
+        v["openapi"].is_object(),
+        "openapi should be an object keyed by action"
+    );
+}
+
+#[test]
+fn explain_format_json_matches_documented_schema() {
+    // Walk every key documented in docs/cli-reference.md's `### --format
+    // <text|json>` table and assert it's actually emitted. Catches drift
+    // between the documented contract and the serializer.
+    let output = run_cli(&[
+        "explain",
+        "examples/incident-platform/resources/incidents.yaml",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        output.status.success(),
+        "explain --format json must succeed"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf8");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+
+    // Top-level keys (per docs/cli-reference.md `### --format <text|json>` table).
+    let top_level = [
+        "resource",
+        "version",
+        "db",
+        "tenant_key",
+        "routes",
+        "table",
+        "relations",
+        "validations",
+        "openapi",
+        "indexes",
+    ];
+    for key in &top_level {
+        assert!(
+            v.get(*key).is_some(),
+            "missing top-level key `{key}` in JSON output:\n{v:#}",
+        );
+    }
+
+    // routes[*] shape (per the documented Route entry).
+    let routes = v["routes"].as_array().expect("routes must be array");
+    assert!(
+        !routes.is_empty(),
+        "incidents fixture has multiple endpoints"
+    );
+    let route_keys = [
+        "method",
+        "path",
+        "action",
+        "auth",
+        "filters",
+        "search",
+        "sort",
+        "pagination",
+        "cache_ttl_seconds",
+        "rate_limit",
+        "soft_delete",
+        "upload",
+        "controller",
+        "events",
+        "jobs",
+    ];
+    for key in &route_keys {
+        assert!(
+            routes[0].get(*key).is_some(),
+            "routes[0] missing key `{key}`:\n{:#}",
+            routes[0],
+        );
+    }
+
+    // table.columns[*] shape.
+    let columns = v["table"]["columns"]
+        .as_array()
+        .expect("table.columns must be array");
+    assert!(!columns.is_empty(), "incidents has columns");
+    let column_keys = [
+        "name",
+        "type",
+        "nullable",
+        "primary_key",
+        "unique",
+        "generated",
+        "references",
+        "default",
+        "sensitive",
+    ];
+    for key in &column_keys {
+        assert!(
+            columns[0].get(*key).is_some(),
+            "table.columns[0] missing key `{key}`:\n{:#}",
+            columns[0],
+        );
+    }
+
+    // validations: BTreeMap<String, Vec<String>>. Each value is an array of
+    // compact constraint strings.
+    let validations = v["validations"]
+        .as_object()
+        .expect("validations must be object");
+    assert!(!validations.is_empty(), "incidents has validations");
+    for (field_name, parts) in validations {
+        assert!(
+            parts.is_array(),
+            "validations[{field_name}] must be array, got {parts:?}",
+        );
+    }
+
+    // openapi.<action>: { request, responses, auth }.
+    let openapi = v["openapi"].as_object().expect("openapi must be object");
+    assert!(!openapi.is_empty(), "incidents has openapi fragments");
+    for (action, frag) in openapi {
+        for key in &["request", "responses", "auth"] {
+            assert!(
+                frag.get(*key).is_some(),
+                "openapi[{action}] missing key `{key}`:\n{frag:#}",
+            );
+        }
+        assert!(
+            frag["responses"].is_object(),
+            "openapi[{action}].responses must be object (status -> body summary)",
+        );
+        assert!(
+            frag["auth"].is_array(),
+            "openapi[{action}].auth must be array of role names",
+        );
+    }
+
+    // relations[*] shape.
+    let relations = v["relations"].as_array().expect("relations must be array");
+    if let Some(rel0) = relations.first() {
+        for key in &["name", "type", "resource"] {
+            assert!(
+                rel0.get(*key).is_some(),
+                "relations[0] missing key `{key}`:\n{rel0:#}",
+            );
+        }
+    }
 }
