@@ -45,7 +45,7 @@ jobs:
             binary: shaperail.exe
             archive: shaperail-x86_64-pc-windows-msvc.zip
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name }}
 
