@@ -586,16 +586,15 @@ fn generate_list_helper(
     let filter_args = filters
         .iter()
         .map(|field_name| {
-            parameter_expression(
-                field_name,
-                context
-                    .resource
-                    .schema
-                    .get(field_name)
-                    .expect("filter field validated"),
-            )
+            let field = context.resource.schema.get(field_name).ok_or_else(|| {
+                format!(
+                    "Unknown filter field '{field_name}' on resource '{}'",
+                    context.resource.resource
+                )
+            })?;
+            Ok(parameter_expression(field_name, field))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, String>>()?;
 
     let search_decl = if search_fields.is_empty() {
         String::new()

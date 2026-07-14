@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 pub mod config_parser;
 pub mod diagnostics {
     mod inner;

@@ -26,12 +26,18 @@ serve, then package.
 | `shaperail explain <file> [--format <text\|json>]` | Dry-run: show what a resource YAML file will produce (routes, table, relations, validations, OpenAPI fragments). |
 | `shaperail check [path] [--json]` | Validate with structured fix suggestions and error codes. `--json` for LLM-friendly output. |
 | `shaperail diff` | Show what codegen would change without writing files (dry-run diff). |
+| `shaperail llm-context [--resource NAME] [--json]` | Dump the current project's resolved resources, endpoints, relations, and diagnostics for an LLM. |
 | `shaperail doctor` | Check system deps: Rust, PostgreSQL, Redis, sqlx-cli; print fix instructions. |
 | `shaperail routes` | Print all routes with auth requirements. |
 | `shaperail jobs:status [job_id]` | Show job queue depth and recent failures; or inspect a specific job by ID. |
 | `shaperail resource create <name> [--archetype TYPE]` | Scaffold a new resource YAML file and initial migration. Archetypes: basic (default), user, content, tenant, lookup. |
 
 Every command supports `--help`.
+
+Project commands load `.env` from the current directory before reading
+`shaperail.config.yaml` or starting Cargo. Variables already set in the shell
+take precedence. A malformed `.env` stops immediately with a file-specific
+error instead of failing later during config parsing or database startup.
 
 > **LLM tip:** Use `shaperail explain <file> --format json` to get a machine-readable
 > summary of any resource — routes, validations, and OpenAPI fragments — without
@@ -45,6 +51,7 @@ Every command supports `--help`.
 | `shaperail validate <file>` | Check one resource while editing | Validates schema and endpoint semantics without starting the app |
 | `shaperail validate` | Check the whole project | Validates every resource in the project |
 | `shaperail routes` | Review generated route surface | Prints routes with auth requirements |
+| `shaperail llm-context --json` | Give an LLM the live project shape | Prints deterministic project/resource context without writing files |
 | `shaperail export openapi --output openapi.json` | Review or publish the contract | Writes the deterministic OpenAPI 3.1 spec |
 | `shaperail migrate` | New resources or unapplied SQL files exist | Generates missing initial `create_<resource>` migrations, then applies all migrations |
 | `shaperail seed` | Populate dev data | Loads YAML fixtures from `seeds/` into the database in a transaction |

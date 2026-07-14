@@ -9,13 +9,9 @@ use shaperail_runtime::handlers::controller::{Context, ControllerResult};
 /// - Enforce max org name length and strip whitespace
 pub async fn validate_org_creation(ctx: &mut Context) -> ControllerResult {
     // Double-check: only super_admin can create organizations
-    let user = ctx.user.as_ref().ok_or_else(|| {
-        ShaperailError::Auth("Authentication required to create organizations".into())
-    })?;
+    let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
     if user.role != "super_admin" {
-        return Err(ShaperailError::Auth(
-            "Only super_admin can create organizations".into(),
-        ));
+        return Err(ShaperailError::Forbidden);
     }
 
     // Strip whitespace from org name
@@ -40,7 +36,8 @@ pub async fn validate_org_creation(ctx: &mut Context) -> ControllerResult {
         }
 
         // Write trimmed name back to input
-        ctx.input["name"] = serde_json::json!(trimmed);
+        ctx.input
+            .insert("name".to_string(), serde_json::json!(&trimmed));
 
         // Validate org name is unique (case-insensitive)
         let exists: (bool,) = sqlx::query_as(
@@ -62,7 +59,8 @@ pub async fn validate_org_creation(ctx: &mut Context) -> ControllerResult {
 
     // Set default plan to "free" if not specified
     if !ctx.input.contains_key("plan") || ctx.input["plan"].is_null() {
-        ctx.input["plan"] = serde_json::json!("free");
+        ctx.input
+            .insert("plan".to_string(), serde_json::json!("free"));
     }
 
     Ok(())
@@ -81,14 +79,12 @@ pub async fn enforce_plan_rules(ctx: &mut Context) -> ControllerResult {
 
     // Fetch the current plan from the database
     let org_id = ctx
-        .headers
-        .get("x-resource-id")
-        .cloned()
-        .unwrap_or_default();
+        .path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("Missing organization ID".into()))?;
 
     let current: (String,) =
-        sqlx::query_as("SELECT plan::text FROM organizations WHERE id = $1")
-            .bind(&org_id)
+        sqlx::query_as("SELECT plan::text FROM organizations WHERE id = $1::uuid")
+            .bind(org_id)
             .fetch_one(&ctx.pool)
             .await
             .map_err(|e| {
@@ -133,7 +129,7 @@ pub async fn enforce_plan_rules(ctx: &mut Context) -> ControllerResult {
     // Log plan change for billing when upgrading
     if current_plan != new_plan {
         tracing::info!(
-            org_id = %org_id,
+            org_id = org_id,
             from_plan = %current_plan,
             to_plan = %new_plan,
             "Plan change detected — billing event logged"

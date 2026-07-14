@@ -66,7 +66,6 @@
         "uuid",
         "string",
         "integer",
-        "bigint",
         "number",
         "boolean",
         "timestamp",
@@ -77,6 +76,51 @@
         "file"
       ],
       "description": "The data type of a field."
+    },
+    "ItemsSpec": {
+      "description": "Element type or constrained element definition for an array field.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/FieldType"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/FieldType"
+            },
+            "min": {
+              "description": "Minimum element value or string length."
+            },
+            "max": {
+              "description": "Maximum element value or string length."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "email",
+                "url",
+                "uuid"
+              ]
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+            }
+          }
+        }
+      ]
     },
     "FieldSchema": {
       "type": "object",
@@ -156,18 +200,12 @@
           "description": "Whether this field is included in full-text search."
         },
         "items": {
-          "type": "string",
-          "description": "Element type for array fields. Required when type is 'array'.",
-          "enum": [
-            "uuid",
-            "string",
-            "integer",
-            "bigint",
-            "number",
-            "boolean",
-            "timestamp",
-            "date"
-          ]
+          "$ref": "#/$defs/ItemsSpec"
+        },
+        "transient": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this is an input-only field that is validated but never persisted or returned."
         }
       }
     },
@@ -237,7 +275,12 @@
     },
     "RateLimitSpec": {
       "type": "object",
-      "description": "Per-endpoint rate limiting. Requires Redis. Silently skipped if Redis is not configured.",
+      "description": "Per-endpoint rate limiting. Requires Redis and is skipped when Redis is not configured.",
+      "required": [
+        "max_requests",
+        "window_secs"
+      ],
+      "additionalProperties": false,
       "properties": {
         "max_requests": {
           "type": "integer",
@@ -249,9 +292,7 @@
           "minimum": 1,
           "description": "Window duration in seconds."
         }
-      },
-      "required": ["max_requests", "window_secs"],
-      "additionalProperties": false
+      }
     },
     "UploadSpec": {
       "type": "object",
@@ -297,12 +338,53 @@
       "additionalProperties": false,
       "properties": {
         "before": {
-          "type": "string",
-          "description": "Function name called before the DB operation. Prefix with 'wasm:' for WASM plugins (e.g., 'wasm:./plugins/validator.wasm')."
+          "description": "Function name (or list of function names) called before the DB operation. Hooks run in declaration order; first error short-circuits. Prefix any name with 'wasm:' for WASM plugins (e.g., 'wasm:./plugins/validator.wasm').",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          ]
         },
         "after": {
+          "description": "Function name (or list of function names) called after the DB operation. Hooks run in declaration order; first error short-circuits. Prefix any name with 'wasm:' for WASM plugins.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          ]
+        }
+      }
+    },
+    "SubscriberSpec": {
+      "type": "object",
+      "description": "Event subscriber registered for this resource.",
+      "required": [
+        "event",
+        "handler"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event": {
           "type": "string",
-          "description": "Function name called after the DB operation. Prefix with 'wasm:' for WASM plugins."
+          "description": "Event name or wildcard pattern."
+        },
+        "handler": {
+          "type": "string",
+          "description": "Handler function in resources/<resource>.controller.rs."
         }
       }
     },
@@ -375,6 +457,17 @@
             "type": "string"
           },
           "description": "Background jobs to enqueue after successful execution (e.g., ['send_welcome_email'])."
+        },
+        "subscribers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SubscriberSpec"
+          },
+          "description": "Event subscribers to register at startup."
+        },
+        "handler": {
+          "type": "string",
+          "description": "Handler function for a non-convention endpoint."
         },
         "upload": {
           "$ref": "#/$defs/UploadSpec"

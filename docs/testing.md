@@ -66,6 +66,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
 
+The repository workspace also compiles every maintained example controller, so
+these commands catch stale controller APIs and missing example dependencies.
+
 ---
 
 ## Unit testing controllers
@@ -85,13 +88,17 @@ mod tests {
 
     fn mock_context(input: serde_json::Value) -> Context {
         Context {
-            input: input.as_object().unwrap().clone(),
+            input: input.as_object().cloned().unwrap_or_default(),
             data: None,
             user: None,
             pool: test_pool(),  // see "Testing with a real database" below
             headers: std::collections::HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
+            path_params: std::collections::HashMap::new(),
         }
     }
 
@@ -121,6 +128,9 @@ mod tests {
     }
 }
 ```
+
+Set `client_ip: Some("198.51.100.10".into())` when the controller reads
+`ctx.client_ip()`. Do not populate raw forwarding headers in controller tests.
 
 ### Testing an after-controller
 
@@ -161,7 +171,7 @@ async fn test_set_created_by_rejects_unauthenticated() {
     assert!(result.is_err());
     match result.unwrap_err() {
         ShaperailError::Unauthorized => {}
-        other => panic!("Expected Auth error, got: {:?}", other),
+        other => panic!("Expected Unauthorized, got: {:?}", other),
     }
 }
 ```
@@ -179,7 +189,7 @@ async fn test_admin_only_fields_strips_role_for_non_admin() {
         "org_id": "org-1"
     }));
     ctx.user = Some(AuthenticatedUser {
-        id: "user-1".into(),
+        sub: "user-1".into(),
         role: "member".into(),
         tenant_id: None,
     });
@@ -212,19 +222,7 @@ use std::sync::Arc;
 
 /// Build an AppState for testing (no auth, no cache, no jobs).
 fn make_test_state(pool: sqlx::PgPool) -> Arc<AppState> {
-    Arc::new(AppState {
-        pool,
-        resources: vec![],
-        stores: None,
-        controllers: None,
-        jwt_config: None,
-        cache: None,
-        event_emitter: None,
-        job_queue: None,
-        metrics: None,
-        wasm_runtime: None,
-        event_bus: tokio::sync::broadcast::channel(16).0,
-    })
+    Arc::new(AppState::new(pool, vec![], None))
 }
 ```
 
@@ -308,20 +306,9 @@ fn make_auth_state(pool: sqlx::PgPool) -> Arc<AppState> {
         3600,   // access token TTL
         86400,  // refresh token TTL
     );
-    Arc::new(AppState {
-        pool,
-        jwt_config: Some(Arc::new(jwt)),
-        // ... other fields same as make_test_state
-        resources: vec![],
-        stores: None,
-        controllers: None,
-        cache: None,
-        event_emitter: None,
-        job_queue: None,
-        metrics: None,
-        wasm_runtime: None,
-        event_bus: tokio::sync::broadcast::channel(16).0,
-    })
+    let mut state = AppState::new(pool, vec![], None);
+    state.jwt_config = Some(Arc::new(jwt));
+    Arc::new(state)
 }
 
 #[sqlx::test(migrations = "tests/fixtures/migrations")]

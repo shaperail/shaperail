@@ -5,7 +5,7 @@ use tracing::info;
 /// Blocked email domains that cannot be used for registration.
 const BLOCKED_DOMAINS: &[&str] = &["tempmail.com", "throwaway.io", "fakeinbox.net"];
 
-/// Before-create: normalize email, hash password, validate domain, set default role.
+/// Before-create: normalize email, validate its domain, and set the default role.
 pub async fn prepare_user(ctx: &mut Context) -> ControllerResult {
     // Normalize email to lowercase.
     let email = ctx
@@ -30,17 +30,8 @@ pub async fn prepare_user(ctx: &mut Context) -> ControllerResult {
             code: "blocked_domain".to_string(),
         }]));
     }
-    ctx.input["email"] = serde_json::json!(email);
-
-    // Hash password if provided (bcrypt, cost factor 12).
-    if let Some(password) = ctx.input.get("password").and_then(|v| v.as_str()) {
-        let hash = bcrypt::hash(password, 12).map_err(|e| {
-            ShaperailError::Internal(format!("Password hashing failed: {e}"))
-        })?;
-        ctx.input
-            .insert("password_hash".to_string(), serde_json::json!(hash));
-        ctx.input.remove("password");
-    }
+    ctx.input
+        .insert("email".to_string(), serde_json::json!(email));
 
     // Set default role to "member" if not explicitly provided.
     if !ctx.input.contains_key("role") {
@@ -60,11 +51,7 @@ pub async fn provision_defaults(ctx: &mut Context) -> ControllerResult {
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
-    let request_id = ctx
-        .headers
-        .get("x-request-id")
-        .cloned()
-        .unwrap_or_default();
+    let request_id = ctx.headers.get("x-request-id").cloned().unwrap_or_default();
 
     info!(
         user_id = user_id,
@@ -72,10 +59,8 @@ pub async fn provision_defaults(ctx: &mut Context) -> ControllerResult {
         "New user created"
     );
 
-    ctx.response_headers.push((
-        "X-User-Created".to_string(),
-        user_id.to_string(),
-    ));
+    ctx.response_headers
+        .push(("X-User-Created".to_string(), user_id.to_string()));
 
     Ok(())
 }
@@ -92,23 +77,21 @@ pub async fn validate_user_update(ctx: &mut Context) -> ControllerResult {
     if let Some(new_role) = ctx.input.get("role").and_then(|v| v.as_str()) {
         // Non-admins cannot change their own role.
         if caller.role != "admin" {
-            return Err(ShaperailError::Validation(vec![FieldError {
-                field: "role".to_string(),
-                message: "Only admins can change user roles".to_string(),
-                code: "insufficient_permissions".to_string(),
-            }]));
+            return Err(ShaperailError::Forbidden);
         }
 
         // Cannot demote the last admin. Check how many admins exist.
         if new_role != "admin" {
-            let current_role = ctx
-                .data
-                .as_ref()
-                .and_then(|d| d.get("role"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let user_id = ctx
+                .path_param("id")
+                .ok_or_else(|| ShaperailError::Internal("Missing user ID".into()))?;
+            let current_role: (String,) =
+                sqlx::query_as("SELECT role::text FROM users WHERE id = $1::uuid")
+                    .bind(user_id)
+                    .fetch_one(&ctx.pool)
+                    .await?;
 
-            if current_role == "admin" {
+            if current_role.0 == "admin" {
                 let admin_count: (i64,) =
                     sqlx::query_as("SELECT COUNT(*) FROM users WHERE role = 'admin'")
                         .fetch_one(&ctx.pool)

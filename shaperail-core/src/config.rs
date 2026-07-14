@@ -41,6 +41,10 @@ pub struct ProjectConfig {
     #[serde(default = "default_workers")]
     pub workers: WorkerCount,
 
+    /// Reverse-proxy client IP configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<ProxyConfig>,
+
     /// Named database connections (M14). When set, resources use `db: <name>` to select connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub databases: Option<indexmap::IndexMap<String, NamedDatabaseConfig>>,
@@ -76,6 +80,18 @@ pub struct ProjectConfig {
     /// gRPC configuration (M16). Port and reflection settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grpc: Option<GrpcConfig>,
+}
+
+/// Trusted reverse proxies allowed to supply `X-Forwarded-For`.
+///
+/// Forwarding headers are ignored unless the request's immediate socket peer
+/// belongs to one of these CIDR ranges.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProxyConfig {
+    /// Exact proxy addresses use `/32` for IPv4 or `/128` for IPv6.
+    #[serde(default)]
+    pub trusted_proxies: Vec<ipnet::IpNet>,
 }
 
 /// GraphQL-specific configuration (M15).
@@ -409,6 +425,9 @@ mod tests {
             "project": "my-api",
             "port": 8080,
             "workers": 4,
+            "proxy": {
+                "trusted_proxies": ["127.0.0.1/32", "10.0.0.0/8"]
+            },
             "cache": {
                 "type": "redis",
                 "url": "redis://localhost:6379"
@@ -433,6 +452,8 @@ mod tests {
         let cfg: ProjectConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.port, 8080);
         assert_eq!(cfg.workers, WorkerCount::Fixed(4));
+        let proxy = cfg.proxy.as_ref().unwrap();
+        assert_eq!(proxy.trusted_proxies.len(), 2);
         let cache = cfg.cache.unwrap();
         assert_eq!(cache.cache_type, "redis");
         let auth = cfg.auth.unwrap();
@@ -475,6 +496,7 @@ mod tests {
             project: "roundtrip-test".to_string(),
             port: 3000,
             workers: WorkerCount::Auto,
+            proxy: None,
             databases: None,
             cache: None,
             auth: None,
@@ -596,6 +618,19 @@ mod tests {
         let json = r#"{"project": "gql-api", "protocols": ["rest", "graphql"]}"#;
         let cfg: ProjectConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.protocols, vec!["rest", "graphql"]);
+    }
+
+    #[test]
+    fn proxy_config_rejects_invalid_cidr() {
+        let json = r#"{
+            "project": "bad-proxy",
+            "proxy": {"trusted_proxies": ["not-a-cidr"]}
+        }"#;
+        let err = serde_json::from_str::<ProjectConfig>(json).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid IP"),
+            "unexpected proxy CIDR error: {err}"
+        );
     }
 
     #[test]

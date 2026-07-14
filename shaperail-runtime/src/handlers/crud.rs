@@ -39,6 +39,8 @@ pub struct AppState {
     pub job_queue: Option<JobQueue>,
     /// Per-endpoint Redis-backed rate limiter. `None` if Redis is not configured.
     pub rate_limiter: Option<Arc<crate::auth::RateLimiter>>,
+    /// Resolves canonical client IPs using explicit trusted-proxy configuration.
+    pub client_ip_resolver: crate::proxy::ClientIpResolver,
     /// Custom endpoint handler registry. Keys are "{resource}:{action}".
     pub custom_handlers: Option<super::custom::CustomHandlerMap>,
     pub metrics: Option<MetricsState>,
@@ -52,11 +54,15 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Construct an `AppState` with only the required wiring (DB pool + resource definitions).
+    /// Construct an `AppState` with the required wiring and explicit proxy trust policy.
     /// All optional subsystems (cache, jobs, JWT, etc.) start as `None`; populate the fields
     /// you need via direct mutation before wrapping in `Arc`. This keeps the scaffold template
     /// stable when new optional fields are added to `AppState` in future milestones.
-    pub fn new(pool: sqlx::PgPool, resources: Vec<ResourceDefinition>) -> Self {
+    pub fn new(
+        pool: sqlx::PgPool,
+        resources: Vec<ResourceDefinition>,
+        proxy: Option<&shaperail_core::ProxyConfig>,
+    ) -> Self {
         Self {
             pool,
             resources,
@@ -67,6 +73,7 @@ impl AppState {
             event_emitter: None,
             job_queue: None,
             rate_limiter: None,
+            client_ip_resolver: crate::proxy::ClientIpResolver::new(proxy),
             custom_handlers: None,
             metrics: None,
             saga_executor: None,
@@ -74,6 +81,11 @@ impl AppState {
             wasm_runtime: None,
             event_bus: tokio::sync::broadcast::channel(256).0,
         }
+    }
+
+    /// Returns the canonical client IP for `req`.
+    pub fn client_ip(&self, req: &HttpRequest) -> Option<std::net::IpAddr> {
+        self.client_ip_resolver.resolve(req)
     }
 
     /// Subscribe to events on the broadcast bus (for GraphQL subscriptions).
@@ -269,11 +281,10 @@ async fn check_rate_limit(
     let Some(ref limiter) = state.rate_limiter else {
         return Ok(());
     };
-    let ip = req
-        .connection_info()
-        .peer_addr()
-        .unwrap_or("unknown")
-        .to_string();
+    let ip = state
+        .client_ip(req)
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
     let user_id = user.map(|u| u.sub.as_str());
     let tenant_id = user.and_then(|u| u.tenant_id.as_deref());
     let base_key = crate::auth::RateLimiter::key_for_tenant(&ip, user_id, tenant_id);
@@ -730,11 +741,8 @@ async fn run_before_controller(
     req: &HttpRequest,
     path_params: std::collections::HashMap<String, String>,
 ) -> Result<super::controller::Context, ShaperailError> {
-    let headers: std::collections::HashMap<String, String> = req
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
+    let headers = super::controller::request_headers(req);
+    let client_ip = state.client_ip(req).map(|ip| ip.to_string());
     let tenant_id = resolve_tenant_id(resource, user);
     let mut ctx = super::controller::Context {
         input,
@@ -742,6 +750,7 @@ async fn run_before_controller(
         user: user.cloned(),
         pool: state.pool.clone(),
         headers,
+        client_ip,
         response_headers: vec![],
         tenant_id,
         session: serde_json::Map::new(),
@@ -1534,7 +1543,33 @@ fn multipart_field_error(field: &str, message: &str, code: &str) -> ShaperailErr
 mod tests {
     use super::*;
     use indexmap::IndexMap;
-    use shaperail_core::{FieldSchema, FieldType, HttpMethod};
+    use shaperail_core::{FieldSchema, FieldType, HttpMethod, ProxyConfig};
+
+    #[tokio::test]
+    async fn app_state_applies_explicit_proxy_config() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/shaperail")
+            .expect("test pool");
+        let proxy = ProxyConfig {
+            trusted_proxies: vec!["127.0.0.1/32".parse().expect("test CIDR")],
+        };
+        let request = actix_web::test::TestRequest::default()
+            .peer_addr("127.0.0.1:8080".parse().expect("test socket"))
+            .insert_header(("x-forwarded-for", "198.51.100.8"))
+            .to_http_request();
+
+        let direct_state = AppState::new(pool.clone(), vec![], None);
+        assert_eq!(
+            direct_state.client_ip(&request),
+            Some("127.0.0.1".parse().expect("test IP"))
+        );
+
+        let proxied_state = AppState::new(pool, vec![], Some(&proxy));
+        assert_eq!(
+            proxied_state.client_ip(&request),
+            Some("198.51.100.8".parse().expect("test IP"))
+        );
+    }
 
     fn test_resource() -> ResourceDefinition {
         let mut schema = IndexMap::new();
@@ -1857,6 +1892,7 @@ mod tests {
             user: None,
             pool: sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap(),
             headers: std::collections::HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: None,
             session: serde_json::Map::new(),

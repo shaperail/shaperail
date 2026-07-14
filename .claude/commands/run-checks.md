@@ -1,29 +1,17 @@
-Run the full SteelAPI quality gate. Do not stop until everything passes.
+Run the full Shaperail quality gate and fix failures before stopping.
 
-Execute in this exact order:
+1. Check disk space with `df -h . | tail -1`; do not begin a long
+   build with less than about 10 GB available.
+2. Run `cargo fmt --check`.
+3. Run `cargo build --workspace`.
+4. Run `cargo clippy --workspace --all-targets -- -D warnings`.
+5. Run `cargo test --workspace` with the repository's PostgreSQL and Redis
+   environment available.
+6. Scan non-test production Rust for `.unwrap()` and `.expect(` and review every
+   result. Do not flag safe combinators such as `unwrap_or`.
+7. Confirm generated SQL still uses compile-time checked macros; dynamic sqlx
+   calls are allowed only in generic runtime paths where schemas are not known
+   at compile time.
+8. Run `docker compose config --quiet`.
 
-1. `cargo fmt --check`
-   - If fails: run `cargo fmt` then re-check
-
-2. `cargo build --workspace`
-   - If fails: fix ALL errors before continuing — read every error line
-
-3. `cargo clippy --workspace -- -D warnings`
-   - If fails: fix every warning. No `#[allow(...)]` without a comment explaining why
-   - Exception allowed: `clippy::too_many_arguments` on Actix handler functions
-
-4. `cargo test --workspace`
-   - If fails: fix the code or test — never delete a failing test
-   - Run `cargo test <test_name> -- --nocapture` for full output
-
-5. Check the Five Design Rules — grep for violations:
-   - `grep -r "\.unwrap()\|\.expect(" --include="*.rs" $(find . -name "*.rs" ! -path "*/tests/*" ! -path "*_test*")`
-     → Any result outside test files = VIOLATION of Rule 5. Fix before continuing.
-   - `grep -r "query(" --include="*.rs" steel-runtime/src/`
-     → Raw query() calls = VIOLATION of Rule 4. Must use sqlx::query_as! macro.
-
-6. Verify Docker dev environment works:
-   - `docker compose config` — validates docker-compose.yml syntax
-
-Report: what passed, what failed, what was fixed.
-If all pass, print: "✅ All checks passed — safe to commit"
+Do not delete a failing test or suppress a warning to make the gate green.

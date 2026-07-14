@@ -141,6 +141,11 @@ pub fn validate_resource(rd: &ResourceDefinition) -> Vec<ValidationError> {
                 "resource '{res}': primary key field '{name}' must be generated or required"
             )));
         }
+        if field.primary && field.nullable {
+            errors.push(err(&format!(
+                "resource '{res}': primary key field '{name}' cannot be nullable"
+            )));
+        }
 
         // Transient field constraints — `transient: true` means input-only, never persisted.
         // Combinations that imply persistence are nonsensical and rejected loudly.
@@ -1422,6 +1427,24 @@ schema:
                 .iter()
                 .any(|e| e.message.contains("must be generated or required")),
             "Expected primary-not-generated-or-required error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn nullable_primary_key_rejected() {
+        let yaml = r#"
+resource: items
+version: 1
+schema:
+  id: { type: uuid, primary: true, generated: true, nullable: true }
+"#;
+        let rd = parse_resource(yaml).unwrap();
+        let errors = validate_resource(&rd);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("cannot be nullable")),
+            "expected nullable-primary error, got: {errors:?}"
         );
     }
 

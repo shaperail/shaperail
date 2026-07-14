@@ -52,7 +52,12 @@ pub fn run() -> i32 {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
-                    let file_name = path.file_name().unwrap().to_string_lossy().to_string();
+                    let Some(file_name) = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                    else {
+                        continue;
+                    };
                     if !expected_files.contains(&file_name) {
                         has_changes = true;
                         println!("--- {}", path.display());

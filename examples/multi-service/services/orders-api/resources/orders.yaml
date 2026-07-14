@@ -4,35 +4,31 @@ version: 1
 schema:
   id:         { type: uuid, primary: true, generated: true }
   user_id:    { type: uuid, required: true }
+  order_number: { type: string, unique: true, required: true }
   total:      { type: number, required: true }
   status:     { type: enum, values: [pending, paid, shipped, delivered, cancelled], default: pending }
+  created_by: { type: string, required: true }
+  refund_required: { type: boolean, default: false }
+  refund_amount: { type: number, nullable: true }
   created_at: { type: timestamp, generated: true }
   updated_at: { type: timestamp, generated: true }
 
 endpoints:
   list:
-    method: GET
-    path: /orders
     auth: [member, admin]
     filters: [user_id, status]
     pagination: cursor
     sort: [created_at]
 
   get:
-    method: GET
-    path: /orders/:id
     auth: [member, admin]
 
   create:
-    method: POST
-    path: /orders
     auth: [member, admin]
-    input: [user_id, total, status]
+    input: [user_id, total]
     controller: { before: validate_order }
 
   update:
-    method: PATCH
-    path: /orders/:id
     auth: [admin]
     input: [status]
     controller: { before: enforce_order_status }

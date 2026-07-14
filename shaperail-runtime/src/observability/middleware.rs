@@ -68,6 +68,10 @@ where
         let path = req.path().to_string();
         let request_id = uuid::Uuid::new_v4().to_string();
         let metrics = req.app_data::<web::Data<MetricsState>>().cloned();
+        let client_ip = req
+            .app_data::<web::Data<Arc<crate::handlers::AppState>>>()
+            .and_then(|state| state.client_ip(req.request()))
+            .map(|ip| ip.to_string());
 
         // Extract user_id from request extensions if auth middleware has run
         let user_id = req
@@ -106,6 +110,7 @@ where
                 status = status,
                 duration_ms = duration_ms,
                 user_id = user_id.as_deref().unwrap_or("-"),
+                client_ip = client_ip.as_deref().unwrap_or("-"),
                 "request completed"
             );
 

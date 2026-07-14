@@ -8,9 +8,10 @@ use shaperail_runtime::handlers::controller::{Context, ControllerResult};
 /// - Auto-fill created_by from JWT
 /// - Default priority to "medium" if not set
 pub async fn validate_task(ctx: &mut Context) -> ControllerResult {
-    let tenant_id = ctx.tenant_id.as_deref().ok_or_else(|| {
-        ShaperailError::Auth("Tenant context required to create tasks".into())
-    })?;
+    let tenant_id = ctx
+        .tenant_id
+        .as_deref()
+        .ok_or(ShaperailError::Unauthorized)?;
 
     // Verify the project exists and is active
     let project_id = ctx
@@ -28,7 +29,7 @@ pub async fn validate_task(ctx: &mut Context) -> ControllerResult {
 
     let project: Option<(String,)> = sqlx::query_as(
         "SELECT status::text FROM projects \
-         WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL",
+         WHERE id = $1::uuid AND org_id = $2::uuid AND deleted_at IS NULL",
     )
     .bind(&project_id)
     .bind(tenant_id)
@@ -54,44 +55,28 @@ pub async fn validate_task(ctx: &mut Context) -> ControllerResult {
         _ => {}
     }
 
-    // If assigned_to is set, verify that user belongs to the same org
+    // Members may self-assign; tenant admins may assign another external subject.
     if let Some(assigned_to) = ctx.input.get("assigned_to").and_then(|v| v.as_str()) {
         if !assigned_to.is_empty() {
-            let belongs: (bool,) = sqlx::query_as(
-                "SELECT EXISTS(\
-                    SELECT 1 FROM users WHERE id = $1 AND org_id = $2\
-                )",
-            )
-            .bind(assigned_to)
-            .bind(tenant_id)
-            .fetch_one(&ctx.pool)
-            .await
-            .map_err(|e| {
-                ShaperailError::Internal(format!("DB error checking assignee: {e}"))
-            })?;
-
-            if !belongs.0 {
-                return Err(ShaperailError::Validation(vec![FieldError {
-                    field: "assigned_to".into(),
-                    message: "Assignee must belong to the same organization".into(),
-                    code: "invalid_assignee".into(),
-                }]));
+            let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
+            if user.role != "admin" && user.role != "super_admin" && assigned_to != user.sub {
+                return Err(ShaperailError::Forbidden);
             }
         }
     }
 
     // Auto-fill created_by from JWT
     if let Some(user) = &ctx.user {
-        ctx.input["created_by"] = serde_json::json!(user.id);
+        ctx.input
+            .insert("created_by".to_string(), serde_json::json!(&user.sub));
     } else {
-        return Err(ShaperailError::Auth(
-            "Authentication required to create tasks".into(),
-        ));
+        return Err(ShaperailError::Unauthorized);
     }
 
     // Default priority to "medium" if not set
     if !ctx.input.contains_key("priority") || ctx.input["priority"].is_null() {
-        ctx.input["priority"] = serde_json::json!("medium");
+        ctx.input
+            .insert("priority".to_string(), serde_json::json!("medium"));
     }
 
     Ok(())
@@ -105,19 +90,17 @@ pub async fn validate_task(ctx: &mut Context) -> ControllerResult {
 /// - Validate status transitions: todo -> in_progress -> done -> archived
 pub async fn enforce_task_rules(ctx: &mut Context) -> ControllerResult {
     let task_id = ctx
-        .headers
-        .get("x-resource-id")
-        .cloned()
-        .unwrap_or_default();
+        .path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("Missing task ID".into()))?;
 
     // Fetch current task state and its project status
     let task: (String, String, Option<String>) = sqlx::query_as(
         "SELECT t.status::text, p.status::text, t.assigned_to::text \
          FROM tasks t \
          JOIN projects p ON p.id = t.project_id \
-         WHERE t.id = $1",
+         WHERE t.id = $1::uuid",
     )
-    .bind(&task_id)
+    .bind(task_id)
     .fetch_one(&ctx.pool)
     .await
     .map_err(|e| ShaperailError::Internal(format!("DB error fetching task: {e}")))?;
@@ -169,20 +152,16 @@ pub async fn enforce_task_rules(ctx: &mut Context) -> ControllerResult {
 
         // Only the assignee or admin can change status to "done"
         if new_status == "done" {
-            let user = ctx.user.as_ref().ok_or_else(|| {
-                ShaperailError::Auth("Authentication required".into())
-            })?;
+            let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
 
             let is_assignee = current_assignee
                 .as_deref()
-                .map(|a| a == user.id)
+                .map(|a| a == user.sub)
                 .unwrap_or(false);
             let is_admin = user.role == "admin" || user.role == "super_admin";
 
             if !is_assignee && !is_admin {
-                return Err(ShaperailError::Auth(
-                    "Only the assignee or an admin can mark a task as done".into(),
-                ));
+                return Err(ShaperailError::Forbidden);
             }
         }
     }
@@ -207,10 +186,8 @@ pub async fn notify_assignee(ctx: &mut Context) -> ControllerResult {
     if let Some(status) = ctx.input.get("status").and_then(|v| v.as_str()) {
         if status == "done" {
             if let Some(user) = &ctx.user {
-                ctx.response_headers.push((
-                    "X-Completed-By".into(),
-                    user.id.clone(),
-                ));
+                ctx.response_headers
+                    .push(("X-Completed-By".into(), user.sub.clone()));
             }
         }
     }

@@ -95,6 +95,19 @@ If the endpoint also declares `controller: { before: ... }`, the same params are
 
 > Routes that worked before v0.14.1 still work. Earlier versions only converted the literal token `:id`; any other named param (`:vendor_id`, `:slug`, `:account_number`) was left as a literal segment and the route silently 404'd. The conversion is now general for any Rust-style identifier.
 
+## Client IP
+
+Never read `X-Forwarded-For`, `Forwarded`, or `X-Real-IP` directly. Resolve the
+canonical address through application state:
+
+```rust
+let client_ip = state.client_ip(&req).map(|ip| ip.to_string());
+```
+
+When a custom endpoint declares a before-controller, the same value is
+available as `ctx.client_ip()`. Forwarded addresses are considered only when
+the socket peer matches `proxy.trusted_proxies`.
+
 ## Authenticating and tenant-scoping queries
 
 Use `Subject` from `shaperail_runtime::auth`. CRUD endpoints get tenant scoping for free; custom handlers must apply it explicitly because the framework cannot infer your data flow.

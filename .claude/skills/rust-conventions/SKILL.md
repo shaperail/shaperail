@@ -1,24 +1,37 @@
 ---
 name: rust-conventions
-description: SteelAPI Rust coding conventions. Auto-loaded when writing or editing any .rs file.
+description: Shaperail Rust conventions. Auto-loaded when writing or editing Rust files.
 ---
 
-## Non-Negotiable Rules
+## Non-negotiable rules
 
-**No .unwrap() or .expect() outside tests** — use `?` or match
-**No raw query() calls** — always use `sqlx::query_as!` macro
-**No hardcoded secrets** — always from env vars
-**Error type** — always `SteelError` from steel-core, never String or Box<dyn Error>
+- Do not use `.unwrap()` or `.expect()` in production paths. Propagate errors
+  with `?` or handle them explicitly.
+- Use `shaperail_core::ShaperailError` at framework and controller boundaries.
+- Never hard-code credentials or secrets; load them from configuration or the
+  environment.
+- Generated resource SQL uses `sqlx::query_as!` with bind parameters. Generic
+  runtime infrastructure may use sqlx's dynamic APIs when the schema is only
+  known at runtime.
+- Preserve type safety. Do not use unchecked casts to bypass compiler errors.
 
-## Required Derives
-- Model structs: `Debug, Clone, Serialize, Deserialize, sqlx::FromRow`
-- Input structs: `Debug, Deserialize, Validate`
-- Enums: `Debug, Clone, Serialize, Deserialize, sqlx::Type`
+## Controllers
 
-## Naming
-- Handlers: `list_users`, `get_user`, `create_user`, `update_user`, `delete_user`
-- Queries: `find_by_id`, `find_all`, `insert`, `update_by_id`, `delete_by_id`
-- Types: PascalCase — `CreateUserInput`, `UserRole`, `ListResponse<T>`
+```rust
+use shaperail_runtime::handlers::controller::{Context, ControllerResult};
 
-## Clippy
-Must pass `cargo clippy -- -D warnings`. No `#[allow(...)]` without comment.
+pub async fn normalize_email(ctx: &mut Context) -> ControllerResult {
+    if let Some(email) = ctx.input.get_mut("email") {
+        if let Some(value) = email.as_str() {
+            *email = serde_json::json!(value.trim().to_lowercase());
+        }
+    }
+    Ok(())
+}
+```
+
+Use `AuthenticatedUser.sub`; it is an opaque JWT subject, not automatically a
+database user ID. Verify an application row before writing it to a foreign key.
+
+Run `cargo fmt` after edits and require
+`cargo clippy --workspace --all-targets -- -D warnings` before completion.

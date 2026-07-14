@@ -59,6 +59,8 @@ pub struct Context {
     pub pool: sqlx::PgPool,
     /// Request headers (read-only).
     pub headers: HashMap<String, String>,
+    /// Canonical client IP resolved from the socket peer and trusted proxies.
+    pub client_ip: Option<String>,
     /// Extra response headers the controller wants to add.
     pub response_headers: Vec<(String, String)>,
     /// The tenant ID extracted from the authenticated user (M18).
@@ -87,6 +89,24 @@ impl Context {
     pub fn path_param(&self, name: &str) -> Option<&str> {
         self.path_params.get(name).map(String::as_str)
     }
+
+    /// Returns the canonical client IP resolved from the socket peer and the
+    /// project's trusted-proxy configuration.
+    pub fn client_ip(&self) -> Option<&str> {
+        self.client_ip.as_deref()
+    }
+}
+
+pub(crate) fn request_headers(req: &actix_web::HttpRequest) -> HashMap<String, String> {
+    req.headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.to_string(), value.to_string()))
+        })
+        .collect()
 }
 
 /// Type alias for controller function results.
@@ -228,6 +248,7 @@ pub async fn dispatch_controller(
                 role: u.role.clone(),
             }),
             headers: ctx.headers.clone(),
+            client_ip: ctx.client_ip.clone(),
             tenant_id: ctx.tenant_id.clone(),
         };
 
@@ -299,6 +320,7 @@ async fn dispatch_rust_controller(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::proxy::ClientIpResolver;
 
     async fn normalize_email(ctx: &mut Context) -> ControllerResult {
         if let Some(email) = ctx.input.get("email").and_then(|v| v.as_str()) {
@@ -330,6 +352,7 @@ mod tests {
             user: None,
             pool: test_pool(),
             headers: HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: None,
             session: serde_json::Map::new(),
@@ -352,6 +375,7 @@ mod tests {
             user: None,
             pool: test_pool(),
             headers: HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: None,
             session: serde_json::Map::new(),
@@ -402,6 +426,7 @@ mod tests {
             user: None,
             pool: test_pool(),
             headers: HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: None,
             session: serde_json::Map::new(),
@@ -448,6 +473,7 @@ mod tests {
             user: None,
             pool: test_pool(),
             headers: HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: None,
             session: serde_json::Map::new(),
@@ -507,6 +533,7 @@ mod tests {
             user: None,
             pool: test_pool(),
             headers: HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: None,
             session: serde_json::Map::new(),
@@ -529,6 +556,7 @@ mod tests {
             user: None,
             pool: test_pool(),
             headers: HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: None,
             session: serde_json::Map::new(),
@@ -562,6 +590,7 @@ mod tests {
             user: None,
             pool: test_pool(),
             headers: HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: None,
             session: serde_json::Map::new(),
@@ -574,5 +603,34 @@ mod tests {
             ctx.session.get("saw_id").and_then(|v| v.as_bool()),
             Some(true)
         );
+    }
+
+    #[tokio::test]
+    async fn context_exposes_client_ip_from_trusted_proxy_resolver() {
+        let proxy = shaperail_core::ProxyConfig {
+            trusted_proxies: vec!["10.0.0.0/8".parse().unwrap()],
+        };
+        let req = actix_web::test::TestRequest::default()
+            .peer_addr("10.0.0.5:4242".parse().unwrap())
+            .insert_header(("x-forwarded-for", "198.51.100.10, 10.0.0.4"))
+            .to_http_request();
+        let resolver = ClientIpResolver::new(Some(&proxy));
+        let headers = request_headers(&req);
+        let client_ip = resolver.resolve(&req).map(|ip| ip.to_string());
+        let ctx = Context {
+            input: serde_json::Map::new(),
+            data: None,
+            user: None,
+            pool: test_pool(),
+            headers,
+            client_ip,
+            response_headers: vec![],
+            tenant_id: None,
+            session: serde_json::Map::new(),
+            response_extras: serde_json::Map::new(),
+            path_params: HashMap::new(),
+        };
+
+        assert_eq!(ctx.client_ip(), Some("198.51.100.10"));
     }
 }

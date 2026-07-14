@@ -236,23 +236,16 @@ async fn main() -> std::io::Result<()> {
             shaperail_runtime::auth::RateLimitConfig::default(),
         ))
     });
-    let state = Arc::new(AppState {
-        pool: pool.clone(),
-        resources: resources.clone(),
-        stores: Some(stores),
-        controllers: Some(controllers),
-        jwt_config: jwt_config.clone(),
-        cache,
-        event_emitter: event_emitter.clone(),
-        job_queue,
-        rate_limiter,
-        custom_handlers: None,
-        metrics: Some(metrics_state.get_ref().clone()),
-        saga_executor: None,
-        #[cfg(feature = "wasm-plugins")]
-        wasm_runtime: None,
-        event_bus: tokio::sync::broadcast::channel(256).0,
-    });
+    let mut state = AppState::new(pool.clone(), resources.clone(), config.proxy.as_ref());
+    state.stores = Some(stores);
+    state.controllers = Some(controllers);
+    state.jwt_config = jwt_config.clone();
+    state.cache = cache;
+    state.event_emitter = event_emitter.clone();
+    state.job_queue = job_queue;
+    state.rate_limiter = rate_limiter;
+    state.metrics = Some(metrics_state.get_ref().clone());
+    let state = Arc::new(state);
 
     let health_state = web::Data::new(HealthState::new(Some(pool), redis_pool));
     let inbound_configs = config

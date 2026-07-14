@@ -232,9 +232,11 @@ pub async fn owner_only(ctx: &mut Context) -> ControllerResult {
     let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
 
     if user.role != "admin" {
-        // Non-admins can only modify their own records
-        let record_owner = ctx.input.get("user_id").and_then(|v| v.as_str());
-        if record_owner != Some(user.id.as_str()) {
+        // This field stores the opaque auth subject, not a users.id foreign key.
+        let owner_subject = ctx.input
+            .get("owner_subject")
+            .and_then(|v| v.as_str());
+        if owner_subject != Some(user.sub.as_str()) {
             return Err(ShaperailError::Forbidden);
         }
     }
@@ -264,21 +266,21 @@ directly on sqlx calls inside controllers:
 
 ```rust
 pub async fn check_quota(ctx: &mut Context) -> ControllerResult {
-    let user_id = ctx.user.as_ref()
-        .map(|u| u.id.as_str())
+    let subject = ctx.user.as_ref()
+        .map(|u| u.sub.as_str())
         .ok_or(ShaperailError::Unauthorized)?;
 
     let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM orders WHERE user_id = $1"
+        "SELECT COUNT(*) FROM orders WHERE created_by_subject = $1"
     )
-    .bind(user_id)
+    .bind(subject)
     .fetch_one(&ctx.pool)
     .await?;  // sqlx::Error automatically converts to ShaperailError
 
     if count >= 100 {
         return Err(ShaperailError::Validation(vec![
             FieldError {
-                field: "user_id".into(),
+                field: "created_by_subject".into(),
                 message: "order quota exceeded (max 100)".into(),
                 code: "quota_exceeded".into(),
             },
@@ -288,6 +290,11 @@ pub async fn check_quota(ctx: &mut Context) -> ControllerResult {
     Ok(())
 }
 ```
+
+These examples compare or store `sub` only in string fields whose explicit
+meaning is the external authentication subject. If your schema uses a
+`users.id` foreign key, resolve and verify the application user row first; do
+not bind `sub` directly.
 
 ---
 

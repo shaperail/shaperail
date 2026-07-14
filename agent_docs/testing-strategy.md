@@ -76,6 +76,15 @@ fn user_fixture() -> CreateUserInput {
 3. The endpoint that calls the changed function
 4. Run: `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`
 
+The workspace includes `examples/controller-checks`, which imports every
+maintained `*.controller.rs` example so the same build and Clippy gate catches
+stale controller APIs, missing dependencies, and Rust type errors.
+
+Controller unit tests that depend on the caller address set
+`Context.client_ip` directly. Never simulate proxy behavior by inserting raw
+forwarding headers; proxy-chain behavior belongs in `shaperail-runtime::proxy`
+tests.
+
 ## Integration tests (`tests/integration.rs`) — `test_support` pattern
 
 `shaperail_runtime::test_support` (behind the `test-support` cargo feature) ships an in-process server-spawn helper modeled on the zero2prod `TestApp` pattern. To use it, expose your project's bootstrap as a `build_server(listener) -> std::io::Result<Server>` from `src/lib.rs`, and call it from `tests/integration.rs`:

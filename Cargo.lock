@@ -2799,6 +2799,9 @@ name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "iri-string"
@@ -4903,6 +4906,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "deadpool-redis",
+ "dotenvy",
  "indexmap",
  "predicates",
  "redis",
@@ -4939,11 +4943,25 @@ dependencies = [
  "actix-web",
  "chrono",
  "indexmap",
+ "ipnet",
  "serde",
  "serde_json",
  "serde_yaml",
  "sqlx",
  "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
+name = "shaperail-example-controller-checks"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "serde_json",
+ "shaperail-core",
+ "shaperail-runtime",
+ "sqlx",
+ "tracing",
  "uuid",
 ]
 
@@ -4970,6 +4988,7 @@ dependencies = [
  "http-body-util",
  "image",
  "indexmap",
+ "ipnet",
  "jsonwebtoken",
  "mongodb",
  "object_store",

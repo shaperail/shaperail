@@ -1,227 +1,117 @@
 # Shaperail Code Generation Patterns
 
-## Principle
-The generator converts ResourceDefinition → Rust source files.
-Input: `shaperail-core::ResourceDefinition` (already validated)
-Output: Rust modules written to `shaperail-runtime/src/generated/<resource>/`
+## Contract
 
-## Output File Structure Per Resource
-```
-shaperail-runtime/src/generated/users/
-├── mod.rs          # re-exports everything
-├── model.rs        # serde struct, sqlx FromRow
-├── handlers.rs     # Actix-web handler functions
-├── queries.rs      # sqlx query functions
-├── validation.rs   # input validation logic
-└── routes.rs       # route registration
+The Rust generator receives validated
+`shaperail_core::ResourceDefinition` values and writes deterministic modules to
+the application-level `generated/` directory:
+
+```text
+generated/
+├── mod.rs
+├── users.rs
+└── organizations.rs
 ```
 
-## model.rs Pattern
+`shaperail generate` is the only writer for these files. Users change resource
+YAML or controller source, never generated Rust.
+
+## Resource module
+
+Each `generated/<resource>.rs` contains:
+
+1. A serializable record struct containing persisted schema fields.
+2. A `<Resource>Store` holding a `sqlx::PgPool`.
+3. Typed collection-query helpers for declared list-like endpoints.
+4. A `shaperail_runtime::db::ResourceStore` implementation for find, list,
+   insert, update, and delete operations.
+
+The runtime owns HTTP extraction, validation, authorization, response
+envelopes, controller dispatch, events, and jobs. Do not generate a second
+handler or service layer.
+
+### Record pattern
+
 ```rust
-// Always derive these — no exceptions
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct User {
-    pub id: Uuid,
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UsersRecord {
+    pub id: uuid::Uuid,
+    #[serde(skip_serializing)]
     pub email: String,
-    pub name: String,
-    pub role: UserRole,         // enum types get their own type
-    pub org_id: Uuid,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub deleted_at: Option<DateTime<Utc>>,
-}
-
-// Input structs — always separate from the model
-#[derive(Debug, Deserialize, Validate)]
-pub struct CreateUserInput {
-    #[validate(email)]
-    pub email: String,
-    #[validate(length(min = 1, max = 100))]
-    pub name: String,
-    pub role: Option<UserRole>,   // optional fields use Option<T>
-    pub org_id: Uuid,
-}
-
-#[derive(Debug, Deserialize, Validate)]
-pub struct UpdateUserInput {
-    #[validate(length(min = 1, max = 100))]
-    pub name: Option<String>,     // PATCH: all fields optional
-    pub metadata: Option<Value>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 ```
 
-## queries.rs Pattern
+- Persisted fields appear in schema order.
+- `sensitive: true` fields receive `#[serde(skip_serializing)]`.
+- Optional fields use `Option<T>`.
+- `integer` maps to `i64`; `number` maps to `f64`.
+- Array element types map to typed `Vec<T>` values.
+
+### Query pattern
+
+Generated Postgres queries use `sqlx::query_as!` with bind parameters:
+
 ```rust
-// Always use sqlx query_as! macro for compile-time verification
-// Never use raw string queries
-
-pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>, ShaperailError> {
-    sqlx::query_as!(
-        User,
-        "SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL",
-        id
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(ShaperailError::from)
-}
-
-pub async fn list(pool: &PgPool, params: &ListParams) -> Result<Vec<User>, ShaperailError> {
-    // Cursor pagination — preferred over offset for large tables
-    // Offset pagination only when explicitly declared in resource file
-    sqlx::query_as!(
-        User,
-        r#"
-        SELECT * FROM users
-        WHERE deleted_at IS NULL
-          AND ($1::uuid IS NULL OR id < $1)
-        ORDER BY created_at DESC
-        LIMIT $2
-        "#,
-        params.cursor,
-        params.limit as i64,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(ShaperailError::from)
-}
+let row = sqlx::query_as!(
+    UsersRecord,
+    r#"
+    SELECT
+        "id" as "id!: uuid::Uuid",
+        "email" as "email!: String",
+        "created_at" as "created_at!: chrono::DateTime<chrono::Utc>"
+    FROM "users"
+    WHERE "id" = $1
+    "#,
+    id
+)
+.fetch_optional(&self.pool)
+.await?
+.ok_or(shaperail_core::ShaperailError::NotFound)?;
 ```
 
-## handlers.rs Pattern
-```rust
-// Handler signature is always the same shape
-pub async fn get_user(
-    path: web::Path<Uuid>,
-    state: web::Data<AppState>,
-    auth: AuthenticatedUser,   // extractor — fails with 401 if not authenticated
-) -> impl Responder {
-    let id = path.into_inner();
+Rules:
 
-    match queries::find_by_id(&state.db, id).await {
-        Ok(Some(user)) => HttpResponse::Ok().json(user),
-        Ok(None) => ShaperailError::NotFound("user".into()).into_response(),
-        Err(e) => e.into_response(),
-    }
-}
+- Never interpolate values into SQL.
+- Quote schema-derived identifiers.
+- Keep bind order and generated type annotations deterministic.
+- Never emit `.unwrap()` or `.expect()`.
+- Propagate sqlx failures through `ShaperailError`.
+- Exclude `transient: true` fields from models and persistence.
 
-// List handler always uses this response envelope
-#[derive(Serialize)]
-pub struct ListResponse<T> {
-    pub data: Vec<T>,
-    pub meta: PaginationMeta,
-}
-```
+## Registry module
 
-## Error Handling Rule
-NEVER use `.unwrap()` or `.expect()` in generated code.
-ALWAYS propagate with `?` or explicit `match`.
-ALWAYS use `ShaperailError` variants — never raw `String` errors.
+`generated/mod.rs`:
 
-## Enum Pattern
-```rust
-// Resource enums always implement these traits
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "user_role", rename_all = "lowercase")]
-pub enum UserRole {
-    Admin,
-    Member,
-    Viewer,
-}
-```
+- declares each generated resource module;
+- builds the typed `StoreRegistry`;
+- includes user-owned controller files with `#[path = "../resources/..."]`;
+- registers declared controller functions;
+- includes and registers declared job handlers;
+- includes and registers custom endpoint handlers.
 
-## Route Registration Pattern
-```rust
-// routes.rs — always follows this exact shape
-pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/users")
-            .route("", web::get().to(handlers::list_users))
-            .route("", web::post().to(handlers::create_user))
-            .route("/{id}", web::get().to(handlers::get_user))
-            .route("/{id}", web::patch().to(handlers::update_user))
-            .route("/{id}", web::delete().to(handlers::delete_user))
-    );
-}
-```
+Controller files live at `resources/<resource>.controller.rs`. Job handlers live
+under `jobs/`. Generation may create a missing stub but must never overwrite a
+user-owned implementation.
 
-## What the Generator MUST NOT Do
-- Generate code that uses `.unwrap()` or `.expect()`
-- Generate `pub` fields on input structs that bypass validation
-- Generate SQL with string interpolation (always use `$1`, `$2` placeholders)
-- Generate code that imports from outside `shaperail-core` or `shaperail-runtime`
-- Generate files that don't compile with `cargo clippy -- -D warnings`
+## Determinism
 
-## Field nullability and Option wrapping
+The same validated resource list must produce byte-identical output.
 
-The codegen emits `Option<T>` only for columns that the database actually
-permits to be NULL. Columns backed by `NOT NULL` SQL — including
-`primary: true`, `required: true`, `default:`, and `generated: true` —
-emit the bare type `T`. `nullable: true` always wins over the other flags:
-a column declared `nullable: true, default: "x"` is genuinely nullable
-in SQL, so the struct field is `Option<T>`.
+- Preserve `IndexMap` declaration order from resource definitions.
+- Use sorted or ordered collections whenever data does not already have schema
+  order.
+- Never include timestamps, absolute paths, random identifiers, or host state.
+- Run rustfmt on emitted files, but do not make output depend on rustfmt being
+  installed.
 
-### The rule
+## Verification
 
-```
-field is Option<T> in the codegen struct
-    iff
-nullable = true
-    OR
-(NOT primary AND NOT required AND default is None AND generated = false)
-```
+Generator changes require:
 
-`model_field_is_optional` and `field_is_required` in
-`shaperail-codegen/src/rust.rs` are exact inverses of this predicate.
+1. Focused string/structure tests for the changed emission.
+2. Snapshot updates when an existing snapshot intentionally changes.
+3. A generated-project compile test.
+4. `cargo clippy --workspace --all-targets -- -D warnings`.
 
-### Behavior matrix
-
-| YAML | DB column | Codegen type |
-|---|---|---|
-| `{ type: integer, required: true }` | `BIGINT NOT NULL` | `i64` |
-| `{ type: integer, required: true, default: 0 }` | `BIGINT NOT NULL DEFAULT 0` | `i64` |
-| `{ type: integer, default: 0 }` | `BIGINT NOT NULL DEFAULT 0` | `i64` |
-| `{ type: timestamp, generated: true }` | `TIMESTAMP NOT NULL DEFAULT NOW()` | `DateTime<Utc>` |
-| `{ type: string, nullable: true }` | `VARCHAR NULL` | `Option<String>` |
-| `{ type: string, nullable: true, default: "x" }` | `VARCHAR NULL DEFAULT 'x'` | `Option<String>` |
-| `{ type: uuid, primary: true, generated: true }` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | `Uuid` |
-
-### Input-body invariant
-
-Input payloads for `create` and `update` are not affected by this rule.
-A field with `default:` is still optional in the request body — the caller
-may omit it and the database fills the default. Only the SELECT-side
-`pub struct` flips type, since that struct is constructed from a row that
-the database has already populated.
-
-## OpenAPI Generation
-
-The OpenAPI generator walks each `ResourceDefinition` and emits an OpenAPI 3.1
-schema object per field.
-
-For `FieldType::Array`, the generator consults `field.items` to build the
-element schema: `items.type` is mapped to OpenAPI primitives, and `format`,
-`enum`, `minLength`/`maxLength` (string/enum), or `minimum`/`maximum`
-(numeric) are emitted on the element schema when present. An `items` value that
-is a bare type name (legacy shorthand) produces an element schema with only
-`type` set. An `items` value that is a constraint map produces a fully
-annotated element schema. Previously, array `items` were rendered as an empty
-schema `{}`.
-
-## `shaperail explain --format json`
-
-`shaperail explain <file> --format json` emits a stable JSON representation of
-the resource. The shape is defined in
-`shaperail-cli/src/commands/explain_format.rs` and documented publicly in
-`docs/cli-reference.md`. Field names are part of the CLI contract and must not
-be renamed without a major version bump.
-
-Key top-level fields: `resource`, `version`, `db`, `tenant_key`, `routes`,
-`table` (with `columns`), `relations`, `validations` (keyed by field name, value
-is the same compact list that `compact_validation_summary` returns), `openapi`
-(keyed by endpoint action, each entry has `request`, `responses`, `auth`), and
-`indexes`.
-
-The `validations` and `openapi` maps are produced by the same helpers
-(`compact_validation_summary`, `describe_request_shape`, `describe_response_codes`)
-that drive the text output — there is no logic duplication between the two
-rendering paths.
+Valid resource definitions must never produce Rust that fails to compile.

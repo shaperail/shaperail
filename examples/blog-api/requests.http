@@ -15,8 +15,7 @@ Content-Type: application/json
 
 {
   "title": "Hello Shaperail",
-  "body": "This post was created from the blog-api example.",
-  "status": "draft"
+  "body": "This post was created from the blog-api example."
 }
 
 ### Create a post — status defaults to "draft" when omitted

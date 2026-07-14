@@ -100,6 +100,11 @@ project: my-api
 port: 8080
 workers: 4
 
+proxy:
+  trusted_proxies:
+    - 127.0.0.1/32
+    - 10.0.0.0/8
+
 databases:
   default:
     engine: postgres
@@ -130,6 +135,10 @@ logging:
         assert_eq!(cfg.project, "my-api");
         assert_eq!(cfg.port, 8080);
         assert_eq!(cfg.workers, WorkerCount::Fixed(4));
+        assert_eq!(
+            cfg.proxy.as_ref().map(|proxy| proxy.trusted_proxies.len()),
+            Some(2)
+        );
         let dbs = cfg.databases.as_ref().unwrap();
         assert_eq!(
             dbs.get("default").unwrap().url,
@@ -242,5 +251,16 @@ protocols:
 "#;
         let cfg = parse_config(yaml).unwrap();
         assert_eq!(cfg.protocols, vec!["rest", "graphql"]);
+    }
+
+    #[test]
+    fn parse_config_rejects_invalid_trusted_proxy_cidr() {
+        let yaml = r#"
+project: bad-proxy
+proxy:
+  trusted_proxies: [not-a-cidr]
+"#;
+        let err = parse_config(yaml).unwrap_err();
+        assert!(err.to_string().contains("invalid IP"));
     }
 }

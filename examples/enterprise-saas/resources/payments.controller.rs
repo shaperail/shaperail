@@ -6,14 +6,14 @@ use shaperail_runtime::handlers::controller::{Context, ControllerResult};
 /// auto-fill processed_by from the JWT.
 pub async fn validate_payment(ctx: &mut Context) -> ControllerResult {
     // Auto-fill processed_by from JWT
-    let user = ctx.user.as_ref().ok_or_else(|| {
-        ShaperailError::Auth("Authentication required to create payments".into())
-    })?;
-    ctx.input["processed_by"] = serde_json::json!(user.id);
+    let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
+    ctx.input
+        .insert("processed_by".to_string(), serde_json::json!(&user.sub));
 
     // Auto-fill org_id from tenant context
     if let Some(ref tenant_id) = ctx.tenant_id {
-        ctx.input["org_id"] = serde_json::json!(tenant_id);
+        ctx.input
+            .insert("org_id".to_string(), serde_json::json!(tenant_id));
     }
 
     let invoice_id = ctx
@@ -43,7 +43,7 @@ pub async fn validate_payment(ctx: &mut Context) -> ControllerResult {
 
     // Verify invoice exists and is in a payable state (sent or overdue)
     let invoice_row: Option<(String, i64)> = sqlx::query_as(
-        "SELECT status, total_cents FROM invoices WHERE id = $1 AND deleted_at IS NULL",
+        "SELECT status, total_cents FROM invoices WHERE id = $1::uuid AND deleted_at IS NULL",
     )
     .bind(&invoice_id)
     .fetch_optional(&ctx.pool)
@@ -74,7 +74,7 @@ pub async fn validate_payment(ctx: &mut Context) -> ControllerResult {
     // Sum existing completed/pending payments for this invoice
     let paid_so_far: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(amount_cents), 0) FROM payments \
-         WHERE invoice_id = $1 AND status IN ('pending', 'completed')",
+         WHERE invoice_id = $1::uuid AND status IN ('pending', 'completed')",
     )
     .bind(&invoice_id)
     .fetch_one(&ctx.pool)
@@ -96,7 +96,7 @@ pub async fn validate_payment(ctx: &mut Context) -> ControllerResult {
     // Idempotency: check for duplicate payments (same invoice + amount within 5 minutes)
     let duplicate: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM payments \
-         WHERE invoice_id = $1 AND amount_cents = $2 \
+         WHERE invoice_id = $1::uuid AND amount_cents = $2 \
          AND created_at > NOW() - INTERVAL '5 minutes'",
     )
     .bind(&invoice_id)
@@ -126,19 +126,16 @@ pub async fn validate_payment(ctx: &mut Context) -> ControllerResult {
 ///   auto-update the invoice status to "paid"
 pub async fn enforce_payment_rules(ctx: &mut Context) -> ControllerResult {
     let resource_id = ctx
-        .input
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("Missing payment ID".into()))?;
 
     // Fetch current payment state
-    let row: (String, String) = sqlx::query_as(
-        "SELECT status, invoice_id FROM payments WHERE id = $1",
-    )
-    .bind(resource_id)
-    .fetch_one(&ctx.pool)
-    .await
-    .map_err(|e| ShaperailError::Internal(format!("DB error fetching payment: {e}")))?;
+    let row: (String, String) =
+        sqlx::query_as("SELECT status, invoice_id::text FROM payments WHERE id = $1::uuid")
+            .bind(resource_id)
+            .fetch_one(&ctx.pool)
+            .await
+            .map_err(|e| ShaperailError::Internal(format!("DB error fetching payment: {e}")))?;
 
     let (current_status, invoice_id) = row;
 
@@ -177,7 +174,7 @@ pub async fn enforce_payment_rules(ctx: &mut Context) -> ControllerResult {
     if new_status == "completed" {
         // Get the payment amount and invoice total
         let payment_amount: i64 =
-            sqlx::query_scalar("SELECT amount_cents FROM payments WHERE id = $1")
+            sqlx::query_scalar("SELECT amount_cents FROM payments WHERE id = $1::uuid")
                 .bind(resource_id)
                 .fetch_one(&ctx.pool)
                 .await
@@ -186,7 +183,7 @@ pub async fn enforce_payment_rules(ctx: &mut Context) -> ControllerResult {
                 })?;
 
         let invoice_total: i64 =
-            sqlx::query_scalar("SELECT total_cents FROM invoices WHERE id = $1")
+            sqlx::query_scalar("SELECT total_cents FROM invoices WHERE id = $1::uuid")
                 .bind(&invoice_id)
                 .fetch_one(&ctx.pool)
                 .await
@@ -197,7 +194,7 @@ pub async fn enforce_payment_rules(ctx: &mut Context) -> ControllerResult {
         // Sum all completed payments for this invoice (excluding current one being updated)
         let already_paid: i64 = sqlx::query_scalar(
             "SELECT COALESCE(SUM(amount_cents), 0) FROM payments \
-             WHERE invoice_id = $1 AND status = 'completed' AND id != $2",
+             WHERE invoice_id = $1::uuid AND status = 'completed' AND id != $2::uuid",
         )
         .bind(&invoice_id)
         .bind(resource_id)
@@ -210,7 +207,7 @@ pub async fn enforce_payment_rules(ctx: &mut Context) -> ControllerResult {
         // If this payment fully covers the invoice, auto-mark invoice as paid
         if total_after_completion >= invoice_total {
             sqlx::query(
-                "UPDATE invoices SET status = 'paid', paid_at = NOW(), updated_at = NOW() WHERE id = $1",
+                "UPDATE invoices SET status = 'paid', paid_at = NOW(), updated_at = NOW() WHERE id = $1::uuid",
             )
             .bind(&invoice_id)
             .execute(&ctx.pool)
@@ -220,18 +217,9 @@ pub async fn enforce_payment_rules(ctx: &mut Context) -> ControllerResult {
             })?;
 
             // Audit the automatic invoice status change
-            let user_id = ctx
-                .user
-                .as_ref()
-                .map(|u| u.id.to_string())
-                .unwrap_or_default();
+            let user_id = ctx.user.as_ref().map(|u| u.sub.clone()).unwrap_or_default();
 
-            let ip_address = ctx
-                .headers
-                .get("x-forwarded-for")
-                .or_else(|| ctx.headers.get("x-real-ip"))
-                .cloned()
-                .unwrap_or_else(|| "unknown".into());
+            let ip_address = ctx.client_ip().unwrap_or("unknown").to_string();
 
             sqlx::query(
                 "INSERT INTO audit_logs (id, user_id, resource_type, resource_id, action, before_data, after_data, ip_address, created_at) \

@@ -35,12 +35,14 @@ indexes: ...          # list of index definitions (optional)
 | uuid      |                 | primary, generated, required, unique, ref, sensitive                  |
 | string    |                 | required, unique, min, max, format, sensitive                         |
 | integer   |                 | required, unique, min, max, default                                   |
-| float     |                 | required, min, max, default                                           |
+| number    |                 | required, min, max, default                                           |
 | boolean   |                 | required, default                                                     |
 | timestamp |                 | generated, required, nullable                                         |
+| date      |                 | required, nullable                                                    |
 | enum      | values          | values (required), default, required                                  |
 | json      |                 | required, nullable                                                    |
 | array     | items           | items (required). Bare type: `items: string`. Constraint map: `items: { type: string, min: 3, max: 3 }`, `items: { type: enum, values: [...] }`, `items: { type: uuid, ref: resource.id }`. |
+| file      |                 | required, nullable, sensitive                                         |
 
 `format` valid values: `email`, `url`, `uuid` (string fields only).
 `ref` format: `resource_name.field_name` — the field must be `type: uuid`.
@@ -56,8 +58,8 @@ indexes: ...          # list of index definitions (optional)
 | required  | bool    | any                  | NOT NULL in DB, required in create/update input                 |
 | unique    | bool    | any                  | UNIQUE constraint                                               |
 | nullable  | bool    | timestamp, json      | Allows null — overrides `required`                              |
-| min       | number  | string, int, float   | Min length (string) or minimum value (numbers)                  |
-| max       | number  | string, int, float   | Max length (string) or maximum value (numbers)                  |
+| min       | number  | string, integer, number | Min length (string) or minimum value (numbers)                |
+| max       | number  | string, integer, number | Max length (string) or maximum value (numbers)                |
 | format    | string  | string only          | Validation format: email / url / uuid                           |
 | values    | list    | enum only            | Allowed enum values — required when `type: enum`                |
 | default   | any     | enum, bool, int      | Default value. For enum must be one of `values`                 |
@@ -93,7 +95,7 @@ For custom endpoints, provide `method:` and `path:` explicitly.
 | sort        | ✓    |        |     |        |        |        |
 | pagination  | ✓    |        |     |        |        |        |
 | cache       | ✓    | ✓      | ✓   |        |        | ✓      |
-| controller  | ✓    | ✓      | ✓   | ✓      | ✓      |        |
+| controller  | ✓    | ✓      | ✓   | ✓      | ✓      | before only |
 | events      |      | ✓      |     | ✓      | ✓      |        |
 | jobs        |      | ✓      |     | ✓      | ✓      |        |
 | soft_delete |      |        |     |        | ✓      |        |
@@ -103,10 +105,10 @@ For custom endpoints, provide `method:` and `path:` explicitly.
 | path        |      |        |     |        |        | ✓      |
 
 Key details:
-- `auth`: list of role names from your auth config, or `owner` (matches record creator)
+- `auth`: `public`, `owner`, or a list of role names from your auth config
 - `pagination`: `cursor` (default) or `offset` — no other values
 - `cache`: `{ ttl: <seconds> }`
-- `controller`: `{ before: <fn_name> }` and/or `{ after: <fn_name> }` — fn in `resources/<name>.controller.rs`. Only valid on CRUD endpoints (`list`/`get`/`create`/`update`/`delete`/`bulk_create`/`bulk_delete`). Declaring `controller:` on a custom endpoint (`handler:`) is a validation error.
+- `controller`: `{ before: <fn_name> }` and/or `{ after: <fn_name> }` — fn in `resources/<name>.controller.rs`; each side also accepts a non-empty array. Custom endpoints (`handler:`) support `before` only because the handler owns the response shape.
 - `input`: list of field names from `schema:` — not field definitions
 - `sort`: list of field names that clients can sort by
 - `filters`: list of field names that clients can filter on
@@ -159,7 +161,7 @@ pub async fn notify_team(ctx: &mut Context) -> ControllerResult {
 | `data`           | `Option<serde_json::Value>`       | after only     | The database result. `None` in before-controllers, `Some(...)` in after.     |
 | `session`        | `serde_json::Map<String, Value>`  | before + after | Cross-phase scratch space. Write in `before:`, read in `after:`. Never persisted. |
 | `response_extras`| `serde_json::Map<String, Value>`  | before + after | Merged into the response `data:` envelope. Never persisted.                  |
-| `user`           | `Option<AuthenticatedUser>`       | before + after | Authenticated user (`id`, `role`, `tenant_id`). `None` if no auth.           |
+| `user`           | `Option<AuthenticatedUser>`       | before + after | Authenticated subject (`sub`, `role`, `tenant_id`). `sub` is opaque; verify it before using it as a foreign key. |
 | `tenant_id`      | `Option<String>`                  | before + after | Current tenant, when resource has `tenant_key`. `None` otherwise.            |
 | `pool`           | `sqlx::PgPool`                    | before + after | DB connection pool for custom queries.                                       |
 | `response_headers`| `Vec<(String, String)>`          | before + after | Push `(name, value)` pairs to add response headers.                          |
@@ -236,7 +238,7 @@ version: 1
 schema:
   id:          { type: uuid, primary: true, generated: true }
   name:        { type: string, min: 1, max: 200, required: true }
-  price:       { type: float, min: 0, required: true }
+  price:       { type: number, min: 0, required: true }
   active:      { type: boolean, default: true }
   created_at:  { type: timestamp, generated: true }
   updated_at:  { type: timestamp, generated: true }
@@ -318,45 +320,12 @@ endpoints:
 
 ---
 
-## 10. Error Code Quick Reference
+## 10. Diagnostics
 
-Run `shaperail check --json` to get structured errors with fix suggestions.
-
-| Code  | Trigger                                | Fix                                                             |
-|-------|----------------------------------------|-----------------------------------------------------------------|
-| SR001 | resource name empty                    | Add `resource: <name>` (snake_case plural)                      |
-| SR002 | version is 0 or missing                | Set `version: 1`                                                |
-| SR003 | schema has no fields                   | Add at least one field                                          |
-| SR004 | no primary key                         | Add `primary: true` to one field (typically `id`)               |
-| SR005 | multiple primary keys                  | Remove `primary: true` from all but one field                   |
-| SR010 | enum field missing values              | Add `values: [a, b, c]` to the field                            |
-| SR011 | non-enum field has values              | Change `type: enum` or remove `values:`                         |
-| SR012 | ref on non-uuid field                  | Change field type to `uuid`                                     |
-| SR013 | ref not in resource.field format       | Use `ref: resource_name.field_name` (e.g., `organizations.id`)  |
-| SR014 | array field missing items              | Add `items: string` (or other type)                             |
-| SR015 | format on non-string field             | Remove `format:` or change type to `string`                     |
-| SR016 | primary key not generated              | Add `generated: true` and `required: true` to the pk field      |
-| SR020 | tenant_key field not in schema         | Add the field to `schema:`                                       |
-| SR021 | tenant_key field not uuid+required     | Set field to `{ type: uuid, required: true }`                   |
-| SR030 | controller path not found              | Path is relative to resources/, no `.rs` extension              |
-| SR031 | controller before function not found   | Check function name matches in `.controller.rs`                 |
-| SR032 | controller after function not found    | Check function name matches in `.controller.rs`                 |
-| SR033 | WASM controller path invalid           | Use `wasm:path/to/plugin.wasm` prefix                           |
-| SR035 | events on unsupported endpoint type    | Remove `events:` — only valid on create/update/delete           |
-| SR036 | jobs on unsupported endpoint type      | Remove `jobs:` — only valid on create/update/delete             |
-| SR040 | input/filter/search/sort field missing | Add field to `schema:` or fix the field name                    |
-| SR041 | soft_delete without deleted_at         | Add `deleted_at: { type: timestamp, nullable: true }` to schema |
-| SR050 | upload on non-create endpoint          | Move `upload:` to a create endpoint                             |
-| SR051 | upload missing field name              | Add `field: <name>` to upload config                            |
-| SR052 | upload field not in schema             | Add the upload field to `schema:`                               |
-| SR053 | upload field wrong type                | Change field type to `string`                                   |
-| SR054 | upload missing max_size_mb             | Add `max_size_mb: 10` to upload config                          |
-| SR060 | relation missing resource name         | Add `resource: <name>` to relation                              |
-| SR061 | belongs_to missing key                 | Add `key: <field_name>` (FK field on this resource)             |
-| SR062 | has_many/has_one missing foreign_key   | Add `foreign_key: <field_name>` (FK on the related resource)    |
-| SR070 | index has no fields                    | Add at least one field name to `fields:`                        |
-| SR071 | index field not in schema              | Fix field name to match a `schema:` field                       |
-| SR072 | index order invalid                    | Use `order: asc` or `order: desc`                               |
+Run `shaperail check --json` instead of guessing at validation failures. Every
+diagnostic includes a stable `code`, `severity`, source `span` when available,
+the canonical `fix`, a valid `example`, and a permanent `doc_url`. The complete
+code registry is at [Error reference]({{ '/errors/' | relative_url }}).
 
 ---
 

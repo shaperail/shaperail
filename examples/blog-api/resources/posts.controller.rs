@@ -9,15 +9,10 @@ use shaperail_runtime::handlers::controller::{Context, ControllerResult};
 /// 4. Validates that `body` is not empty or whitespace-only.
 pub async fn prepare_post(ctx: &mut Context) -> ControllerResult {
     // --- 1. Auto-fill created_by from JWT ---
-    let user = ctx
-        .user
-        .as_ref()
-        .ok_or(ShaperailError::Unauthorized)?;
+    let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
 
-    ctx.input.insert(
-        "created_by".into(),
-        serde_json::json!(user.id),
-    );
+    ctx.input
+        .insert("created_by".into(), serde_json::json!(user.sub));
 
     // --- 2. Generate slug from title ---
     let title = ctx
@@ -29,7 +24,13 @@ pub async fn prepare_post(ctx: &mut Context) -> ControllerResult {
     let slug: String = title
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { ' ' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<&str>>()
@@ -47,15 +48,12 @@ pub async fn prepare_post(ctx: &mut Context) -> ControllerResult {
 
     // --- 3. Default status to "draft" ---
     if !ctx.input.contains_key("status") {
-        ctx.input.insert("status".into(), serde_json::json!("draft"));
+        ctx.input
+            .insert("status".into(), serde_json::json!("draft"));
     }
 
     // --- 4. Validate body is not empty/whitespace ---
-    let body = ctx
-        .input
-        .get("body")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let body = ctx.input.get("body").and_then(|v| v.as_str()).unwrap_or("");
 
     if body.trim().is_empty() {
         return Err(ShaperailError::Validation(vec![FieldError {
@@ -75,21 +73,16 @@ pub async fn prepare_post(ctx: &mut Context) -> ControllerResult {
 /// 3. Changing from published to draft requires an `X-Edit-Reason` header.
 /// 4. Auto-updates `slug` when the title changes.
 pub async fn enforce_edit_rules(ctx: &mut Context) -> ControllerResult {
-    let user = ctx
-        .user
-        .as_ref()
-        .ok_or(ShaperailError::Unauthorized)?;
+    let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
 
     let is_admin = user.role == "admin";
 
     // Fetch the current post from the database to check its status.
     let post_id = ctx
-        .input
-        .get("id")
-        .and_then(|v| v.as_str())
+        .path_param("id")
         .ok_or_else(|| ShaperailError::Internal("Missing post ID in update context".into()))?;
 
-    let row = sqlx::query_as::<_, (String,)>("SELECT status FROM posts WHERE id = $1")
+    let row = sqlx::query_as::<_, (String,)>("SELECT status FROM posts WHERE id = $1::uuid")
         .bind(post_id)
         .fetch_optional(&ctx.pool)
         .await
@@ -114,14 +107,16 @@ pub async fn enforce_edit_rules(ctx: &mut Context) -> ControllerResult {
         }
 
         // --- 3. Published -> draft requires a reason header ---
-        if current_status == "published" && new_status == "draft" {
-            if !ctx.headers.contains_key("x-edit-reason") {
-                return Err(ShaperailError::Validation(vec![FieldError {
-                    field: "status".into(),
-                    message: "Reverting a published post to draft requires an X-Edit-Reason header".into(),
-                    code: "reason_required".into(),
-                }]));
-            }
+        if current_status == "published"
+            && new_status == "draft"
+            && !ctx.headers.contains_key("x-edit-reason")
+        {
+            return Err(ShaperailError::Validation(vec![FieldError {
+                field: "status".into(),
+                message: "Reverting a published post to draft requires an X-Edit-Reason header"
+                    .into(),
+                code: "reason_required".into(),
+            }]));
         }
     }
 
@@ -130,7 +125,13 @@ pub async fn enforce_edit_rules(ctx: &mut Context) -> ControllerResult {
         let slug: String = new_title
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { ' ' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' || c == '-' {
+                    c
+                } else {
+                    ' '
+                }
+            })
             .collect::<String>()
             .split_whitespace()
             .collect::<Vec<&str>>()
@@ -156,7 +157,7 @@ pub async fn cleanup_comments(ctx: &mut Context) -> ControllerResult {
         .and_then(|v| v.as_str())
         .ok_or_else(|| ShaperailError::Internal("Missing post ID in delete context".into()))?;
 
-    let row = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM comments WHERE post_id = $1")
+    let row = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM comments WHERE post_id = $1::uuid")
         .bind(post_id)
         .fetch_one(&ctx.pool)
         .await
@@ -170,10 +171,8 @@ pub async fn cleanup_comments(ctx: &mut Context) -> ControllerResult {
         "Post deleted; archived associated comments"
     );
 
-    ctx.response_headers.push((
-        "X-Comments-Archived".into(),
-        comment_count.to_string(),
-    ));
+    ctx.response_headers
+        .push(("X-Comments-Archived".into(), comment_count.to_string()));
 
     Ok(())
 }

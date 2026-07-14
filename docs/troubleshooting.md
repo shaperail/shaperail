@@ -66,11 +66,12 @@ Each field name must be unique within `schema`. Check for copy-paste errors.
 ### Invalid field type
 
 ```
-unknown type `varchar`, expected one of `uuid`, `string`, `integer`, `float`, `boolean`, `timestamp`, `date`, `json`, `enum`
+unknown type `varchar`, expected one of `uuid`, `string`, `integer`, `number`, `boolean`, `timestamp`, `date`, `enum`, `json`, `array`, `file`
 ```
 
 Use the Shaperail type names, not SQL types. The codegen layer handles the
-mapping to SQL types.
+mapping to SQL types. Use `integer` for 64-bit whole numbers and `number` for
+numeric values; the old `bigint` and `float` names are invalid.
 
 ### Invalid enum values
 

@@ -23,6 +23,7 @@ create:
   auth: public
   input: [email, name, message]
   rate_limit: { max_requests: 5, window_secs: 60 }
+  controller: { before: capture_source_ip }
 ```
 
 `auth: public` means no JWT or session token is required. Any caller can POST.
@@ -35,7 +36,9 @@ create:
 source_ip: { type: string, max: 45, generated: true }
 ```
 
-`source_ip` is declared `generated: true` and is **not** in `create.input`. The runtime captures the client IP from the request headers and injects it during the write. Callers cannot supply or spoof this field.
+`source_ip` is declared `generated: true` and is **not** in `create.input`.
+`capture_source_ip` copies the runtime's canonical `ctx.client_ip()` into the
+write. Callers cannot supply or spoof this field.
 
 Do not put `source_ip` in `input:`. If you do, any caller can claim any IP address, making rate limiting and audit trails meaningless.
 
@@ -50,7 +53,10 @@ Do not put `source_ip` in `input:`. If you do, any caller can claim any IP addre
 
 1. `auth: public` (scalar string, not an array) is the canonical syntax for unauthenticated endpoints. `auth: []` is NOT valid — the validator rejects an empty auth array. Use `auth: public`.
 
-2. `source_ip` uses `generated: true` — this signals to the runtime that the value comes from server-side context, not the request body. For contact forms, the runtime derives this from `X-Forwarded-For` or the connection remote address.
+2. `source_ip` uses `generated: true` and a before-controller copies
+   `ctx.client_ip()` into it. Shaperail uses the socket peer directly unless
+   that peer matches `proxy.trusted_proxies`; only then does it evaluate
+   `X-Forwarded-For`.
 
 3. The admin-only read endpoints (`list`, `get`, `delete`) pair naturally with a public-write endpoint. Never expose `source_ip` or internal metadata in the public-facing create response — consider a `sensitive: true` annotation if you want to redact it from all responses including admin reads.
 

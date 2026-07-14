@@ -1,264 +1,184 @@
 # Shaperail Controller System
 
-## What Controllers Are
-Controllers are the escape hatch for custom business logic that cannot be
-expressed declaratively in the resource YAML. They replace the previous hook
-system with a clearer before/after model tied to each endpoint.
+Controllers add synchronous, in-request business logic around generated CRUD.
+The historical `hooks:` resource key is removed; use `controller.before` and
+`controller.after`.
 
-A controller is a pair of optional Rust async functions (`before` and `after`)
-declared on an endpoint via the `controller:` field.
-
-## YAML Syntax
-```yaml
-endpoints:
-  create:
-    auth: [admin]
-    input: [email, name, role, org_id]
-    controller: { before: validate_org }          # before only
-    events: [user.created]
-
-  update:
-    method: PATCH
-    path: /users/:id
-    auth: [admin, owner]
-    input: [name, role]
-    controller: { before: check_permissions, after: log_update }  # both
-
-  delete:
-    method: DELETE
-    path: /users/:id
-    auth: [admin]
-    controller: { after: cleanup_related }        # after only
-```
-
-Note: For the five standard CRUD names (list, get, create, update, delete),
-`method` and `path` are optional — they are inferred from the resource name.
-The `create` endpoint above omits them; the parser fills in `POST /users`
-automatically.
-
-Valid shapes:
-```yaml
-controller: { before: fn_name }                              # scalar
-controller: { after: fn_name }
-controller: { before: fn_before, after: fn_after }
-controller: { before: [validate_currencies, validate_org] }  # array
-controller: { before: validate_x, after: [enrich_a, enrich_b] }
-```
-
-`before:` and `after:` each accept either a single hook name (scalar) or a
-non-empty array of hook names. WASM hooks (entries starting with `wasm:`)
-may be freely mixed with Rust hook names. An empty array (`before: []` or
-`after: []`) is a validator error (SR063).
-
-## Hook chains
-
-When `before:` or `after:` is an array, hooks run in **declaration order**,
-sequentially, on the same `Context`. The first `Err(_)` short-circuits the
-chain — remaining hooks do not run, and (for `before:`) the DB write is
-skipped.
+## Declaration
 
 ```yaml
 endpoints:
   create:
+    auth: [admin]
+    input: [email, name]
     controller:
-      before:
-        - validate_currencies   # runs first; returns Err -> chain aborts
-        - validate_org          # runs only if validate_currencies returned Ok
-        - "wasm:./plugins/normalize.wasm"  # runs only if both Rust hooks passed
+      before: normalize_email
+      after: add_profile_url
 ```
 
-Rationale: chains let an endpoint compose small, single-purpose validators
-without each one having to call the next. The same `Context` flows through,
-so a hook can stash state in `ctx.session` for the next link in the chain.
+Each phase accepts one function name or a non-empty ordered list:
 
-Internally, `ControllerSpec.before` and `ControllerSpec.after` parse to
-`Option<HookList>` — an untagged enum (`String | Vec<String>`) defined in
-`shaperail-core/src/endpoint.rs`. Code that walks the parsed AST iterates
-via `controller.before.as_ref().map(HookList::names).unwrap_or(&[])`.
-
-## File Location
-Controller implementations live alongside resource YAML files:
-
-```
-resources/
-  users.yaml
-  users.controller.rs        # controller fns for users resource
-  orders.yaml
-  orders.controller.rs       # controller fns for orders resource
+```yaml
+controller:
+  before: [validate_org, normalize_email]
+  after: [audit_create, enrich_response]
 ```
 
-The file MUST be named `<resource>.controller.rs` where `<resource>` matches the
-`resource:` value in the YAML (e.g. `users`).
+Controller source lives in `resources/<resource>.controller.rs`. Running
+`shaperail generate` creates a missing stub and registers declared functions,
+but never overwrites an existing file.
 
-## Function Signature (always this shape)
+## Function signature
+
 ```rust
-pub async fn fn_name(ctx: &mut ControllerContext) -> Result<(), ShaperailError> {
-    // your logic here
+use shaperail_runtime::handlers::controller::{Context, ControllerResult};
+
+pub async fn normalize_email(ctx: &mut Context) -> ControllerResult {
+    if let Some(email) = ctx.input.get_mut("email") {
+        if let Some(value) = email.as_str() {
+            *email = serde_json::json!(value.trim().to_lowercase());
+        }
+    }
     Ok(())
 }
 ```
 
-## ControllerContext — Everything Available on `ctx`
+`ControllerResult` is `Result<(), shaperail_core::ShaperailError>`. Returning
+an error stops the request.
+
+## Lifecycle
+
+One `Context` survives both phases:
+
+1. The runtime filters request input using the endpoint's `input` list.
+2. It validates every supplied value.
+3. The before-controller may validate or mutate `ctx.input`.
+4. The runtime validates required fields and controller-injected values.
+5. It persists the record and sets `ctx.data`.
+6. The after-controller may enrich the response.
+7. Declared events and jobs run after a successful write.
+
+Anything placed in `ctx.session` during `before` remains available during
+`after` for that request.
+
+## Context fields
+
+| Field | Availability | Purpose |
+| --- | --- | --- |
+| `input` | before + after | Mutable write input. In `after`, it reflects the submitted/mutated input, not the full persisted record. |
+| `data` | after | Persisted record as `Option<serde_json::Value>`. It is `None` before persistence. |
+| `user` | before + after | `Option<AuthenticatedUser>` with `sub`, `role`, and `tenant_id`. |
+| `pool` | before + after | PostgreSQL pool for application-specific queries. |
+| `headers` | before + after | Read-only request headers normalized into a map. |
+| `client_ip()` | before + after | Canonical client IP from the trusted-proxy resolver. Never read forwarding headers directly. |
+| `response_headers` | before + after | Headers to append to the HTTP response. |
+| `tenant_id` | before + after | Tenant claim resolved by the runtime when applicable. |
+| `session` | before + after | Request-local cross-phase scratch data; never persisted or returned. |
+| `response_extras` | before + after | Fields merged into the response's `data` object; never persisted. |
+| `path_params` | before + after | URL parameters. Prefer `ctx.path_param("id")`. |
+
+There are no `ctx.output`, `ctx.jobs`, or `ctx.events` fields. Declare jobs and
+events in resource YAML.
+
+## Validation
+
+Use field-level errors for client-correctable input:
+
 ```rust
-pub struct ControllerContext {
-    // Input data (before: mutable, after: read-only)
-    pub input: Value,              // JSON of the request body
-    pub resource: Option<Value>,   // current DB record (for update/delete)
-    pub output: Option<Value>,     // response data (after only)
+use shaperail_core::{FieldError, ShaperailError};
 
-    // Auth
-    pub user: Option<AuthUser>,    // authenticated user (None if public endpoint)
+pub async fn validate_name(ctx: &mut Context) -> ControllerResult {
+    let valid = ctx
+        .input
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|name| !name.trim().is_empty());
 
-    // Infrastructure — all pre-connected, just use them
-    pub db: &PgPool,               // database connection pool
-    pub cache: &RedisClient,       // Redis client
-    pub jobs: &JobQueue,           // enqueue background jobs
-    pub events: &EventEmitter,     // emit custom events
-    pub storage: &StorageBackend,  // file storage
+    if !valid {
+        return Err(ShaperailError::Validation(vec![FieldError {
+            field: "name".into(),
+            message: "must not be blank".into(),
+            code: "required".into(),
+        }]));
+    }
 
-    // Request metadata
-    pub request_id: String,
-    pub headers: HeaderMap,
-}
-```
-
-## Path params
-
-`Context.path_params` is a `HashMap<String, String>` populated by the runtime
-from URL `:name` segments before any controller runs. Use the typed helper
-`ctx.path_param(name) -> Option<&str>` to read a value:
-
-```rust
-pub async fn check_owner(ctx: &mut Context) -> Result<(), ShaperailError> {
-    let id = ctx.path_param("id")
-        .ok_or_else(|| ShaperailError::Internal("missing :id".into()))?;
-    let id: Uuid = id.parse().map_err(|_| ShaperailError::BadRequest("invalid id".into()))?;
-    // ... fetch + verify ownership ...
     Ok(())
 }
 ```
 
-Population coverage:
+Use `Unauthorized` when credentials are missing/invalid and `Forbidden` when an
+authenticated caller lacks permission. Use `Conflict(String)` for business
+conflicts and `Internal(String)` only for server failures.
 
-| Endpoint | `path_params` |
-|---|---|
-| `list` (`GET /resource`) | `{}` |
-| `create` (`POST /resource`) | `{}` |
-| `update` (`PATCH /resource/:id`) | `{"id": "<...>"}` |
-| `delete` (`DELETE /resource/:id`) | `{"id": "<...>"}` |
-| custom endpoints with `:name` segments | one entry per `:name` |
+## Authenticated subjects
 
-`get` and `update_upload` do not currently dispatch before-hooks, so
-`path_params` is not yet populated for those handlers — adding hook
-dispatch to them is a separate change.
+`AuthenticatedUser.sub` is the opaque JWT `sub` claim. It is not guaranteed to
+be a `users.id`, especially for platform identities such as `super_admin`.
 
-`ctx.input` is **not** auto-populated with `id` from the path. Authors who
-want id-in-input write `ctx.input.insert("id", json!(ctx.path_param("id")))`
-themselves; otherwise the explicit single-line read at the top of an update
-hook is honest about where the value came from.
+- It is safe to store `sub` in a string field intended to preserve the external
+  subject.
+- Before writing it to a database foreign key, resolve and verify the
+  application user row.
+- Keep server-owned subject fields out of endpoint `input`; inject them in a
+  before-controller.
 
-## Before / After Semantics
-
-### Lifecycle: before → DB → after
-
-```text
-request ─▶ [before-hook(ctx)] ─▶ [DB op fills ctx.data] ─▶ [after-hook(ctx)] ─▶ response
-                     │                                              │
-                     └── ctx.session, ctx.response_extras shared ──┘
-```
-
-The `Context` is **the same struct instance** in both phases. Anything written to `ctx.session` in `before:` is visible in `after:`. `ctx.response_extras` is merged into the response's `data:` envelope after `after:` returns and before serialization — never persisted, never re-readable, perfect for one-time secrets like a freshly-minted token whose plaintext form must reach the client exactly once.
-
-### Before controller
-- Runs **before** the DB write.
-- `ctx.input` is mutable — you can validate, transform, or reject the request.
-- `ctx.data` is `None` (the write has not happened yet).
-- May write to `ctx.session` for state the after-hook will need.
-- May write to `ctx.response_extras` for fields that should appear in the response but never persist.
-- Returning `Err` aborts the DB write and returns the error to the client.
-
-### After controller
-- Runs **after** the DB write.
-- `ctx.data` contains the persisted record.
-- `ctx.input` and `ctx.session` carry whatever the before-hook left there.
-- `ctx.response_extras` keys (from either phase) are merged into the response's `data:` envelope.
-- Returning `Err` is logged but the response is still 200 (configurable).
-
-## Execution Order
-1. `before` controller function runs (if declared)
-2. DB write executes
-3. `after` controller function runs (if declared) — receives the same `ctx`
-4. `ctx.response_extras` are merged into `ctx.data`
-5. Response returned to client
-
-## Common Patterns
-
-### Validate input (before)
 ```rust
-pub async fn validate_org(ctx: &mut ControllerContext) -> Result<(), ShaperailError> {
-    let org_id: Uuid = serde_json::from_value(ctx.input["org_id"].clone())?;
+pub async fn set_created_by(ctx: &mut Context) -> ControllerResult {
     let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
+    ctx.input
+        .insert("created_by".into(), serde_json::json!(&user.sub));
+    Ok(())
+}
+```
 
-    if user.org_id != org_id {
-        return Err(ShaperailError::Forbidden("Cannot create user in another org".into()));
+## Path parameters
+
+```rust
+pub async fn prevent_locked_delete(ctx: &mut Context) -> ControllerResult {
+    let id = ctx
+        .path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("missing path parameter: id".into()))?;
+
+    let locked = sqlx::query_scalar::<_, bool>(
+        "SELECT locked FROM documents WHERE id = $1::uuid",
+    )
+    .bind(id)
+    .fetch_one(&ctx.pool)
+    .await?;
+
+    if locked {
+        return Err(ShaperailError::Conflict("document is locked".into()));
     }
     Ok(())
 }
 ```
 
-### Mutate input (before)
+## Cross-phase response enrichment
+
 ```rust
-pub async fn hash_password(ctx: &mut ControllerContext) -> Result<(), ShaperailError> {
-    if let Some(password) = ctx.input.get("password").and_then(|v| v.as_str()) {
-        let hash = bcrypt::hash(password, 12)?;
-        ctx.input["password_hash"] = Value::String(hash);
-        ctx.input.as_object_mut().unwrap().remove("password");
+pub async fn mint_token(ctx: &mut Context) -> ControllerResult {
+    if ctx.data.is_none() {
+        let token = create_one_time_token();
+        ctx.input
+            .insert("token_hash".into(), serde_json::json!(hash_token(&token)));
+        ctx.session.insert("plaintext_token".into(), token.into());
+    } else if let Some(token) = ctx.session.remove("plaintext_token") {
+        ctx.response_extras.insert("token".into(), token);
     }
     Ok(())
 }
 ```
 
-### Enqueue a job (after)
-```rust
-pub async fn send_welcome_email(ctx: &mut ControllerContext) -> Result<(), ShaperailError> {
-    let user_id = ctx.output.as_ref()
-        .and_then(|o| o["id"].as_str())
-        .ok_or(ShaperailError::Internal("Missing user id in output".into()))?;
+`response_extras` keys shadow same-named persisted fields in the response. Do
+not put secrets in `ctx.data` or persisted columns merely to return them once.
 
-    ctx.jobs.enqueue("send_welcome_email", json!({ "user_id": user_id })).await?;
-    Ok(())
-}
-```
+## Boundaries
 
-### Emit a custom event (after)
-```rust
-pub async fn emit_user_created(ctx: &mut ControllerContext) -> Result<(), ShaperailError> {
-    ctx.events.emit("user.onboarded", ctx.output.clone().unwrap_or_default()).await?;
-    Ok(())
-}
-```
-
-## Enterprise Patterns (v0.7.0+)
-
-See `docs/controllers.md` for full enterprise-grade patterns including:
-- Multi-step approval workflows (state machine with role-based transitions)
-- Cross-resource validation with DB queries
-- Comprehensive audit trails (before/after snapshots, IP, user, timestamp)
-- External service integration with idempotency keys (Stripe, etc.)
-- Row-level security beyond tenant_key (department-level, hierarchical)
-- Data masking based on role (SSN masking, salary hiding)
-- Custom per-operation rate limiting
-- Composing multiple validation steps in a single controller
-
-## Generated Controller Traits (v0.7.0+)
-
-`shaperail generate` now produces typed controller traits for resources that
-declare controllers. The trait defines the exact function signatures, and the
-compiler enforces them — LLMs cannot guess wrong signatures.
-
-## What NOT to Do in Controllers
-- Do NOT make direct HTTP calls without timeouts (use the job queue for slow calls)
-- Do NOT catch and swallow errors silently
-- Do NOT spawn new Tokio tasks (use `ctx.jobs` for background work)
-- Do NOT read `ctx.output` in a `before` function (it does not exist yet)
-- Do NOT write to side tables without considering rollback if the main write fails
+- Controllers run inside the HTTP request; keep them bounded and deterministic.
+- Do not spawn detached Tokio tasks. Declare background work with endpoint
+  `jobs`.
+- Do not emit events manually from controllers. Declare endpoint `events`.
+- Do not return secrets through error messages or logs.
+- Do not create a service layer between resources and runtime.
+- Test controller mutations and error paths directly, then cover critical flows
+  with endpoint integration tests.

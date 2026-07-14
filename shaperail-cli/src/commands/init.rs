@@ -48,7 +48,7 @@ fn derive_project_name(project_dir: &Path) -> Result<String, String> {
 const AGENT_ADAPTER_MD: &str = r#"This is a Shaperail project — a deterministic Rust backend framework driven by YAML resource files.
 
 **Full syntax reference:** See `./llm-context.md`
-**Live project state:** Run `shaperail context` to see current resources, schema, and endpoints.
+**Live project state:** Run `shaperail llm-context` to see current resources, schema, and endpoints.
 
 ## Key Rules
 
@@ -63,9 +63,9 @@ const LLM_CONTEXT_MD: &str = r##"# Shaperail LLM Context
 
 This project uses the Shaperail framework (deterministic Rust backend from YAML resources).
 
-**Live project state:** Run `shaperail context` to see the current resources, schema, and endpoints for this specific project.
+**Live project state:** Run `shaperail llm-context` to see the current resources, schema, and endpoints for this specific project.
 
-**IDE validation:** Add `# yaml-language-server: $schema=./resources/.schema.json` as the first line of any resource YAML file for inline validation.
+**IDE validation:** Add `# yaml-language-server: $schema=./.schema.json` as the first line of any resource YAML file for inline validation.
 
 ---
 
@@ -99,12 +99,14 @@ indexes: ...          # list of index definitions (optional)
 | uuid      |                 | primary, generated, required, unique, ref, sensitive                  |
 | string    |                 | required, unique, min, max, format, sensitive                         |
 | integer   |                 | required, unique, min, max, default                                   |
-| float     |                 | required, min, max, default                                           |
+| number    |                 | required, min, max, default                                           |
 | boolean   |                 | required, default                                                     |
 | timestamp |                 | generated, required, nullable                                         |
+| date      |                 | required, nullable                                                    |
 | enum      | values          | values (required), default, required                                  |
 | json      |                 | required, nullable                                                    |
-| array     | items           | items (required — e.g. `items: string`), required                    |
+| array     | items           | bare type or constraint map, required                                 |
+| file      |                 | required, nullable, sensitive                                         |
 
 `format` valid values: `email`, `url`, `uuid` (string fields only).
 `ref` format: `resource_name.field_name` — the field must be `type: uuid`.
@@ -120,14 +122,15 @@ indexes: ...          # list of index definitions (optional)
 | required  | bool    | any                  | NOT NULL in DB, required in create/update input                |
 | unique    | bool    | any                  | UNIQUE constraint                                               |
 | nullable  | bool    | timestamp, json      | Allows null — overrides `required`                              |
-| min       | number  | string, int, float   | Min length (string) or minimum value (numbers)                  |
-| max       | number  | string, int, float   | Max length (string) or maximum value (numbers)                  |
+| min       | number  | string, integer, number | Min length (string) or minimum value (numbers)                |
+| max       | number  | string, integer, number | Max length (string) or maximum value (numbers)                |
 | format    | string  | string only          | Validation format: email / url / uuid                           |
 | values    | list    | enum only            | Allowed enum values — required when `type: enum`                |
-| default   | any     | enum, bool, int      | Default value. For enum must be one of `values`                 |
+| default   | any     | enum, boolean, integer, number | Default value. Enum defaults must be in `values`       |
 | ref       | string  | uuid only            | Foreign key reference in `resource.field` format                |
-| items     | string  | array only           | Element type — required when `type: array`                      |
-| sensitive | bool    | uuid, string         | Redacted in logs, omitted from list responses                   |
+| items     | string or map | array only    | Bare type or element constraints (`type`, `min`, `max`, `format`, `values`, `ref`) |
+| sensitive | bool    | uuid, string, file   | Omitted from responses and redacted in logs                     |
+| transient | bool    | string, json         | Input-only; validated but never persisted or returned           |
 
 ---
 
@@ -156,7 +159,7 @@ For custom endpoints, provide `method:` and `path:` explicitly.
 | sort        | ✓    |        |     |        |        |        |
 | pagination  | ✓    |        |     |        |        |        |
 | cache       | ✓    | ✓      | ✓   |        |        | ✓      |
-| controller  | ✓    | ✓      | ✓   | ✓      | ✓      | ✓      |
+| controller  | ✓    | ✓      | ✓   | ✓      | ✓      | before only |
 | events      |      | ✓      |     | ✓      | ✓      |        |
 | jobs        |      | ✓      |     | ✓      | ✓      |        |
 | soft_delete |      |        |     |        | ✓      |        |
@@ -166,10 +169,10 @@ For custom endpoints, provide `method:` and `path:` explicitly.
 | path        |      |        |     |        |        | ✓      |
 
 Key details:
-- `auth`: list of role names from your auth config, or `owner` (matches record creator)
+- `auth`: `public`, `owner`, or a list of role names from your auth config
 - `pagination`: `cursor` (default) or `offset` — no other values
 - `cache`: `{ ttl: <seconds> }`
-- `controller`: `{ before: <fn_name> }` and/or `{ after: <fn_name> }` — fn in `resources/<name>.controller.rs`
+- `controller`: `{ before: <fn_name> }` and/or `{ after: <fn_name> }`; each side also accepts a non-empty array. Custom endpoints support `before` only.
 - `input`: list of field names from `schema:` — not field definitions
 - `sort`: list of field names that clients can sort by
 - `filters`: list of field names that clients can filter on
@@ -192,25 +195,47 @@ endpoints:
 The function lives in `resources/<resource_name>.controller.rs`:
 
 ```rust
-use shaperail_runtime::ControllerContext;
+use shaperail_core::{FieldError, ShaperailError};
+use shaperail_runtime::handlers::controller::{Context, ControllerResult};
 
-pub async fn validate_org(ctx: &mut ControllerContext) -> Result<(), String> {
-    let org_id = ctx.input["org_id"].as_str().ok_or("org_id required")?;
+pub async fn validate_org(ctx: &mut Context) -> ControllerResult {
+    let org_id = ctx.input.get("org_id").and_then(|value| value.as_str()).ok_or_else(|| {
+        ShaperailError::Validation(vec![FieldError {
+            field: "org_id".into(),
+            message: "is required".into(),
+            code: "required".into(),
+        }])
+    })?;
     if org_id.is_empty() {
-        return Err("org_id must not be empty".into());
+        return Err(ShaperailError::Validation(vec![FieldError {
+            field: "org_id".into(),
+            message: "must not be empty".into(),
+            code: "too_short".into(),
+        }]));
     }
     Ok(())
 }
 ```
 
-`ControllerContext` fields:
-| Field       | Type                  | Available in   | Description                                   |
-|-------------|-----------------------|----------------|-----------------------------------------------|
-| input       | serde_json::Value     | before + after | Request body (before) / saved record (after)  |
-| output      | serde_json::Value     | after only     | The record returned by the operation          |
-| user_id     | Option<uuid::Uuid>    | before + after | Authenticated user, None if no auth           |
-| tenant_id   | Option<uuid::Uuid>    | before + after | Current tenant, None if no multi-tenancy      |
-| resource    | &str                  | before + after | Resource name (e.g., "users")                 |
+`Context` fields:
+| Field             | Type                    | Description                                      |
+|-------------------|-------------------------|--------------------------------------------------|
+| input             | Map<String, Value>      | Mutable request input                            |
+| data              | Option<Value>           | Persisted result; `None` before the DB operation |
+| user              | Option<AuthenticatedUser> | Authenticated subject (`sub`, role, tenant_id) |
+| pool              | sqlx::PgPool            | Database pool for custom queries                 |
+| headers           | HashMap<String, String> | Read-only request headers                        |
+| response_headers  | Vec<(String, String)>   | Headers to add to the response                   |
+| tenant_id         | Option<String>          | Current tenant                                   |
+| session           | Map<String, Value>      | Cross-phase scratch state; never returned        |
+| response_extras   | Map<String, Value>      | Response-only values; never persisted            |
+| path_params       | HashMap<String, String> | URL parameters; read with `ctx.path_param(name)` |
+
+Use `ctx.client_ip()` for the canonical client address. Never trust raw
+`X-Forwarded-For`, `Forwarded`, or `X-Real-IP` values in `ctx.headers`.
+
+`AuthenticatedUser.sub` is the opaque JWT subject. Do not bind it to a foreign
+key unless the application first verifies that it maps to a real row.
 
 ---
 
@@ -274,7 +299,7 @@ version: 1
 schema:
   id:          { type: uuid, primary: true, generated: true }
   name:        { type: string, min: 1, max: 200, required: true }
-  price:       { type: float, min: 0, required: true }
+  price:       { type: number, min: 0, required: true }
   active:      { type: boolean, default: true }
   created_at:  { type: timestamp, generated: true }
   updated_at:  { type: timestamp, generated: true }
@@ -355,45 +380,11 @@ endpoints:
 
 ---
 
-## 10. Error Code Quick Reference
+## 10. Diagnostics
 
-Run `shaperail check --json` to get structured errors with fix suggestions.
-
-| Code  | Trigger                                | Fix                                                             |
-|-------|----------------------------------------|-----------------------------------------------------------------|
-| SR001 | resource name empty                    | Add `resource: <name>` (snake_case plural)                      |
-| SR002 | version is 0 or missing                | Set `version: 1`                                                |
-| SR003 | schema has no fields                   | Add at least one field                                          |
-| SR004 | no primary key                         | Add `primary: true` to one field (typically `id`)               |
-| SR005 | multiple primary keys                  | Remove `primary: true` from all but one field                   |
-| SR010 | enum field missing values              | Add `values: [a, b, c]` to the field                            |
-| SR011 | non-enum field has values              | Change `type: enum` or remove `values:`                         |
-| SR012 | ref on non-uuid field                  | Change field type to `uuid`                                     |
-| SR013 | ref not in resource.field format       | Use `ref: resource_name.field_name` (e.g., `organizations.id`)  |
-| SR014 | array field missing items              | Add `items: string` (or other type)                             |
-| SR015 | format on non-string field             | Remove `format:` or change type to `string`                     |
-| SR016 | primary key not generated              | Add `generated: true` and `required: true` to the pk field      |
-| SR020 | tenant_key field not in schema         | Add the field to `schema:`                                       |
-| SR021 | tenant_key field not uuid+required     | Set field to `{ type: uuid, required: true }`                   |
-| SR030 | controller path not found              | Path is relative to resources/, no `.rs` extension              |
-| SR031 | controller before function not found   | Check function name matches in `.controller.rs`                 |
-| SR032 | controller after function not found    | Check function name matches in `.controller.rs`                 |
-| SR033 | WASM controller path invalid           | Use `wasm:path/to/plugin.wasm` prefix                           |
-| SR035 | events on unsupported endpoint type    | Remove `events:` — only valid on create/update/delete           |
-| SR036 | jobs on unsupported endpoint type      | Remove `jobs:` — only valid on create/update/delete             |
-| SR040 | input/filter/search/sort field missing | Add field to `schema:` or fix the field name                    |
-| SR041 | soft_delete without deleted_at         | Add `deleted_at: { type: timestamp, nullable: true }` to schema |
-| SR050 | upload on non-create endpoint          | Move `upload:` to a create endpoint                             |
-| SR051 | upload missing field name              | Add `field: <name>` to upload config                            |
-| SR052 | upload field not in schema             | Add the upload field to `schema:`                               |
-| SR053 | upload field wrong type                | Change field type to `string`                                   |
-| SR054 | upload missing max_size_mb             | Add `max_size_mb: 10` to upload config                          |
-| SR060 | relation missing resource name         | Add `resource: <name>` to relation                              |
-| SR061 | belongs_to missing key                 | Add `key: <field_name>` (FK field on this resource)             |
-| SR062 | has_many/has_one missing foreign_key   | Add `foreign_key: <field_name>` (FK on the related resource)    |
-| SR070 | index has no fields                    | Add at least one field name to `fields:`                        |
-| SR071 | index field not in schema              | Fix field name to match a `schema:` field                       |
-| SR072 | index order invalid                    | Use `order: asc` or `order: desc`                               |
+Run `shaperail check --json` instead of guessing at validation failures. Every
+diagnostic includes a stable `code`, `severity`, source `span` when available,
+the canonical `fix`, a valid `example`, and a permanent `doc_url`.
 
 ---
 
@@ -406,68 +397,13 @@ shaperail generate                      # run codegen for all resources
 shaperail check [path] [--json]         # validate with structured fix suggestions
 shaperail explain <file>                # dry-run: show routes, table, relations
 shaperail diff                          # show what codegen would change
-shaperail context [--resource <n>] [--json]  # dump project context for LLM
+shaperail llm-context [--resource <n>] [--json]  # dump project context for LLM
 shaperail migrate                       # apply pending SQL migrations
 shaperail routes                        # list all routes with auth requirements
 shaperail export openapi                # output OpenAPI 3.1 spec
 shaperail export json-schema            # output JSON Schema for resource YAML
 shaperail resource create <name> [--archetype basic|user|content|tenant|lookup]
 ```
-
----
-
-# Shaperail Quick Reference
-
-Terse lookup tables. For patterns and examples, see the guide sections above.
-
----
-
-## Field Types
-
-| Type      | Required sub-keys | Notes                                       |
-|-----------|------------------|---------------------------------------------|
-| uuid      | —                | Use for PKs and FKs                         |
-| string    | —                | Supports format, min, max                   |
-| integer   | —                | Supports min, max, default                  |
-| float     | —                | Supports min, max, default                  |
-| boolean   | —                | Supports default                            |
-| timestamp | —                | Use generated:true for auto-timestamps      |
-| enum      | values           | values is required                          |
-| json      | —                | Unstructured JSON blob                      |
-| array     | items            | items type is required                      |
-
-## Relation Types
-
-| Type       | Required key | Description                                    |
-|------------|-------------|------------------------------------------------|
-| belongs_to | key         | FK is on **this** resource                      |
-| has_many   | foreign_key | FK is on the **other** resource, returns list   |
-| has_one    | foreign_key | FK is on the **other** resource, returns one    |
-
-## Config Keys (`shaperail.config.yaml`)
-
-| Key        | Required | Description                                    |
-|------------|----------|------------------------------------------------|
-| project    | ✓        | Project name string                            |
-| port       |          | HTTP port (default 3000)                       |
-| workers    |          | `auto` or integer                              |
-| databases  |          | Multi-DB map: `engine`, `url`                  |
-| cache      |          | Redis: `url`                                   |
-| auth       |          | `provider: jwt`, `secret_env: JWT_SECRET`      |
-| storage    |          | `provider: s3/gcs/azure/local`, `bucket`       |
-| logging    |          | `level`, `format: json/text`                   |
-| events     |          | `backend: redis`                               |
-| protocols  |          | List: `[rest, graphql, grpc]`                  |
-
-## Archetypes
-
-| Archetype | Fields included                                                 |
-|-----------|-----------------------------------------------------------------|
-| basic     | id, created_at, updated_at                                      |
-| user      | id, email, name, role, password_hash, created_at, updated_at   |
-| content   | id, title, body, status, author_id, created_at, updated_at     |
-| tenant    | id, name, plan, created_at, updated_at (+ tenant isolation)    |
-| lookup    | id, code, label, active, sort_order                            |
 "##;
 
 fn scaffold(project_name: &str, root: &Path) -> Result<(), String> {
@@ -496,6 +432,11 @@ fn scaffold(project_name: &str, root: &Path) -> Result<(), String> {
         r#"project: {project_name}
 port: 3000
 workers: auto
+
+# Forwarding headers are ignored unless the immediate proxy is trusted.
+# Use /32 for one IPv4 proxy or /128 for one IPv6 proxy.
+# proxy:
+#   trusted_proxies: [127.0.0.1/32]
 
 databases:
   default:
@@ -1554,7 +1495,7 @@ async fn main() -> std::io::Result<()> {
     let controllers = generated::build_controller_map();
     let handler_map = generated::build_handler_map();
 
-    let mut state = AppState::new(pool.clone(), resources.clone());
+    let mut state = AppState::new(pool.clone(), resources.clone(), config.proxy.as_ref());
     state.stores = Some(stores);
     state.controllers = Some(controllers);
     state.jwt_config = jwt_config.clone();
@@ -1776,7 +1717,7 @@ fn database_url_from_env_or_dotenv() -> Result<Option<String>, Box<dyn std::erro
     write_file(&root.join("build.rs"), build_rs)?;
 
     // Example resource file — uses convention-based defaults (method/path inferred)
-    let example_resource = r#"# yaml-language-server: $schema=https://shaperail.dev/schema/resource.v1.json
+    let example_resource = r#"# yaml-language-server: $schema=./.schema.json
 resource: posts
 version: 1
 
@@ -1784,7 +1725,7 @@ schema:
   id:         { type: uuid, primary: true, generated: true }
   title:      { type: string, min: 1, max: 500, required: true }
   body:       { type: string, required: true }
-  author_id:  { type: uuid, required: true }
+  created_by: { type: string, required: true }
   published:  { type: boolean, default: false }
   created_at: { type: timestamp, generated: true }
   updated_at: { type: timestamp, generated: true }
@@ -1796,7 +1737,7 @@ schema:
 endpoints:
   list:
     auth: public
-    filters: [author_id, published]
+    filters: [created_by, published]
     search: [title, body]
     pagination: cursor
     sort: [created_at, title]
@@ -1806,7 +1747,8 @@ endpoints:
 
   create:
     auth: [admin, member]
-    input: [title, body, author_id, published]
+    input: [title, body, published]
+    controller: { before: set_created_by }
 
   update:
     auth: [admin, owner]
@@ -1817,6 +1759,20 @@ endpoints:
     soft_delete: true
 "#;
     write_file(&root.join("resources/posts.yaml"), example_resource)?;
+    let example_controller = r#"use shaperail_core::ShaperailError;
+use shaperail_runtime::handlers::controller::{Context, ControllerResult};
+
+pub async fn set_created_by(ctx: &mut Context) -> ControllerResult {
+    let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
+    ctx.input
+        .insert("created_by".to_string(), serde_json::json!(&user.sub));
+    Ok(())
+}
+"#;
+    write_file(
+        &root.join("resources/posts.controller.rs"),
+        example_controller,
+    )?;
     let parsed_example = shaperail_codegen::parser::parse_resource(example_resource)
         .map_err(|e| format!("Failed to parse example resource: {e}"))?;
     let validation_errors = shaperail_codegen::validator::validate_resource(&parsed_example);

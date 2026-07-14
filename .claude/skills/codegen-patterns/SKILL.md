@@ -1,33 +1,39 @@
 ---
 name: codegen-patterns
-description: SteelAPI code generation patterns. Auto-loaded when working on steel-codegen or generated/ output files.
+description: Shaperail code-generation patterns. Auto-loaded for shaperail-codegen and generated/ files.
 ---
 
-## Generator Input → Output
-Input: `ResourceDefinition` from steel-core
-Output: Rust files written to `generated/src/<resource>/`
+## Input and output
 
-## Output Files Per Resource
-```
-generated/src/<resource>/
-├── mod.rs        — re-exports
-├── model.rs      — structs + enums
-├── handlers.rs   — Actix-web handlers
-├── queries.rs    — sqlx query functions
-└── routes.rs     — route registration
+Input: validated `shaperail_core::ResourceDefinition` values.
+
+`shaperail generate` writes:
+
+```text
+generated/
+├── mod.rs
+└── <resource>.rs
 ```
 
-## Critical Rules
-- Always use `sqlx::query_as!` macro — never `query()` directly
-- Never emit `.unwrap()` or `.expect()`
-- Model structs must derive: `Debug, Clone, Serialize, Deserialize, sqlx::FromRow`
-- Input structs must derive: `Debug, Deserialize, Validate`
-- List response always: `{ "data": [...], "meta": { "cursor", "has_more" } }`
-- Route paths match PRD format: `/users`, `/users/:id`
-- Handler names: `list_<resource>`, `get_<resource>`, `create_<resource>` etc.
+Each resource file contains its record model and a typed `ResourceStore`
+implementation. Controller source remains user-owned at
+`resources/<resource>.controller.rs`; generation creates a stub but never
+overwrites an existing controller.
 
-## Determinism Rule
-Same ResourceDefinition must always produce byte-identical output.
-Use `indexmap` for ordered iteration, never HashMap.
+## Critical rules
 
-Full patterns: agent_docs/codegen-patterns.md
+- Never hand-edit `generated/`; change the resource schema or generator.
+- Generated database operations use `sqlx::query_as!` and bind parameters.
+- Never emit `.unwrap()` or `.expect()`.
+- Sensitive fields use `#[serde(skip_serializing)]`.
+- Standard CRUD routes follow the resource convention; custom paths come from
+  the validated schema.
+- The runtime owns HTTP handlers and response envelopes. Generated files provide
+  typed storage, not a parallel handler/service architecture.
+
+## Determinism
+
+The same ordered resource definitions must produce byte-identical output.
+Preserve schema order and use deterministic collections for emitted artifacts.
+
+Full patterns: `agent_docs/codegen-patterns.md`.

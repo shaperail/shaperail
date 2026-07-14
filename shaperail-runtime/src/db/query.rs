@@ -678,7 +678,7 @@ fn build_create_table_sql_postgres(resource: &ResourceDefinition) -> String {
         if field.primary {
             col.push_str(" PRIMARY KEY");
         }
-        if field.required && !field.primary && !field.nullable {
+        if !field.primary && field_requires_not_null(field) {
             col.push_str(" NOT NULL");
         }
         if field.unique && !field.primary {
@@ -788,7 +788,7 @@ fn build_create_table_sql_mysql(resource: &ResourceDefinition) -> String {
         if field.primary {
             col.push_str(" PRIMARY KEY");
         }
-        if field.required && !field.primary && !field.nullable {
+        if !field.primary && field_requires_not_null(field) {
             col.push_str(" NOT NULL");
         }
         if field.unique && !field.primary {
@@ -896,9 +896,9 @@ fn build_create_table_sql_sqlite(resource: &ResourceDefinition) -> String {
             field_type_to_sql_sqlite(&field.field_type, field)
         );
         if field.primary {
-            col.push_str(" PRIMARY KEY");
+            col.push_str(" PRIMARY KEY NOT NULL");
         }
-        if field.required && !field.primary && !field.nullable {
+        if !field.primary && field_requires_not_null(field) {
             col.push_str(" NOT NULL");
         }
         if field.unique && !field.primary {
@@ -1070,6 +1070,10 @@ fn field_type_to_sql_sqlite(ft: &FieldType, field: &FieldSchema) -> String {
         FieldType::Array => "TEXT".to_string(),
         FieldType::File => "TEXT".to_string(),
     }
+}
+
+fn field_requires_not_null(field: &FieldSchema) -> bool {
+    !field.nullable && (field.required || field.generated || field.default.is_some())
 }
 
 /// Converts a JSON default value to a SQL literal.
@@ -1277,8 +1281,8 @@ mod tests {
         assert!(sql.contains("\"name\" VARCHAR(200) NOT NULL"));
         assert!(sql.contains("\"role\" TEXT NOT NULL DEFAULT 'member'"));
         assert!(sql.contains("\"org_id\" UUID NOT NULL"));
-        assert!(sql.contains("\"created_at\" TIMESTAMPTZ DEFAULT NOW()"));
-        assert!(sql.contains("\"updated_at\" TIMESTAMPTZ DEFAULT NOW()"));
+        assert!(sql.contains("\"created_at\" TIMESTAMPTZ NOT NULL DEFAULT NOW()"));
+        assert!(sql.contains("\"updated_at\" TIMESTAMPTZ NOT NULL DEFAULT NOW()"));
     }
 
     #[test]
@@ -1312,7 +1316,7 @@ mod tests {
         assert!(sql.contains("CREATE TABLE IF NOT EXISTS `users`"));
         assert!(sql.contains("CHAR(36)"));
         assert!(sql.contains("DEFAULT (UUID())"));
-        assert!(sql.contains("DEFAULT (CURRENT_TIMESTAMP)"));
+        assert!(sql.contains("DATETIME(6) NOT NULL DEFAULT (CURRENT_TIMESTAMP)"));
     }
 
     #[test]
@@ -1320,7 +1324,25 @@ mod tests {
         let resource = test_resource();
         let sql = build_create_table_sql_for_engine(DatabaseEngine::SQLite, &resource);
         assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"users\""));
-        assert!(sql.contains("DEFAULT (datetime('now'))"));
+        assert!(sql.contains("\"id\" TEXT PRIMARY KEY NOT NULL"));
+        assert!(sql.contains("TEXT NOT NULL DEFAULT (datetime('now'))"));
+    }
+
+    #[test]
+    fn create_table_sql_makes_defaulted_fields_non_null_unless_nullable() {
+        let mut resource = test_resource();
+        let role = resource.schema.get_mut("role").unwrap();
+        role.required = false;
+
+        let sql = build_create_table_sql(&resource);
+        assert!(sql.contains("\"role\" TEXT NOT NULL DEFAULT 'member'"));
+
+        let role = resource.schema.get_mut("role").unwrap();
+        role.nullable = true;
+
+        let sql = build_create_table_sql(&resource);
+        assert!(sql.contains("\"role\" TEXT DEFAULT 'member'"));
+        assert!(!sql.contains("\"role\" TEXT NOT NULL"));
     }
 
     #[test]

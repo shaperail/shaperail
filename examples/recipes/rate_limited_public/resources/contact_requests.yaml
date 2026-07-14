@@ -22,6 +22,7 @@ endpoints:
     auth: public
     input: [email, name, message]
     rate_limit: { max_requests: 5, window_secs: 60 }
+    controller: { before: capture_source_ip }
 
   delete:
     auth: [admin]

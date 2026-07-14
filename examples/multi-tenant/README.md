@@ -51,7 +51,9 @@ Controllers query across resource boundaries to maintain consistency:
 
 - Creating a task checks the parent project's status (rejects if archived)
 - Archiving a project checks for in-progress tasks (blocks if any exist)
-- Assigning a task verifies the assignee belongs to the same organization
+- Members may self-assign tasks; tenant admins may assign another external
+  subject. Add an identity-membership lookup if your application needs stronger
+  assignee validation.
 - Plan changes on organizations affect future project creation limits
 
 ### Tenant-scoped uniqueness checks

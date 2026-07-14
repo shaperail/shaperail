@@ -260,6 +260,45 @@ Adjust `max_requests` and `window_secs` based on your workload:
 - Consider adding a reverse proxy (nginx, Cloudflare) in front of Shaperail
   for connection-level rate limiting and IP reputation filtering.
 
+### Trusted reverse proxies and client IPs
+
+Shaperail ignores forwarding headers by default. This prevents a direct caller
+from bypassing per-IP rate limits by sending a forged `X-Forwarded-For`.
+
+Declare only the networks that actually connect to the Shaperail socket:
+
+```yaml
+proxy:
+  trusted_proxies:
+    - 127.0.0.1/32
+    - 10.42.0.0/16
+```
+
+For each request, Shaperail:
+
+1. Uses the socket peer when it is not a trusted proxy.
+2. Accepts `X-Forwarded-For` only from a trusted socket peer.
+3. Walks multi-proxy chains from right to left and returns the nearest
+   untrusted address.
+4. Falls back to the socket peer when the relevant part of the chain is
+   malformed or exceeds 32 hops.
+5. Normalizes IPv4, IPv6, bracketed socket addresses, and IPv4-mapped IPv6.
+
+`Forwarded` and `X-Real-IP` are intentionally ignored. Configure every proxy to
+emit the one canonical `X-Forwarded-For` header. At the internet-facing edge,
+overwrite any caller-supplied value:
+
+```nginx
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_pass http://127.0.0.1:3000;
+```
+
+An internal trusted proxy may append its observed peer with
+`$proxy_add_x_forwarded_for`, but the edge must sanitize the original header.
+Do not trust broad client or pod networks merely for convenience. Rate limits,
+structured request logs, `ctx.client_ip()`, and `AppState::client_ip(&req)` all
+use the same resolved value.
+
 ---
 
 ## 5. CORS and origin validation
@@ -290,6 +329,7 @@ location /v1/ {
         return 204;
     }
     add_header 'Access-Control-Allow-Origin' 'https://app.example.com';
+    proxy_set_header X-Forwarded-For $remote_addr;
     proxy_pass http://127.0.0.1:3000;
 }
 ```

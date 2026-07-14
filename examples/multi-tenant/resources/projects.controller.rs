@@ -7,17 +7,17 @@ use shaperail_runtime::handlers::controller::{Context, ControllerResult};
 /// - Validate project name is unique within the org
 /// - Auto-fill created_by from JWT
 pub async fn validate_project(ctx: &mut Context) -> ControllerResult {
-    let tenant_id = ctx.tenant_id.as_deref().ok_or_else(|| {
-        ShaperailError::Auth("Tenant context required to create projects".into())
-    })?;
+    let tenant_id = ctx
+        .tenant_id
+        .as_deref()
+        .ok_or(ShaperailError::Unauthorized)?;
 
     // Check project limit per org based on plan
-    let org: (String,) =
-        sqlx::query_as("SELECT plan::text FROM organizations WHERE id = $1")
-            .bind(tenant_id)
-            .fetch_one(&ctx.pool)
-            .await
-            .map_err(|e| ShaperailError::Internal(format!("DB error fetching org plan: {e}")))?;
+    let org: (String,) = sqlx::query_as("SELECT plan::text FROM organizations WHERE id = $1::uuid")
+        .bind(tenant_id)
+        .fetch_one(&ctx.pool)
+        .await
+        .map_err(|e| ShaperailError::Internal(format!("DB error fetching org plan: {e}")))?;
 
     let plan = org.0.as_str();
     let max_projects: Option<i64> = match plan {
@@ -29,7 +29,7 @@ pub async fn validate_project(ctx: &mut Context) -> ControllerResult {
 
     if let Some(limit) = max_projects {
         let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM projects WHERE org_id = $1 AND deleted_at IS NULL",
+            "SELECT COUNT(*) FROM projects WHERE org_id = $1::uuid AND deleted_at IS NULL",
         )
         .bind(tenant_id)
         .fetch_one(&ctx.pool)
@@ -53,7 +53,7 @@ pub async fn validate_project(ctx: &mut Context) -> ControllerResult {
         let exists: (bool,) = sqlx::query_as(
             "SELECT EXISTS(\
                 SELECT 1 FROM projects \
-                WHERE org_id = $1 AND LOWER(name) = LOWER($2) AND deleted_at IS NULL\
+                WHERE org_id = $1::uuid AND LOWER(name) = LOWER($2) AND deleted_at IS NULL\
             )",
         )
         .bind(tenant_id)
@@ -73,11 +73,10 @@ pub async fn validate_project(ctx: &mut Context) -> ControllerResult {
 
     // Auto-fill created_by from JWT
     if let Some(user) = &ctx.user {
-        ctx.input["created_by"] = serde_json::json!(user.id);
+        ctx.input
+            .insert("created_by".to_string(), serde_json::json!(&user.sub));
     } else {
-        return Err(ShaperailError::Auth(
-            "Authentication required to create projects".into(),
-        ));
+        return Err(ShaperailError::Unauthorized);
     }
 
     Ok(())
@@ -95,15 +94,13 @@ pub async fn enforce_project_status(ctx: &mut Context) -> ControllerResult {
     };
 
     let project_id = ctx
-        .headers
-        .get("x-resource-id")
-        .cloned()
-        .unwrap_or_default();
+        .path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("Missing project ID".into()))?;
 
     // Fetch current project status
     let current: (String,) =
-        sqlx::query_as("SELECT status::text FROM projects WHERE id = $1")
-            .bind(&project_id)
+        sqlx::query_as("SELECT status::text FROM projects WHERE id = $1::uuid")
+            .bind(project_id)
             .fetch_one(&ctx.pool)
             .await
             .map_err(|e| {
@@ -123,21 +120,17 @@ pub async fn enforce_project_status(ctx: &mut Context) -> ControllerResult {
 
     // Only admins can archive a project
     if new_status == "archived" {
-        let user = ctx.user.as_ref().ok_or_else(|| {
-            ShaperailError::Auth("Authentication required".into())
-        })?;
+        let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
         if user.role != "admin" && user.role != "super_admin" {
-            return Err(ShaperailError::Auth(
-                "Only admins can archive projects".into(),
-            ));
+            return Err(ShaperailError::Forbidden);
         }
 
         // When archiving, check no tasks are in "in_progress" status
         let in_progress: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM tasks \
-             WHERE project_id = $1 AND status = 'in_progress' AND deleted_at IS NULL",
+             WHERE project_id = $1::uuid AND status = 'in_progress' AND deleted_at IS NULL",
         )
-        .bind(&project_id)
+        .bind(project_id)
         .fetch_one(&ctx.pool)
         .await
         .map_err(|e| {

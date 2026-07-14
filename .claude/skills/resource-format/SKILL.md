@@ -1,39 +1,51 @@
 ---
 name: resource-format
-description: SteelAPI resource file format. Auto-loaded when editing or creating .yaml files in resources/, or when implementing the YAML parser in steel-codegen.
+description: Shaperail resource file format. Auto-loaded when editing resources/*.yaml or the Shaperail YAML parser.
 ---
 
-## Resource File Quick Reference (exact PRD format)
+## Canonical resource format
 
-Top-level key is `resource:` not `name:` — this is non-negotiable.
+Use one spelling for every concept. The top-level key is `resource:`, files use
+the `.yaml` extension, and standard CRUD endpoints rely on their canonical
+method/path defaults.
 
 ```yaml
-resource: users    # ← "resource:", not "name:"
+resource: users
 version: 1
 
 schema:
   id: { type: uuid, primary: true, generated: true }
-  email: { type: string, format: email, required: true, sensitive: true }
+  email: { type: string, format: email, required: true, unique: true, sensitive: true }
   role: { type: enum, values: [admin, member, viewer], default: member }
+  created_at: { type: timestamp, generated: true }
+  updated_at: { type: timestamp, generated: true }
 
 endpoints:
   list:
-    method: GET       # ← method + path are required on every endpoint
-    path: /users
     auth: [member, admin]
     pagination: cursor
+
   create:
-    method: POST
-    path: /users
     auth: [admin]
-    input: [email, name]   # ← explicit input list
-    hooks: [validate_org]
-    events: [user.created]
-    jobs: [send_welcome_email]
+    input: [email, role]
+    controller: { before: normalize_email }
+
+  publish:
+    method: POST
+    path: /users/:id/publish
+    auth: [admin]
 ```
 
-Field types: uuid, string, integer, bigint, number, boolean, timestamp, date, enum, json, array, file
-Auth: `public` | `[role1, role2]` | `owner` | `[owner, admin]`
-Pagination: `cursor` (default) | `offset`
+- Standard names `list`, `get`, `create`, `update`, and `delete` infer their
+  canonical method and path. Custom endpoint names require both.
+- Field types: `uuid`, `string`, `integer`, `number`, `boolean`, `timestamp`,
+  `date`, `enum`, `json`, `array`, `file`.
+- `integer` is 64-bit (`BIGINT`/`i64`). The removed `bigint` and `float`
+  spellings are invalid.
+- Auth is `public`, `owner`, or an array such as `[member, admin]`.
+- Controllers live in `resources/<resource>.controller.rs` and use
+  `controller: { before: fn_name, after: fn_name }`.
+- Keep server-owned fields out of endpoint `input`; populate them in a
+  before-controller.
 
-Full spec: agent_docs/resource-format.md
+Full specification: `agent_docs/resource-format.md`.

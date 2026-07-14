@@ -135,7 +135,7 @@ Schema fields use compact inline objects. Every attribute:
 | Key | Meaning |
 | --- | --- |
 | `type` | **Required.** Data type (see table below) |
-| `primary` | Marks the primary key. Exactly one field must be primary. |
+| `primary` | Marks the primary key. Exactly one field must be primary; it cannot be nullable. |
 | `generated` | The runtime/database fills the value automatically (UUIDs, timestamps). The generated SELECT struct field is non-`Option`. |
 | `required` | Field must be present on writes (adds NOT NULL in SQL) |
 | `unique` | Adds a uniqueness constraint and matching SQL index |
@@ -148,21 +148,22 @@ Schema fields use compact inline objects. Every attribute:
 | `sensitive` | Omitted from all responses; redacted in logs and error messages |
 | `transient` | Input-only field. Validated and exposed to the `before:` controller via `ctx.input`, but never persisted (no migration column, no SQL reference) and never returned in responses. Stripped from `ctx.input` after the before-controller runs. Must appear in some endpoint's `input:` list. |
 | `search` | Enables PostgreSQL full-text search via `to_tsvector` on this field |
-| `items` | Element type for `type: array` fields (required when type is array). Accepts a bare type name (`items: string`) or a constraint map (`{ type: string, min: 3, max: 3 }`) — see [Array element constraints](#array-element-constraints) below. |
+| `items` | Element definition for `type: array` fields (required when type is array). Use the canonical constraint map (`{ type: string, min: 3, max: 3 }`) — see [Array element constraints](#array-element-constraints) below. |
 
 ### When is a field `Option<T>` in the generated struct?
 
 The generated SELECT struct for a resource emits `Option<T>` only for columns
 the database actually permits to be NULL:
 
-> A field is `Option<T>` if and only if `nullable: true`, **or** none of
-> `primary`, `required`, `default`, `generated` are set.
+> A non-primary field is `Option<T>` if and only if `nullable: true`, **or**
+> none of `required`, `default`, `generated` are set.
 
 Any of `primary: true`, `required: true`, `default: <value>`, or
 `generated: true` produces a `NOT NULL` column, so the SELECT-side struct
-field is the bare type `T`. Setting `nullable: true` always wins — a column
-declared `nullable: true, default: "x"` genuinely admits NULL, so the field
-stays `Option<String>`.
+field is the bare type `T`. For non-primary fields, setting `nullable: true`
+wins: a column declared `nullable: true, default: "x"` genuinely admits NULL,
+so the field stays `Option<String>`. Primary keys cannot declare
+`nullable: true`.
 
 This rule applies to the SELECT-side response struct only. Request bodies
 for `create` / `update` are unaffected: a field with `default:` is still
@@ -189,17 +190,19 @@ fills the default.
 
 ### Array element constraints
 
-The `items:` key on an `array` field accepts either a bare type name (shorthand)
-or a constraint map that applies to every element:
+Use a constraint map for every new array field:
 
 ```yaml
 schema:
-  tags:       { type: array, items: string }                              # shorthand
-  currencies: { type: array, items: { type: string, min: 3, max: 3 } }  # element constraints
+  tags:       { type: array, items: { type: string } }
+  currencies: { type: array, items: { type: string, min: 3, max: 3 } }
   scores:     { type: array, items: { type: integer, min: 0, max: 100 } }
   flags:      { type: array, items: { type: enum, values: [a, b, c] } }
   org_ids:    { type: array, items: { type: uuid, ref: organizations.id } }
 ```
+
+The pre-v0.16 bare form (`items: string`) remains accepted for migration
+compatibility, but generated guidance and new resources use the map form.
 
 Constraint rules:
 

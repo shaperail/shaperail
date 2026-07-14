@@ -71,6 +71,14 @@ pub async fn regenerate_secret(
 
 For post-fetch checks (read-then-validate flows), use `assert_tenant_match(record_tenant_id)` instead.
 
+## Client IP
+
+Custom handlers must call `state.client_ip(&req)`. They must not parse
+`X-Forwarded-For`, `Forwarded`, or `X-Real-IP` themselves. Before-controller
+contexts expose the same canonical value through `ctx.client_ip()`. The
+resolver ignores forwarding headers unless the socket peer matches
+`ProjectConfig.proxy.trusted_proxies`.
+
 ## Auto-populating tenant context via `controller: { before: ... }`
 
 If you declare a `before:` controller on a custom endpoint, the runtime

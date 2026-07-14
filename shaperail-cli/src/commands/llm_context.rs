@@ -342,6 +342,7 @@ mod tests {
             project: project.to_string(),
             port: 3000,
             workers: WorkerCount::Auto,
+            proxy: None,
             databases: None,
             cache: None,
             auth: None,

@@ -428,7 +428,9 @@ pub fn to_brace_path(path: &str) -> String {
             // its byte length. (`bytes[i]` is the leading byte; multibyte
             // chars are not identifier bytes anyway, so this branch handles
             // them transparently.)
-            let ch = path[i..].chars().next().expect("non-empty remainder");
+            let Some(ch) = path[i..].chars().next() else {
+                break;
+            };
             out.push(ch);
             i += ch.len_utf8();
         }

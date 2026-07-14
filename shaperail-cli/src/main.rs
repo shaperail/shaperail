@@ -1,7 +1,7 @@
 mod commands;
 
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 #[derive(Parser)]
@@ -117,6 +117,12 @@ enum Commands {
     },
 }
 
+impl Commands {
+    fn uses_project_env(&self) -> bool {
+        !matches!(self, Self::Init { .. } | Self::Doctor)
+    }
+}
+
 /// Output format for `shaperail explain`.
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum ExplainFormat {
@@ -166,6 +172,13 @@ enum ExportFormat {
 fn main() {
     let cli = Cli::parse();
 
+    if cli.command.uses_project_env() {
+        if let Err(error) = load_project_env() {
+            eprintln!("Error: {error}");
+            process::exit(1);
+        }
+    }
+
     let exit_code = match cli.command {
         Commands::Init { name } => commands::init::run(&name),
         Commands::Generate => commands::generate::run(),
@@ -211,4 +224,15 @@ fn main() {
     };
 
     process::exit(exit_code);
+}
+
+fn load_project_env() -> Result<(), String> {
+    let path = Path::new(".env");
+    if !path.is_file() {
+        return Ok(());
+    }
+
+    dotenvy::from_path(path)
+        .map(|_| ())
+        .map_err(|error| format!("Failed to load {}: {error}", path.display()))
 }

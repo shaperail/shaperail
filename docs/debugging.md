@@ -240,8 +240,10 @@ With `RUST_LOG=debug`, this produces:
 
 - **Controller not running** -- verify the resource YAML declares it:
   `controller: { before: validate_org }`.
-- **Controller not registered** -- current apps do not auto-discover controller
-  files; verify your bootstrap registers the function name declared in YAML.
+- **Controller not registered** -- run `shaperail generate`, verify the function
+  is `pub` in `resources/<resource>.controller.rs`, and confirm its name exactly
+  matches the YAML declaration. Generated registration appears in
+  `generated/mod.rs`.
 - **WASM controller not loading** -- check that the `wasm-plugins` feature is
   enabled in `Cargo.toml`. See [Troubleshooting]({{ '/troubleshooting/' | relative_url }}).
 

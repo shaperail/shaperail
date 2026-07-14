@@ -210,16 +210,9 @@ pub fn register_resource(
                                     .unwrap_or_default();
                                 if !before_names.is_empty() {
                                     let user = crate::auth::extractor::try_extract_auth(&req);
-                                    let headers: HashMap<String, String> = req
-                                        .headers()
-                                        .iter()
-                                        .map(|(k, v)| {
-                                            (
-                                                k.to_string(),
-                                                v.to_str().unwrap_or("").to_string(),
-                                            )
-                                        })
-                                        .collect();
+                                    let headers = super::controller::request_headers(&req);
+                                    let client_ip =
+                                        state.client_ip(&req).map(|ip| ip.to_string());
                                     let tenant_id =
                                         crud::resolve_tenant_id(&r, user.as_ref());
                                     let path_params: HashMap<String, String> = req
@@ -233,6 +226,7 @@ pub fn register_resource(
                                         user: user.clone(),
                                         pool: state.pool.clone(),
                                         headers,
+                                        client_ip,
                                         response_headers: vec![],
                                         tenant_id,
                                         session: serde_json::Map::new(),
@@ -436,6 +430,7 @@ mod tests {
             user: Some(user_with_tenant("org-1")),
             pool: test_pool(),
             headers: HashMap::new(),
+            client_ip: None,
             response_headers: vec![],
             tenant_id: Some("org-1".to_string()),
             session: serde_json::Map::new(),
@@ -578,7 +573,8 @@ mod tests {
             handler,
         );
 
-        let mut state = super::super::crud::AppState::new(test_pool(), vec![resource.clone()]);
+        let mut state =
+            super::super::crud::AppState::new(test_pool(), vec![resource.clone()], None);
         state.custom_handlers = Some(custom_handlers);
         let state = Arc::new(state);
 
@@ -715,7 +711,8 @@ mod tests {
             handler,
         );
 
-        let mut state = super::super::crud::AppState::new(test_pool(), vec![resource.clone()]);
+        let mut state =
+            super::super::crud::AppState::new(test_pool(), vec![resource.clone()], None);
         state.custom_handlers = Some(custom_handlers);
         let state = Arc::new(state);
 

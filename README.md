@@ -142,7 +142,7 @@ endpoints:
     path: /users
     auth: [admin]
     input: [email, name, role, org_id]
-    hooks: [validate_org]
+    controller: { before: validate_org }
     events: [user.created]
     jobs: [send_welcome_email]
 
@@ -236,9 +236,8 @@ itself.
 |------|----------|-------|
 | `uuid` | `UUID` | Auto-generated with `generated: true` |
 | `string` | `TEXT` | Supports `min`, `max`, `format` (email, url) |
-| `integer` | `INTEGER` | Supports `min`, `max` |
-| `bigint` | `BIGINT` | For large numbers |
-| `number` | `DOUBLE PRECISION` | Floating point |
+| `integer` | `BIGINT` | 64-bit signed integer; supports `min`, `max` |
+| `number` | `NUMERIC` | Numeric value exposed as `f64` |
 | `boolean` | `BOOLEAN` | |
 | `timestamp` | `TIMESTAMPTZ` | Auto-set with `generated: true` |
 | `date` | `DATE` | |
@@ -517,6 +516,12 @@ Soft-deleted records are automatically excluded from queries.
 | `shaperail seed` | Load fixture YAML files into database |
 | `shaperail export openapi` | Export OpenAPI 3.1 spec |
 | `shaperail export sdk --lang ts` | Generate TypeScript client SDK |
+| `shaperail export json-schema` | Export the resource YAML JSON Schema |
+| `shaperail check [path] --json` | Validate with structured diagnostics and fixes |
+| `shaperail explain <file> --format json` | Inspect resolved routes, validations, and OpenAPI fragments |
+| `shaperail diff` | Preview codegen changes without writing files |
+| `shaperail llm-context [--json]` | Dump project-aware context for an LLM |
+| `shaperail resource create <name>` | Scaffold a canonical resource and migration |
 | `shaperail doctor` | Check system dependencies |
 | `shaperail routes` | Print all routes with auth requirements |
 | `shaperail jobs:status` | Show job queue depth and recent failures |
@@ -532,12 +537,15 @@ project: my-app
 port: 3000
 workers: auto
 
-database:
-  type: postgresql
-  host: ${SHAPERAIL_DB_HOST:localhost}
-  port: 5432
-  name: my_app_db
-  pool_size: 20
+# Forwarding headers remain untrusted unless these CIDRs are configured.
+# proxy:
+#   trusted_proxies: [127.0.0.1/32]
+
+databases:
+  default:
+    engine: postgres
+    url: ${DATABASE_URL:postgresql://localhost/my_app_db}
+    pool_size: 20
 
 cache:
   type: redis
@@ -564,7 +572,7 @@ events:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | required |
+| `DATABASE_URL` | PostgreSQL connection string | generated in `.env` by `shaperail init` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
 | `JWT_SECRET` | Secret for signing JWTs | required |
 | `SHAPERAIL_STORAGE_BACKEND` | File storage backend | `local` |

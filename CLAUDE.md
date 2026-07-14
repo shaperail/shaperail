@@ -150,7 +150,7 @@ docker compose down              # stop dev services
 - **Do NOT `cargo clean` after every task.** Cold rebuilds take 3–5 minutes; deleting artifacts after each interactive task makes every subsequent session miserable. Incremental compilation is the whole point of `target/`.
 - **Run `cargo clean` at the end of a feature/PR cycle** — i.e. after the PR is merged (or the branch is abandoned), before switching to unrelated work. This is the natural breakpoint where the cache for that branch stops paying its keep.
 - **For periodic pruning between PRs**, use `cargo sweep -t 14` (install once with `cargo install cargo-sweep`). It removes artifacts not touched in the last 14 days while keeping the active hot cache, so the next build is still incremental.
-- **Always check disk before long builds.** `df -h /Users/Mahin | tail -1` — if `Avail` is under ~10 GB, clean before you build, not after a build fails halfway with `No space left on device`.
+- **Always check disk before long builds.** `df -h . | tail -1` — if `Avail` is under ~10 GB, clean before you build, not after a build fails halfway with `No space left on device`.
 
 The shared registry under `~/.cargo/registry` and `~/.cargo/git` also grows over time; `cargo cache --autoclean` (from `cargo-cache`) trims it without breaking concurrent builds.
 
@@ -182,6 +182,10 @@ After every code change that alters behavior, CLI commands, APIs, configuration,
 
 If docs and code disagree, fix the disagreement immediately (AI-First rule).
 
+Never read forwarding headers directly. Runtime and controller code must use
+`AppState::client_ip(&req)` or `Context::client_ip()`; forwarding is enabled
+only through explicit `proxy.trusted_proxies` CIDRs.
+
 ### Public-mirror requirement
 
 `docs/` and `agent_docs/` are not optional alternatives — they're parallel audiences. **Every behavior change documented in `agent_docs/X.md` MUST have a corresponding update in `docs/`**, either in an existing user-facing page or as a new mirror page (`docs/X.md`). The internal note isn't enough; users reading the public site at shaperail.io need the same information in public-voice form.
@@ -204,6 +208,16 @@ Examples of the mirror requirement in action:
 | Breaking config change | `agent_docs/architecture.md` if structural | `docs/configuration.md` migration section |
 
 When unsure where the public version belongs, default to creating a new `docs/<topic>.md` page with the same structure as `agent_docs/<topic>.md`, adapted for end-user voice (less internal jargon, more "how do I do this in my project" framing).
+
+## Agent Guidance Synchronization
+
+`.agents/skills/` is the canonical source for repository skills.
+`.claude/skills/` is a compatibility mirror and must remain byte-for-byte
+identical. Update both copies in the same change and verify them with:
+
+```bash
+diff -qr .agents/skills .claude/skills
+```
 
 ## Git Workflow
 - Never start new feature work on `main`. Create and switch to a fresh branch first.
