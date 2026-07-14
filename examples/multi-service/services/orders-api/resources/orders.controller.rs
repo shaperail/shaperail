@@ -67,15 +67,20 @@ pub async fn validate_order(ctx: &mut Context) -> ControllerResult {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let random_suffix: u32 = rand::random::<u32>() % 100_000;
-    let order_number = format!("ORD-{now}-{random_suffix:05}");
+    let random_suffix: String = uuid::Uuid::new_v4()
+        .simple()
+        .to_string()
+        .chars()
+        .take(8)
+        .collect();
+    let order_number = format!("ORD-{now}-{random_suffix}");
     ctx.input
         .insert("order_number".to_string(), serde_json::json!(order_number));
 
     // --- Auto-fill created_by from JWT ---
     if let Some(user) = &ctx.user {
         ctx.input
-            .insert("created_by".to_string(), serde_json::json!(user.id));
+            .insert("created_by".to_string(), serde_json::json!(&user.sub));
     }
 
     Ok(())
@@ -99,13 +104,15 @@ pub async fn enforce_order_status(ctx: &mut Context) -> ControllerResult {
         None => return Ok(()), // No status change requested — nothing to enforce.
     };
 
-    // Fetch the current order record from the DB to get its current status.
-    let current_status = ctx
-        .data
-        .as_ref()
-        .and_then(|d| d.get("status"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("pending");
+    let order_id = ctx
+        .path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("Missing order ID".into()))?;
+    let (current_status, current_total): (String, f64) = sqlx::query_as(
+        "SELECT status::text, total::DOUBLE PRECISION FROM orders WHERE id = $1::uuid",
+    )
+    .bind(order_id)
+    .fetch_one(&ctx.pool)
+    .await?;
 
     // Cancelled and delivered orders are immutable.
     if current_status == "cancelled" || current_status == "delivered" {
@@ -117,7 +124,7 @@ pub async fn enforce_order_status(ctx: &mut Context) -> ControllerResult {
     }
 
     // Define allowed transitions.
-    let allowed = match current_status {
+    let allowed = match current_status.as_str() {
         "pending" => &["paid", "cancelled"][..],
         "paid" => &["shipped", "cancelled"][..],
         "shipped" => &["delivered"][..],
@@ -139,33 +146,24 @@ pub async fn enforce_order_status(ctx: &mut Context) -> ControllerResult {
     if (new_status == "shipped" || new_status == "delivered") && caller.role != "admin" {
         return Err(ShaperailError::Validation(vec![FieldError {
             field: "status".to_string(),
-            message: format!(
-                "Only admins can transition orders to '{new_status}'"
-            ),
+            message: format!("Only admins can transition orders to '{new_status}'"),
             code: "insufficient_permissions".to_string(),
         }]));
     }
 
     // When cancelling a paid order, flag that a refund is needed.
-    if new_status == "cancelled" && current_status == "paid" {
-        let total = ctx
-            .data
-            .as_ref()
-            .and_then(|d| d.get("total"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-
-        if total > 0.0 {
-            warn!(
-                order_id = ctx.data.as_ref().and_then(|d| d.get("id")).and_then(|v| v.as_str()).unwrap_or("unknown"),
-                total = total,
-                "Refund needed for cancelled paid order"
-            );
-            ctx.input
-                .insert("refund_required".to_string(), serde_json::json!(true));
-            ctx.input
-                .insert("refund_amount".to_string(), serde_json::json!(total));
-        }
+    if new_status == "cancelled" && current_status == "paid" && current_total > 0.0 {
+        warn!(
+            order_id = order_id,
+            total = current_total,
+            "Refund needed for cancelled paid order"
+        );
+        ctx.input
+            .insert("refund_required".to_string(), serde_json::json!(true));
+        ctx.input.insert(
+            "refund_amount".to_string(),
+            serde_json::json!(current_total),
+        );
     }
 
     Ok(())

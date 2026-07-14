@@ -26,6 +26,11 @@ project: my-api
 port: 8080
 workers: 4
 
+proxy:
+  trusted_proxies:
+    - 127.0.0.1/32
+    - 10.0.0.0/8
+
 databases:
   default:
     engine: postgres
@@ -96,6 +101,36 @@ events:
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `workers` | `"auto"` or integer | no | `auto` | Number of Actix-web worker threads. `auto` uses the number of CPU cores. |
+
+### `proxy`
+
+Optional. Forwarding headers are ignored by default. Configure the CIDR ranges
+of reverse proxies that are allowed to supply `X-Forwarded-For`:
+
+```yaml
+proxy:
+  trusted_proxies:
+    - 127.0.0.1/32
+    - 10.0.0.0/8
+```
+
+Use `/32` for one IPv4 proxy and `/128` for one IPv6 proxy. Never configure
+`0.0.0.0/0` or `::/0`; doing so lets direct clients spoof their IP. Shaperail
+trusts the header only when the immediate socket peer matches one of these
+ranges, then walks the chain from right to left to find the nearest untrusted
+address. See [Security]({{ '/security/' | relative_url }}) for proxy setup.
+
+Applications generated before trusted-proxy support must pass the parsed proxy
+block into runtime state construction. Update the bootstrap call to:
+
+```rust
+let mut state = AppState::new(pool.clone(), resources.clone(), config.proxy.as_ref());
+```
+
+Passing `None` keeps forwarding headers untrusted and is appropriate for direct
+connections and isolated tests. The constructor requires this argument so a
+configured trust policy cannot be accepted by the parser but silently ignored
+by the runtime.
 
 ### `protocols` (M15/M16)
 
@@ -349,6 +384,11 @@ call the inbound-route helper automatically.
 
 Use `${VAR}` to inject an environment variable at parse time. Use
 `${VAR:default}` to provide a fallback when the variable is unset.
+
+The `shaperail` CLI loads `.env` from the current project directory before
+parsing this file. Existing process environment variables win over `.env`, so
+CI and one-off shell overrides remain authoritative. Invalid `.env` syntax is
+reported before the requested command runs.
 
 ```yaml
 project: ${APP_NAME:my-app}

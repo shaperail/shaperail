@@ -5,14 +5,14 @@ use shaperail_runtime::handlers::controller::{Context, ControllerResult};
 /// and is active, default status to "draft", and auto-fill created_by.
 pub async fn prepare_invoice(ctx: &mut Context) -> ControllerResult {
     // Auto-fill created_by from JWT
-    let user = ctx.user.as_ref().ok_or_else(|| {
-        ShaperailError::Auth("Authentication required to create invoices".into())
-    })?;
-    ctx.input["created_by"] = serde_json::json!(user.id);
+    let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
+    ctx.input
+        .insert("created_by".to_string(), serde_json::json!(&user.sub));
 
     // Auto-fill org_id from tenant context
     if let Some(ref tenant_id) = ctx.tenant_id {
-        ctx.input["org_id"] = serde_json::json!(tenant_id);
+        ctx.input
+            .insert("org_id".to_string(), serde_json::json!(tenant_id));
     }
 
     // Validate customer exists and is active
@@ -29,12 +29,13 @@ pub async fn prepare_invoice(ctx: &mut Context) -> ControllerResult {
         })?
         .to_string();
 
-    let customer_status: Option<String> =
-        sqlx::query_scalar("SELECT status FROM customers WHERE id = $1 AND deleted_at IS NULL")
-            .bind(&customer_id)
-            .fetch_optional(&ctx.pool)
-            .await
-            .map_err(|e| ShaperailError::Internal(format!("DB error fetching customer: {e}")))?;
+    let customer_status: Option<String> = sqlx::query_scalar(
+        "SELECT status FROM customers WHERE id = $1::uuid AND deleted_at IS NULL",
+    )
+    .bind(&customer_id)
+    .fetch_optional(&ctx.pool)
+    .await
+    .map_err(|e| ShaperailError::Internal(format!("DB error fetching customer: {e}")))?;
 
     match customer_status.as_deref() {
         None => {
@@ -44,12 +45,11 @@ pub async fn prepare_invoice(ctx: &mut Context) -> ControllerResult {
                 code: "not_found".into(),
             }]));
         }
-        Some("suspended") | Some("closed") => {
+        Some(status @ ("suspended" | "closed")) => {
             return Err(ShaperailError::Validation(vec![FieldError {
                 field: "customer_id".into(),
                 message: format!(
-                    "Customer '{customer_id}' has status '{}' and cannot receive new invoices",
-                    customer_status.unwrap()
+                    "Customer '{customer_id}' has status '{status}' and cannot receive new invoices"
                 ),
                 code: "inactive_customer".into(),
             }]));
@@ -86,10 +86,14 @@ pub async fn prepare_invoice(ctx: &mut Context) -> ControllerResult {
     };
 
     let invoice_number = format!("{prefix}{next_seq:04}");
-    ctx.input["invoice_number"] = serde_json::json!(invoice_number);
+    ctx.input.insert(
+        "invoice_number".to_string(),
+        serde_json::json!(invoice_number),
+    );
 
     // Default status to "draft"
-    ctx.input["status"] = serde_json::json!("draft");
+    ctx.input
+        .insert("status".to_string(), serde_json::json!("draft"));
 
     Ok(())
 }
@@ -104,13 +108,11 @@ pub async fn prepare_invoice(ctx: &mut Context) -> ControllerResult {
 /// When marking paid, set paid_at timestamp.
 pub async fn enforce_invoice_workflow(ctx: &mut Context) -> ControllerResult {
     let resource_id = ctx
-        .input
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("Missing invoice ID".into()))?;
 
     // Fetch current invoice state
-    let row = sqlx::query_as::<_, (String,)>("SELECT status FROM invoices WHERE id = $1")
+    let row = sqlx::query_as::<_, (String,)>("SELECT status FROM invoices WHERE id = $1::uuid")
         .bind(resource_id)
         .fetch_one(&ctx.pool)
         .await
@@ -148,9 +150,7 @@ pub async fn enforce_invoice_workflow(ctx: &mut Context) -> ControllerResult {
     if !is_valid {
         return Err(ShaperailError::Validation(vec![FieldError {
             field: "status".into(),
-            message: format!(
-                "Invalid status transition: '{current_status}' -> '{new_status}'"
-            ),
+            message: format!("Invalid status transition: '{current_status}' -> '{new_status}'"),
             code: "invalid_transition".into(),
         }]));
     }
@@ -182,12 +182,18 @@ pub async fn enforce_invoice_workflow(ctx: &mut Context) -> ControllerResult {
 
     // When marking as sent, set sent_at
     if new_status == "sent" {
-        ctx.input["sent_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+        ctx.input.insert(
+            "sent_at".to_string(),
+            serde_json::json!(chrono::Utc::now().to_rfc3339()),
+        );
     }
 
     // When marking as paid, set paid_at
     if new_status == "paid" {
-        ctx.input["paid_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+        ctx.input.insert(
+            "paid_at".to_string(),
+            serde_json::json!(chrono::Utc::now().to_rfc3339()),
+        );
     }
 
     Ok(())
@@ -196,23 +202,12 @@ pub async fn enforce_invoice_workflow(ctx: &mut Context) -> ControllerResult {
 /// Called after update — write an audit trail entry with before/after snapshot.
 pub async fn audit_invoice_change(ctx: &mut Context) -> ControllerResult {
     let resource_id = ctx
-        .input
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("Missing invoice ID".into()))?;
 
-    let user_id = ctx
-        .user
-        .as_ref()
-        .map(|u| u.id.to_string())
-        .unwrap_or_default();
+    let user_id = ctx.user.as_ref().map(|u| u.sub.clone()).unwrap_or_default();
 
-    let ip_address = ctx
-        .headers
-        .get("x-forwarded-for")
-        .or_else(|| ctx.headers.get("x-real-ip"))
-        .cloned()
-        .unwrap_or_else(|| "unknown".into());
+    let ip_address = ctx.client_ip().unwrap_or("unknown").to_string();
 
     // The before data is the input fields (what was changed).
     // The after data is the full record returned from the DB operation.

@@ -367,6 +367,7 @@ async fn test_handle_delete_soft_delete_returns_no_content(pool: sqlx::PgPool) {
         event_emitter: None,
         job_queue: None,
         rate_limiter: None,
+        client_ip_resolver: shaperail_runtime::proxy::ClientIpResolver::default(),
         custom_handlers: None,
         metrics: Some(MetricsState::new().expect("metrics state")),
         saga_executor: None,

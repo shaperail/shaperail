@@ -44,12 +44,16 @@ Supporting files:
 
 ## Current runtime reality
 
-This example is explicit about what is manual today:
+This standalone example intentionally owns more bootstrap wiring than a standard
+scaffold:
 
-- controller modules still need manual registration
-- create validation currently runs before before-controllers, so the example
-  keeps create payloads explicit for fields like `slug`, `room_key`, and
-  `created_by`
+- `shaperail generate` auto-registers declared controllers in normal scaffolded
+  apps; this app builds a custom controller map in `src/runtime_extensions.rs`
+  alongside its other runtime extensions
+- this example keeps fields such as `created_by` explicit so its controllers
+  can demonstrate policy checks; Shaperail's two-phase validation also supports
+  omitting server-owned fields from `input` and injecting them in a
+  before-controller
 - API keys work only when you inject an `ApiKeyStore`
 - event subscribers enqueue work, but you still need to start a worker
 - inbound webhook routes are not registered automatically
@@ -126,8 +130,8 @@ enough for local generation and startup. By default,
 ### 1. Admin creates a monitored service
 
 Use `POST /v1/services` with a JWT carrying `role=admin` and `tenant_id=<org>`.
-The create controller fills `created_by`, mirrors `org_id` from the tenant
-claim, and generates a slug.
+The runtime injects `org_id` from the tenant claim. The create controller
+verifies `created_by` matches the authenticated subject and generates a slug.
 
 ### 2. External monitoring system ingests an alert
 

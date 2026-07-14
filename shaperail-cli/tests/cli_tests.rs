@@ -14,6 +14,24 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
+fn collect_example_resources(directory: &std::path::Path, resources: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(directory).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            collect_example_resources(&path, resources);
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "yaml")
+            && path
+                .parent()
+                .and_then(std::path::Path::file_name)
+                .is_some_and(|parent| parent == "resources")
+        {
+            resources.push(path);
+        }
+    }
+}
+
 /// Run the shaperail CLI with the given arguments from the workspace root and
 /// return the raw Output so tests can inspect stdout, stderr, and status.
 fn run_cli(args: &[&str]) -> std::process::Output {
@@ -196,6 +214,7 @@ fn init_creates_project_structure() {
     assert!(project_dir.join(".gitignore").exists());
     assert!(project_dir.join("docker-compose.yml").exists());
     assert!(project_dir.join("resources/posts.yaml").exists());
+    assert!(project_dir.join("resources/posts.controller.rs").exists());
     assert!(project_dir
         .join("migrations/0001_create_posts.sql")
         .exists());
@@ -204,6 +223,8 @@ fn init_creates_project_structure() {
     let config = std::fs::read_to_string(project_dir.join("shaperail.config.yaml")).unwrap();
     assert!(config.contains("project: test-project"));
     assert!(config.contains("port: 3000"));
+    assert!(config.contains("# proxy:"));
+    assert!(config.contains("trusted_proxies: [127.0.0.1/32]"));
 
     let readme = std::fs::read_to_string(project_dir.join("README.md")).unwrap();
     assert!(readme.contains("docker compose up -d"));
@@ -213,6 +234,20 @@ fn init_creates_project_structure() {
     let main_rs = std::fs::read_to_string(project_dir.join("src/main.rs")).unwrap();
     assert!(main_rs.contains(r#"route("/openapi.json""#));
     assert!(main_rs.contains(r#"route("/docs""#));
+    assert!(
+        main_rs.contains("AppState::new(pool.clone(), resources.clone(), config.proxy.as_ref())")
+    );
+
+    let posts = std::fs::read_to_string(project_dir.join("resources/posts.yaml")).unwrap();
+    assert!(posts.contains("created_by: { type: string, required: true }"));
+    assert!(posts.contains("input: [title, body, published]"));
+    assert!(posts.contains("controller: { before: set_created_by }"));
+    assert!(!posts.contains("author_id"));
+
+    let controller =
+        std::fs::read_to_string(project_dir.join("resources/posts.controller.rs")).unwrap();
+    assert!(controller.contains("user.sub"));
+    assert!(controller.contains(r#".insert("created_by".to_string()"#));
 }
 
 #[test]
@@ -413,6 +448,32 @@ fn init_generates_valid_config() {
 }
 
 #[test]
+fn checked_in_example_resources_parse_and_validate() {
+    let mut resources = Vec::new();
+    collect_example_resources(&workspace_root().join("examples"), &mut resources);
+    resources.sort();
+    assert!(!resources.is_empty(), "no example resources found");
+
+    let mut failures = Vec::new();
+    for path in resources {
+        match shaperail_codegen::parser::parse_resource_file(&path) {
+            Ok(resource) => {
+                for error in shaperail_codegen::validator::validate_resource(&resource) {
+                    failures.push(format!("{}: {error}", path.display()));
+                }
+            }
+            Err(error) => failures.push(format!("{}: {error}", path.display())),
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "checked-in example resources must stay valid:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
 fn serve_check_validates_scaffolded_project() {
     let tmp = TempDir::new().unwrap();
     let root = workspace_root();
@@ -435,6 +496,58 @@ fn serve_check_validates_scaffolded_project() {
         .stdout(predicate::str::contains("Command: cargo"));
 }
 
+#[test]
+fn project_commands_load_dotenv_without_overriding_explicit_env() {
+    let tmp = TempDir::new().unwrap();
+    let project_dir = tmp.path().join("dotenv-project");
+
+    shaperail()
+        .args(["init", "dotenv-project"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    std::fs::write(
+        project_dir.join("shaperail.config.yaml"),
+        "project: ${SHAPERAIL_TEST_PROJECT_NAME}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project_dir.join(".env"),
+        "SHAPERAIL_TEST_PROJECT_NAME=from-dotenv\n",
+    )
+    .unwrap();
+
+    shaperail()
+        .args(["llm-context", "--json"])
+        .env_remove("SHAPERAIL_TEST_PROJECT_NAME")
+        .current_dir(&project_dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\": \"from-dotenv\""));
+
+    shaperail()
+        .args(["llm-context", "--json"])
+        .env("SHAPERAIL_TEST_PROJECT_NAME", "from-environment")
+        .current_dir(&project_dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\": \"from-environment\""));
+}
+
+#[test]
+fn project_commands_report_malformed_dotenv() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join(".env"), "BROKEN='unterminated\n").unwrap();
+
+    shaperail()
+        .args(["validate"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Error: Failed to load .env:"));
+}
+
 /// Requires DATABASE_URL (e.g. CI or `docker compose up -d`). Skips when unset so
 /// `cargo test` passes without a local Postgres.
 #[test]
@@ -451,6 +564,23 @@ fn init_scaffold_compiles_with_local_workspace_deps() {
     let root = workspace_root();
     let project_dir = tmp.path().join("compile-check");
     let target_dir = root.join("target/scaffold-smoke");
+    let schema = format!(
+        "scaffold_compile_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let pool = runtime
+        .block_on(sqlx::PgPool::connect(&database_url))
+        .unwrap();
+    runtime
+        .block_on(sqlx::query(&format!("CREATE SCHEMA {schema}")).execute(&pool))
+        .unwrap();
+    let separator = if database_url.contains('?') { '&' } else { '?' };
+    let scoped_database_url = format!("{database_url}{separator}options=-csearch_path%3D{schema}");
 
     shaperail()
         .args(["init", project_dir.to_str().unwrap()])
@@ -460,13 +590,18 @@ fn init_scaffold_compiles_with_local_workspace_deps() {
         .success();
 
     let status = StdCommand::new("cargo")
-        .args(["check", "--offline"])
+        // Compile coverage must not depend on which transitive crates happen to
+        // be present in the developer's local Cargo cache.
+        .args(["check", "--quiet"])
         .env("CARGO_TARGET_DIR", &target_dir)
-        .env("DATABASE_URL", &database_url)
+        .env("DATABASE_URL", &scoped_database_url)
         .current_dir(&project_dir)
         .status()
         .unwrap();
 
+    runtime
+        .block_on(sqlx::query(&format!("DROP SCHEMA {schema} CASCADE")).execute(&pool))
+        .unwrap();
     assert!(status.success(), "scaffolded project should compile");
 }
 
@@ -508,16 +643,55 @@ fn scaffold_writes_llm_context_files() {
         claude.contains("llm-context.md"),
         "CLAUDE.md should reference llm-context.md"
     );
+    assert!(
+        claude.contains("shaperail llm-context"),
+        "agent adapters should name the real project-context command"
+    );
 
     let ctx = std::fs::read_to_string(root.join("llm-context.md")).unwrap();
     assert!(
-        ctx.contains("shaperail context"),
-        "llm-context.md should mention shaperail context command"
+        ctx.contains("shaperail llm-context"),
+        "llm-context.md should mention the llm-context command"
+    );
+    assert!(
+        ctx.contains("$schema=./.schema.json"),
+        "resource-local schema references should resolve from resources/*.yaml"
+    );
+    assert!(
+        !ctx.contains("$schema=./resources/.schema.json"),
+        "resource schema references must not duplicate the resources directory"
     );
     assert!(
         ctx.contains("resource:"),
         "llm-context.md should contain resource syntax"
     );
+    assert!(
+        ctx.contains("| number"),
+        "llm-context.md should document the canonical number field type"
+    );
+    assert!(
+        !ctx.contains("| float"),
+        "llm-context.md must not teach the removed float field type"
+    );
+    assert!(
+        ctx.contains("handlers::controller::{Context, ControllerResult}"),
+        "llm-context.md should use the callable controller API"
+    );
+    assert!(
+        ctx.contains("AuthenticatedUser.sub"),
+        "llm-context.md should use the RFC 7519 subject field name"
+    );
+    assert!(
+        !ctx.contains("Result<(), String>"),
+        "llm-context.md must not teach stringly typed controller errors"
+    );
+
+    shaperail()
+        .args(["llm-context", "--json"])
+        .current_dir(&root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\": \"llm-test\""));
 }
 
 // --- Task 8: Validations section ---

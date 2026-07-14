@@ -11,28 +11,20 @@ schema:
 
 endpoints:
   list:
-    method: GET
-    path: /users
     auth: [member, admin]
     filters: [role]
     search: [name, email]
     pagination: cursor
 
   get:
-    method: GET
-    path: /users/:id
     auth: [member, admin]
 
   create:
-    method: POST
-    path: /users
     auth: [admin]
     input: [email, name, role]
     controller: { before: prepare_user, after: provision_defaults }
 
   update:
-    method: PATCH
-    path: /users/:id
     auth: [admin, owner]
     input: [name, role]
     controller: { before: validate_user_update }

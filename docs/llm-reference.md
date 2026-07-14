@@ -16,12 +16,14 @@ Terse lookup tables. For patterns and examples, see [llm-guide.md](llm-guide.md)
 | uuid      | —                | Use for PKs and FKs                         |
 | string    | —                | Supports format, min, max                   |
 | integer   | —                | Supports min, max, default                  |
-| float     | —                | Supports min, max, default                  |
+| number    | —                | Supports min, max, default                  |
 | boolean   | —                | Supports default                            |
 | timestamp | —                | Use generated:true for auto-timestamps      |
+| date      | —                | Date without a time component               |
 | enum      | values           | values is required                          |
 | json      | —                | Unstructured JSON blob                      |
 | array     | items            | items type is required                      |
+| file      | —                | Object-storage file reference               |
 
 ## Endpoint Keys by Type
 
@@ -34,7 +36,7 @@ Terse lookup tables. For patterns and examples, see [llm-guide.md](llm-guide.md)
 | sort        | ✓    |        |     |        |        |        |
 | pagination  | ✓    |        |     |        |        |        |
 | cache       | ✓    | ✓      | ✓   |        |        | ✓      |
-| controller  | ✓    | ✓      | ✓   | ✓      | ✓      | ✓      |
+| controller  | ✓    | ✓      | ✓   | ✓      | ✓      | before only |
 | events      |      | ✓      |     | ✓      | ✓      |        |
 | jobs        |      | ✓      |     | ✓      | ✓      |        |
 | soft_delete |      |        |     |        | ✓      |        |
@@ -58,13 +60,12 @@ Terse lookup tables. For patterns and examples, see [llm-guide.md](llm-guide.md)
 | project    | ✓        | Project name string                            |
 | port       |          | HTTP port (default 3000)                       |
 | workers    |          | `auto` or integer                              |
-| database   |          | Single DB: `type`, `host`, `port`, `name`      |
 | databases  |          | Multi-DB map: `engine` (postgres/mysql/sqlite/mongodb), `url` |
 | cache      |          | Redis: `url`                                   |
 | auth       |          | `provider: jwt`, `secret_env: JWT_SECRET`      |
 | storage    |          | `provider: s3/gcs/azure/local`, `bucket`       |
 | logging    |          | `level`, `format: json/text`                   |
-| events     |          | `backend: redis`                               |
+| events     |          | Subscribers plus inbound/outbound webhooks     |
 | protocols  |          | List: `[rest, graphql, grpc]`                  |
 
 ## CLI Commands
@@ -97,29 +98,8 @@ Terse lookup tables. For patterns and examples, see [llm-guide.md](llm-guide.md)
 | tenant    | id, name, plan, created_at, updated_at (+ tenant isolation)    |
 | lookup    | id, code, label, active, sort_order                            |
 
-## Error Codes
+## Diagnostics
 
-| Code  | Trigger                              | Fix                                            |
-|-------|--------------------------------------|------------------------------------------------|
-| SR001 | Empty resource name                  | Add `resource: <name>`                         |
-| SR002 | Version < 1                          | Set `version: 1`                               |
-| SR003 | Empty schema                         | Add at least one field                         |
-| SR004 | No primary key                       | Add `primary: true` to one field               |
-| SR005 | Multiple primary keys                | Remove `primary: true` from extras             |
-| SR010 | Enum missing values                  | Add `values: [a, b]`                           |
-| SR011 | Values on non-enum                   | Change type to `enum` or remove `values:`      |
-| SR012 | ref on non-uuid field                | Change type to `uuid`                          |
-| SR013 | ref wrong format                     | Use `ref: resource.field`                      |
-| SR014 | Array missing items                  | Add `items: string`                            |
-| SR015 | format on non-string                 | Remove or change type to `string`              |
-| SR016 | PK not generated                     | Add `generated: true, required: true`          |
-| SR020 | tenant_key field absent              | Add field to `schema:`                         |
-| SR021 | tenant_key field wrong type          | Set `{ type: uuid, required: true }`           |
-| SR040 | input/filter/search/sort field absent | Add to `schema:` or fix name                  |
-| SR041 | soft_delete without deleted_at       | Add `deleted_at: { type: timestamp, nullable: true }` |
-| SR060 | Relation missing resource            | Add `resource: <name>`                         |
-| SR061 | belongs_to missing key               | Add `key: <field>`                             |
-| SR062 | has_many/has_one missing foreign_key | Add `foreign_key: <field>`                     |
-| SR070 | Index fields empty                   | Add at least one field                         |
-| SR071 | Index field not in schema            | Fix field name                                 |
-| SR072 | Index order invalid                  | Use `asc` or `desc`                            |
+Run `shaperail check --json`. Diagnostics include the stable code, severity,
+source span when available, canonical fix, valid example, and permanent
+`doc_url`. See the [error reference](errors/) for the complete registry.

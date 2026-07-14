@@ -11,9 +11,10 @@ schema:
   credit_limit_cents: { type: integer, default: 0 }
   stripe_customer_id: { type: string, nullable: true }
   status:             { type: enum, values: [active, suspended, closed], default: active }
-  created_by:         { type: uuid, required: true }
+  created_by:         { type: string, required: true }
   created_at:         { type: timestamp, generated: true }
   updated_at:         { type: timestamp, generated: true }
+  deleted_at:         { type: timestamp, nullable: true }
 
 endpoints:
   list:

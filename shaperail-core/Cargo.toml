@@ -16,6 +16,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+ipnet = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
 actix-web = { workspace = true }
 sqlx = { workspace = true }

@@ -88,9 +88,17 @@ Key modules:
 - `middleware` — auth (JWT/RBAC), rate limiting, request ID
 - `db` — sqlx pool, query helpers, transaction support
 - `cache` — Redis client, TTL management, invalidation
+- `proxy` — trusted-proxy CIDR matching and canonical client IP resolution
 - `jobs` — Redis job queue, worker, retry logic
 - `plugins` — WASM plugin runtime with sandboxing (M19)
 - `registry` — Redis-backed service registry with heartbeat (M17)
+
+Construct runtime state through
+`AppState::new(pool, resources, config.proxy.as_ref())`. The proxy argument is
+mandatory even when its value is `None`; this keeps forwarding headers
+untrusted by default and prevents parsed proxy configuration from being
+silently omitted by application bootstraps. Existing applications must update
+older two-argument constructor calls when upgrading.
 
 ## shaperail-cli — Developer Interface
 Commands (v2 — all implemented):
@@ -114,4 +122,9 @@ Commands (v2 — all implemented):
 - `shaperail check`              — deep project validation (resources, config, controllers)
 - `shaperail explain <resource>`  — print resolved endpoints with inferred method/path
 - `shaperail diff <resource>`     — show what changed since last codegen
+- `shaperail llm-context`         — emit project-aware resource context as text or JSON
 - `shaperail export json-schema`  — output JSON Schema for the resource format
+
+Before dispatching project commands, the CLI loads `.env` from the current
+directory with `dotenvy`. Explicit process environment variables retain
+precedence. `init` and `doctor` do not load project environment state.

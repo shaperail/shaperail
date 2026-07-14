@@ -22,7 +22,7 @@ pub async fn validate_comment(ctx: &mut Context) -> ControllerResult {
         .to_owned();
 
     // --- 1. Verify the referenced post exists and is published ---
-    let row = sqlx::query_as::<_, (String,)>("SELECT status FROM posts WHERE id = $1")
+    let row = sqlx::query_as::<_, (String,)>("SELECT status FROM posts WHERE id = $1::uuid")
         .bind(&post_id)
         .fetch_optional(&ctx.pool)
         .await
@@ -39,7 +39,9 @@ pub async fn validate_comment(ctx: &mut Context) -> ControllerResult {
         Some((status,)) if status != "published" => {
             return Err(ShaperailError::Validation(vec![FieldError {
                 field: "post_id".into(),
-                message: format!("Cannot comment on a {status} post; only published posts accept comments"),
+                message: format!(
+                    "Cannot comment on a {status} post; only published posts accept comments"
+                ),
                 code: "post_not_published".into(),
             }]));
         }
@@ -47,12 +49,14 @@ pub async fn validate_comment(ctx: &mut Context) -> ControllerResult {
     }
 
     // --- 2. Auto-fill created_by from JWT ---
-    if let Some(user) = &ctx.user {
-        ctx.input.insert(
-            "created_by".into(),
-            serde_json::json!(user.id),
-        );
-    }
+    let subject = ctx
+        .user
+        .as_ref()
+        .ok_or(ShaperailError::Unauthorized)?
+        .sub
+        .clone();
+    ctx.input
+        .insert("created_by".into(), serde_json::json!(&subject));
 
     // --- 3. Strip HTML tags from body (basic XSS prevention) ---
     if let Some(body) = ctx.input.get("body").and_then(|v| v.as_str()) {
@@ -68,19 +72,16 @@ pub async fn validate_comment(ctx: &mut Context) -> ControllerResult {
     }
 
     // --- 4. Rate limit: max 10 comments per user per hour ---
-    if let Some(user) = &ctx.user {
-        let user_id = user.id.clone();
-        let row = sqlx::query_as::<_, (i64,)>(
-            "SELECT COUNT(*) FROM comments WHERE created_by = $1 AND created_at > NOW() - INTERVAL '1 hour'",
-        )
-        .bind(&user_id)
-        .fetch_one(&ctx.pool)
-        .await
-        .map_err(|e| ShaperailError::Internal(format!("DB error: {e}")))?;
+    let row = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM comments WHERE created_by = $1 AND created_at > NOW() - INTERVAL '1 hour'",
+    )
+    .bind(&subject)
+    .fetch_one(&ctx.pool)
+    .await
+    .map_err(|e| ShaperailError::Internal(format!("DB error: {e}")))?;
 
-        if row.0 >= 10 {
-            return Err(ShaperailError::RateLimited);
-        }
+    if row.0 >= 10 {
+        return Err(ShaperailError::RateLimited);
     }
 
     Ok(())
@@ -91,21 +92,16 @@ pub async fn validate_comment(ctx: &mut Context) -> ControllerResult {
 /// 1. Verifies the user owns the comment OR has the admin role.
 /// 2. Disallows editing comments older than 15 minutes (except for admins).
 pub async fn check_comment_ownership(ctx: &mut Context) -> ControllerResult {
-    let user = ctx
-        .user
-        .as_ref()
-        .ok_or(ShaperailError::Unauthorized)?;
+    let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
 
     let is_admin = user.role == "admin";
 
     let comment_id = ctx
-        .input
-        .get("id")
-        .and_then(|v| v.as_str())
+        .path_param("id")
         .ok_or_else(|| ShaperailError::Internal("Missing comment ID in update context".into()))?;
 
-    let row = sqlx::query_as::<_, (String, chrono::NaiveDateTime)>(
-        "SELECT created_by, created_at FROM comments WHERE id = $1",
+    let row = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>)>(
+        "SELECT created_by, created_at FROM comments WHERE id = $1::uuid",
     )
     .bind(comment_id)
     .fetch_optional(&ctx.pool)
@@ -116,13 +112,13 @@ pub async fn check_comment_ownership(ctx: &mut Context) -> ControllerResult {
     let (owner_id, created_at) = row;
 
     // --- 1. Ownership check ---
-    if owner_id != user.id && !is_admin {
+    if owner_id != user.sub && !is_admin {
         return Err(ShaperailError::Forbidden);
     }
 
     // --- 2. 15-minute edit window (admins exempt) ---
     if !is_admin {
-        let now = chrono::Utc::now().naive_utc();
+        let now = chrono::Utc::now();
         let age = now - created_at;
         if age > chrono::Duration::minutes(15) {
             return Err(ShaperailError::Validation(vec![FieldError {

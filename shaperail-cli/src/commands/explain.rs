@@ -28,7 +28,13 @@ pub fn run(path: &Path, format: ExplainFormat) -> i32 {
         ExplainFormat::Text => print_text(&rd),
         ExplainFormat::Json => {
             let j = explain_format::build(&rd);
-            println!("{}", serde_json::to_string_pretty(&j).expect("serialize"));
+            match serde_json::to_string_pretty(&j) {
+                Ok(rendered) => println!("{rendered}"),
+                Err(error) => {
+                    eprintln!("Failed to serialize explanation: {error}");
+                    return 1;
+                }
+            }
         }
     }
     0

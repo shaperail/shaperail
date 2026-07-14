@@ -25,10 +25,19 @@ shaperail migrate --rollback   Rollback last migration batch
 shaperail seed                 Load fixture YAML files into database
 shaperail export openapi       Export OpenAPI 3.1 spec
 shaperail export sdk --lang ts Generate TypeScript client SDK
+shaperail export json-schema   Export the resource YAML JSON Schema
+shaperail check --json         Validate with structured diagnostics
+shaperail explain <file>       Inspect resolved resource behavior
+shaperail diff                 Preview generated changes
+shaperail llm-context --json   Dump project-aware context for an LLM
+shaperail resource create      Scaffold a canonical resource
 shaperail doctor               Check system dependencies
 shaperail routes               Print all routes with auth requirements
 shaperail jobs:status          Show job queue depth and recent failures
 ```
+
+Project commands automatically load `.env` from the current directory.
+Variables already set in the shell take precedence.
 
 ## Quick Start
 

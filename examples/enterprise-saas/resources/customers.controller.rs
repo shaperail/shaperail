@@ -5,14 +5,14 @@ use shaperail_runtime::handlers::controller::{Context, ControllerResult};
 /// based on plan tier, and auto-fill created_by from the authenticated user.
 pub async fn validate_customer(ctx: &mut Context) -> ControllerResult {
     // Auto-fill created_by from JWT
-    let user = ctx.user.as_ref().ok_or_else(|| {
-        ShaperailError::Auth("Authentication required to create customers".into())
-    })?;
-    ctx.input["created_by"] = serde_json::json!(user.id);
+    let user = ctx.user.as_ref().ok_or(ShaperailError::Unauthorized)?;
+    ctx.input
+        .insert("created_by".to_string(), serde_json::json!(&user.sub));
 
     // Auto-fill org_id from tenant context
     if let Some(ref tenant_id) = ctx.tenant_id {
-        ctx.input["org_id"] = serde_json::json!(tenant_id);
+        ctx.input
+            .insert("org_id".to_string(), serde_json::json!(tenant_id));
     }
 
     let org_id = ctx
@@ -43,7 +43,7 @@ pub async fn validate_customer(ctx: &mut Context) -> ControllerResult {
 
     // Check email uniqueness within the org
     let existing = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM customers WHERE org_id = $1 AND email = $2 AND deleted_at IS NULL",
+        "SELECT COUNT(*) FROM customers WHERE org_id = $1::uuid AND email = $2 AND deleted_at IS NULL",
     )
     .bind(&org_id)
     .bind(&email)
@@ -110,12 +110,10 @@ pub async fn enforce_plan_change(ctx: &mut Context) -> ControllerResult {
 
     // Fetch current customer data to check existing plan
     let resource_id = ctx
-        .input
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .path_param("id")
+        .ok_or_else(|| ShaperailError::Internal("Missing customer ID".into()))?;
 
-    let current_plan: String = sqlx::query_scalar("SELECT plan FROM customers WHERE id = $1")
+    let current_plan: String = sqlx::query_scalar("SELECT plan FROM customers WHERE id = $1::uuid")
         .bind(resource_id)
         .fetch_one(&ctx.pool)
         .await
@@ -155,7 +153,7 @@ pub async fn enforce_plan_change(ctx: &mut Context) -> ControllerResult {
     if new_tier < current_tier {
         let outstanding: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM invoices \
-             WHERE customer_id = $1 AND status NOT IN ('paid', 'void') AND deleted_at IS NULL",
+             WHERE customer_id = $1::uuid AND status NOT IN ('paid', 'void') AND deleted_at IS NULL",
         )
         .bind(resource_id)
         .fetch_one(&ctx.pool)
@@ -177,18 +175,9 @@ pub async fn enforce_plan_change(ctx: &mut Context) -> ControllerResult {
     }
 
     // Log plan change to audit_logs for billing audit trail
-    let user_id = ctx
-        .user
-        .as_ref()
-        .map(|u| u.id.to_string())
-        .unwrap_or_default();
+    let user_id = ctx.user.as_ref().map(|u| u.sub.clone()).unwrap_or_default();
 
-    let ip_address = ctx
-        .headers
-        .get("x-forwarded-for")
-        .or_else(|| ctx.headers.get("x-real-ip"))
-        .cloned()
-        .unwrap_or_else(|| "unknown".into());
+    let ip_address = ctx.client_ip().unwrap_or("unknown").to_string();
 
     sqlx::query(
         "INSERT INTO audit_logs (id, user_id, resource_type, resource_id, action, before_data, after_data, ip_address, created_at) \

@@ -47,18 +47,22 @@ schema:
 
 ### Array element constraints
 
-`items:` accepts either a bare type name (shorthand) or a constraint map:
+The canonical `items:` form is a constraint map:
 
 ```yaml
 schema:
-  tags:        { type: array, items: string }                          # legacy shorthand
-  currencies:  { type: array, items: { type: string, min: 3, max: 3 } }  # element-level constraints
+  tags:        { type: array, items: { type: string } }
+  currencies:  { type: array, items: { type: string, min: 3, max: 3 } }
   scores:      { type: array, items: { type: integer, min: 0, max: 100 } }
   flags:       { type: array, items: { type: enum, values: [a, b, c] } }
   org_ids:     { type: array, items: { type: uuid, ref: organizations.id } }
 ```
 
-Element-level constraints are validated per element on every write. Errors surface as `<field>[<index>]` (e.g. `currencies[0]` for a too-short string at index 0).
+The parser still accepts the pre-v0.16 bare form (`items: string`) for migration
+compatibility, but new resources and generated guidance must use the map form.
+Element-level constraints are validated per element on every write. Errors
+surface as `<field>[<index>]` (e.g. `currencies[0]` for a too-short string at
+index 0).
 
 `items.ref` performs a runtime existence check via `SELECT … WHERE id = ANY($1::uuid[])` and rejects the write with code `invalid_reference` if any element doesn't exist. Postgres only — non-Postgres backends are not supported for this feature.
 
@@ -66,7 +70,7 @@ Nested arrays are not supported. Use `type: json` for nested structure.
 
 ## Field Constraints
 ```
-primary: true      # primary key
+primary: true      # primary key; cannot be combined with nullable: true
 generated: true    # auto-generate on insert (uuid/timestamp)
 required: true     # NOT NULL, validated on input
 unique: true       # DB unique constraint
@@ -80,6 +84,12 @@ default: value     # default value
 sensitive: true    # omitted from all responses; redacted in logs and error messages
 transient: true    # input-only — validated, visible to before-controller, never persisted, never returned
 ```
+
+## Migration History
+
+Applied migrations are immutable history. SQLx stores each file's checksum, so
+schema changes must use a new numbered migration rather than editing or
+replacing an existing file.
 
 ## Validation Lifecycle (writes)
 
@@ -118,10 +128,9 @@ endpoints:
 The `version` field at the top of each resource YAML drives automatic route
 prefixing. All endpoint paths are prefixed with `/v{version}`.
 
-Example: `version: 1` + `path: /users` produces the route `/v1/users`.
-
-You write `path: /users` in the YAML; the framework registers `/v1/users` at
-runtime. Do not include the version prefix in the `path:` value.
+Example: `version: 1` plus the conventional `users.list` endpoint produces
+`/v1/users`. When overriding or declaring a custom `path`, do not include the
+version prefix; the framework adds it at runtime.
 
 ## Endpoint Format
 
@@ -214,14 +223,16 @@ For a resource named `users`, the file is `resources/users.controller.rs`.
 
 ### Function signature
 ```rust
-pub async fn fn_name(ctx: &mut ControllerContext) -> Result<(), ShaperailError> {
+use shaperail_runtime::handlers::controller::{Context, ControllerResult};
+
+pub async fn fn_name(ctx: &mut Context) -> ControllerResult {
     // custom logic
     Ok(())
 }
 ```
 
-See `agent_docs/hooks-system.md` (now the controller-system doc) for
-`ControllerContext` fields and usage patterns.
+See `agent_docs/hooks-system.md` (the controller-system doc) for `Context`
+fields and usage patterns.
 
 ## WASM Plugins (M19)
 WASM plugins use the same `controller` field with a `wasm:` prefix on the path:

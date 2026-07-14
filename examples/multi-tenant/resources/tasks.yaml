@@ -8,11 +8,12 @@ schema:
   project_id: { type: uuid, ref: projects.id, required: true }
   title:      { type: string, min: 1, max: 500, required: true }
   priority:   { type: enum, values: [low, medium, high, urgent], default: medium }
-  status:     { type: enum, values: [todo, in_progress, done], default: todo }
-  assigned_to: { type: uuid }
-  created_by: { type: uuid, required: true }
+  status:     { type: enum, values: [todo, in_progress, done, archived], default: todo }
+  assigned_to: { type: string }
+  created_by: { type: string, required: true }
   created_at: { type: timestamp, generated: true }
   updated_at: { type: timestamp, generated: true }
+  deleted_at: { type: timestamp, nullable: true }
 
 endpoints:
   list:
@@ -27,7 +28,7 @@ endpoints:
 
   create:
     auth: [member, admin]
-    input: [project_id, title, priority, assigned_to, created_by]
+    input: [project_id, title, priority, assigned_to]
     controller:
       before: validate_task
 

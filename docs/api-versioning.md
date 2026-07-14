@@ -136,8 +136,8 @@ endpoints:
     controller: { after: map_v1_response }
 ```
 
-In `resources/users_v1.controller.rs` using the same manual registration pattern
-described in the [Controllers guide]({{ '/controllers/' | relative_url }}):
+In `resources/users_v1.controller.rs` (registered by
+`shaperail generate`):
 
 ```rust
 use shaperail_runtime::handlers::controller::{Context, ControllerResult};

@@ -62,6 +62,7 @@ All API endpoints are versioned based on each resource's `version` field:
 - [resources/comments.controller.rs](./resources/comments.controller.rs) — `validate_comment`, `check_comment_ownership`
 - [migrations/0001_create_posts.sql](./migrations/0001_create_posts.sql)
 - [migrations/0002_create_comments.sql](./migrations/0002_create_comments.sql)
+- [migrations/0003_align_subject_fields.sql](./migrations/0003_align_subject_fields.sql) — upgrades existing databases without rewriting applied migrations
 - [requests.http](./requests.http) — sample HTTP requests with versioned URLs
 
 ## Controllers
@@ -101,7 +102,7 @@ All API endpoints are versioned based on each resource's `version` field:
 
 | Pattern                  | Controller            | How                                        |
 |--------------------------|-----------------------|--------------------------------------------|
-| Auto-fill from JWT       | `prepare_post`        | `ctx.user.id` into `ctx.input["created_by"]` |
+| Auto-fill from JWT       | `prepare_post`        | `ctx.user.sub` into the string field `ctx.input["created_by"]` |
 | Derived fields           | `prepare_post`        | Slug generated from title                  |
 | Default values           | `prepare_post`        | Status defaults to `"draft"`               |
 | Input validation         | `prepare_post`        | Body cannot be whitespace-only             |
@@ -118,7 +119,8 @@ All API endpoints are versioned based on each resource's `version` field:
 
 ## Notes
 
-- `owner` auth works by comparing the token user ID to `created_by`
+- `owner` auth compares the opaque token subject (`sub`) to the string
+  `created_by` field; do not use this pattern for a database foreign key
 - this example keeps reads public and requires auth only for writes
 - the app uses the standard Rust scaffold created by `shaperail init`
 - all routes are prefixed with `/v1/` because both resources set `version: 1`

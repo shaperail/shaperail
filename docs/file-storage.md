@@ -151,7 +151,7 @@ schema:
   attachment:           { type: file, required: true }
   attachment_filename:  { type: string }
   attachment_mime_type: { type: string }
-  attachment_size:      { type: bigint }
+  attachment_size:      { type: integer }
 ```
 
 When those fields exist, Shaperail fills them automatically during upload.

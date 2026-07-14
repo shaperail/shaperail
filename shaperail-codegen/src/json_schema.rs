@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 pub fn generate_resource_json_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://shaperail.dev/schema/resource.v1.json",
+        "$id": "https://shaperail.io/schema/resource.v1.json",
         "title": "Shaperail Resource Definition",
         "description": "Schema for Shaperail resource YAML files. Defines a single API resource with its fields, endpoints, relations, and indexes.",
         "type": "object",
@@ -60,6 +60,39 @@ pub fn generate_resource_json_schema() -> Value {
                 "type": "string",
                 "enum": ["uuid", "string", "integer", "number", "boolean", "timestamp", "date", "enum", "json", "array", "file"],
                 "description": "The data type of a field."
+            },
+            "ItemsSpec": {
+                "description": "Element type or constrained element definition for an array field.",
+                "oneOf": [
+                    { "$ref": "#/$defs/FieldType" },
+                    {
+                        "type": "object",
+                        "required": ["type"],
+                        "additionalProperties": false,
+                        "properties": {
+                            "type": { "$ref": "#/$defs/FieldType" },
+                            "min": {
+                                "description": "Minimum element value or string length."
+                            },
+                            "max": {
+                                "description": "Maximum element value or string length."
+                            },
+                            "format": {
+                                "type": "string",
+                                "enum": ["email", "url", "uuid"]
+                            },
+                            "values": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "minItems": 1
+                            },
+                            "ref": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+                            }
+                        }
+                    }
+                ]
             },
             "FieldSchema": {
                 "type": "object",
@@ -129,9 +162,12 @@ pub fn generate_resource_json_schema() -> Value {
                         "description": "Whether this field is included in full-text search."
                     },
                     "items": {
-                        "type": "string",
-                        "description": "Element type for array fields. Required when type is 'array'.",
-                        "enum": ["uuid", "string", "integer", "number", "boolean", "timestamp", "date"]
+                        "$ref": "#/$defs/ItemsSpec"
+                    },
+                    "transient": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Whether this is an input-only field that is validated but never persisted or returned."
                     }
                 }
             },
@@ -172,6 +208,24 @@ pub fn generate_resource_json_schema() -> Value {
                         "type": "array",
                         "items": { "type": "string", "enum": ["create", "update", "delete"] },
                         "description": "Events that invalidate this cache."
+                    }
+                }
+            },
+            "RateLimitSpec": {
+                "type": "object",
+                "description": "Per-endpoint rate limiting. Requires Redis and is skipped when Redis is not configured.",
+                "required": ["max_requests", "window_secs"],
+                "additionalProperties": false,
+                "properties": {
+                    "max_requests": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum requests allowed within the window."
+                    },
+                    "window_secs": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Window duration in seconds."
                     }
                 }
             },
@@ -223,6 +277,22 @@ pub fn generate_resource_json_schema() -> Value {
                     }
                 }
             },
+            "SubscriberSpec": {
+                "type": "object",
+                "description": "Event subscriber registered for this resource.",
+                "required": ["event", "handler"],
+                "additionalProperties": false,
+                "properties": {
+                    "event": {
+                        "type": "string",
+                        "description": "Event name or wildcard pattern."
+                    },
+                    "handler": {
+                        "type": "string",
+                        "description": "Handler function in resources/<resource>.controller.rs."
+                    }
+                }
+            },
             "EndpointSpec": {
                 "type": "object",
                 "description": "Specification for a single endpoint in a resource.",
@@ -257,6 +327,7 @@ pub fn generate_resource_json_schema() -> Value {
                         "description": "Schema fields available for sorting. Each must exist in schema."
                     },
                     "cache": { "$ref": "#/$defs/CacheSpec" },
+                    "rate_limit": { "$ref": "#/$defs/RateLimitSpec" },
                     "controller": { "$ref": "#/$defs/ControllerSpec" },
                     "events": {
                         "type": "array",
@@ -267,6 +338,15 @@ pub fn generate_resource_json_schema() -> Value {
                         "type": "array",
                         "items": { "type": "string" },
                         "description": "Background jobs to enqueue after successful execution (e.g., ['send_welcome_email'])."
+                    },
+                    "subscribers": {
+                        "type": "array",
+                        "items": { "$ref": "#/$defs/SubscriberSpec" },
+                        "description": "Event subscribers to register at startup."
+                    },
+                    "handler": {
+                        "type": "string",
+                        "description": "Handler function for a non-convention endpoint."
                     },
                     "upload": { "$ref": "#/$defs/UploadSpec" },
                     "soft_delete": {
@@ -372,5 +452,35 @@ mod tests {
         let rendered = render_json_schema();
         assert!(rendered.len() > 1000);
         assert!(rendered.contains("$schema"));
+    }
+
+    #[test]
+    fn public_schema_matches_generator() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../docs/schema/resource.schema.json");
+        if !path.is_file() {
+            return;
+        }
+
+        let committed = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        assert_eq!(committed.trim_end(), render_json_schema());
+    }
+
+    #[test]
+    fn schema_includes_supported_advanced_properties() {
+        let schema = generate_resource_json_schema();
+        for pointer in [
+            "/$defs/FieldSchema/properties/transient",
+            "/$defs/FieldSchema/properties/items/$ref",
+            "/$defs/EndpointSpec/properties/rate_limit",
+            "/$defs/EndpointSpec/properties/subscribers",
+            "/$defs/EndpointSpec/properties/handler",
+        ] {
+            assert!(
+                schema.pointer(pointer).is_some(),
+                "JSON Schema is missing {pointer}"
+            );
+        }
     }
 }

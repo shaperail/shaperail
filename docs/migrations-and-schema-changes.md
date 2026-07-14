@@ -208,6 +208,7 @@ ALTER TABLE users DROP COLUMN IF EXISTS bio;
 
 1. Review every generated or handwritten SQL file before committing it.
 2. Do not assume resource edits automatically produce follow-up migration SQL.
-3. Never delete applied migration files.
+3. Never edit or delete an applied migration file. SQLx stores its checksum and
+   rejects changed history; add a new numbered migration instead.
 4. Test destructive changes on a copy of real data first.
 5. Keep the YAML and SQL changes in the same commit so schema drift is visible.

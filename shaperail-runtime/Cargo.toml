@@ -36,6 +36,7 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
+ipnet = { workspace = true }
 jsonwebtoken = { workspace = true }
 deadpool-redis = { workspace = true }
 redis = { workspace = true }

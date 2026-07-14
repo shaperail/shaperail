@@ -43,8 +43,18 @@ pub struct PluginContext {
     pub user: Option<PluginUser>,
     /// Request headers (read-only from plugin perspective).
     pub headers: HashMap<String, String>,
+    /// Canonical client IP resolved by the runtime.
+    #[serde(default)]
+    pub client_ip: Option<String>,
     /// Tenant ID, if multi-tenancy is active.
     pub tenant_id: Option<String>,
+}
+
+impl PluginContext {
+    /// Returns the canonical client IP supplied by the runtime.
+    pub fn client_ip(&self) -> Option<&str> {
+        self.client_ip.as_deref()
+    }
 }
 
 /// Minimal user info passed to WASM plugins.
@@ -573,6 +583,7 @@ mod tests {
                 role: "admin".to_string(),
             }),
             headers: HashMap::new(),
+            client_ip: None,
             tenant_id: None,
         }
     }

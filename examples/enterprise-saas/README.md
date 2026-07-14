@@ -49,8 +49,9 @@ Every significant state change writes to the `audit_logs` table:
 - **Auto-paid events** — logged by `enforce_payment_rules` when a payment
   completion triggers automatic invoice payment
 
-Each audit entry captures: user ID, resource type, resource ID, action name,
-before/after JSONB snapshots, client IP address, and timestamp.
+Each audit entry captures the opaque authenticated subject, resource type,
+resource ID, action name, before/after JSONB snapshots, client IP address, and
+timestamp.
 
 ### Plan-Based Credit Limits
 
@@ -97,7 +98,8 @@ enterprise-saas/
 │   ├── 0001_create_customers.sql       # customers table
 │   ├── 0002_create_invoices.sql        # invoices table with FK to customers
 │   ├── 0003_create_payments.sql        # payments table with FK to invoices
-│   └── 0004_create_audit_logs.sql      # audit_logs table (JSONB snapshots)
+│   ├── 0004_create_audit_logs.sql      # audit_logs table (JSONB snapshots)
+│   └── 0005_use_opaque_subjects.sql    # safely upgrades authenticated-subject columns to TEXT
 └── seeds/
     └── customers.yaml                  # sample customers (enterprise, starter, suspended)
 ```

@@ -4,6 +4,7 @@ members = [
     "shaperail-codegen",
     "shaperail-runtime",
     "shaperail-cli",
+    "examples/controller-checks",
     "examples/recipes/file_upload",
     "examples/recipes/multi_tenant_rls",
     "examples/recipes/paginated_list_with_filters",
@@ -86,6 +87,7 @@ bcrypt = "0.15"
 # Types
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+ipnet = { version = "2", features = ["serde"] }
 
 # Errors
 thiserror = "2"
@@ -96,6 +98,7 @@ validator = { version = "0.18", features = ["derive"] }
 
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15"
 
 # Code generation
 tera = "1"

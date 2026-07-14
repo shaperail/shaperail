@@ -10,7 +10,7 @@ schema:
   method:           { type: enum, values: [card, bank_transfer, check], required: true }
   reference_number: { type: string, nullable: true }
   status:           { type: enum, values: [pending, completed, failed, refunded], default: pending }
-  processed_by:     { type: uuid, required: true }
+  processed_by:     { type: string, required: true }
   created_at:       { type: timestamp, generated: true }
   updated_at:       { type: timestamp, generated: true }
 
